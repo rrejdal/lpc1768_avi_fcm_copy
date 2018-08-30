@@ -9,8 +9,9 @@
 #include <stddef.h>
 #include <stdio.h>
 
-static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc);
-static bool Telem_CopyCommand(T_Telem_Commands5 *msg, T_HFC *hfc);
+extern HMC5883L compass;
+extern GPS gps;
+extern XBus xbus;
 
 TelemSerial::TelemSerial(RawSerial *m_serial)
 {
@@ -23,174 +24,132 @@ TelemSerial::TelemSerial(RawSerial *m_serial)
     telem_crc_errors          = 0;
     telem_start_code_searches = 0;
     telem_recv_bytes          = 0;
+
+}
+
+void TelemSerial::ProcessInputBytes(RawSerial &telemetry)
+{
+    while (telemetry.readable()) {
+        AddInputByte(telemetry.getc());
+    }
 }
 
 bool TelemSerial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority)
 {
-    if (messages>=MAX_TELEM_MESSAGES)
+    if (messages >= MAX_TELEM_MESSAGES) {
         return false;
+    }
         
     Q[messages].msg  = m_msg;
     Q[messages].size = m_size;
     Q[messages].msg_type = m_msg_type;
     Q[messages].priority = m_priority;
     messages++;
+
     return true;
 }
 
 void TelemSerial::Update()
 {
-    while(1)
-    {
+    while(1) {
         unsigned int i;
         int index = 0;
         int priority;
         
-        /* if current mesessage is in progress, keep sending it till serial buffer is full */
-        while (curr_msg.size)
-        {
-            if (!serial->writeable())
+        /* if current message is in progress, keep sending it till serial buffer is full */
+        while (curr_msg.size) {
+            if (!serial->writeable()) {
                 return;
+            }
             serial->putc(*curr_msg.msg++);
             curr_msg.size--;
         }
         
-        /* if no more meessages, exit */
-        if (!messages)
+        /* if no more messages, exit */
+        if (!messages) {
             return;
+        }
             
         /* find the first highest priority message and move it to the current message to go out */
         priority = -1;
-        for (i=0; i<messages; i++)
-        {
-            if (Q[i].priority>priority)
-            {
+        for (i=0; i<messages; i++) {
+            if (Q[i].priority>priority) {
                 priority = Q[i].priority;
                 index = i;
             }
         }
         curr_msg = Q[index];
-        for (i=index+1; i<messages; i++)
+
+        for (i=index+1; i<messages; i++) {
             Q[i-1] = Q[i];
+        }
+
         messages--;
     }
 }
 
 bool TelemSerial::IsEmpty()
 {
-    if (!curr_msg.size && !messages)
+    if (!curr_msg.size && !messages) {
         return true;
-    else
+    }
+    else {
         return false;
+    }
 }
 
 bool TelemSerial::IsTypeInQ(unsigned char type)
 {
     int i;
-    if (curr_msg.msg_type==type)
+
+    if (curr_msg.msg_type==type) {
         return true;
-    for (i=0; i<messages; i++)
-    {
-        if (Q[i].msg_type==type)
-            return true;
     }
+
+    for (i=0; i<messages; i++) {
+        if (Q[i].msg_type==type) {
+            return true;
+        }
+    }
+
     return false;
 }
 
-static const unsigned int crc32_table[256]={
-    0x00000000,0x04C11DB7,0x09823B6E,0x0D4326D9,
-    0x130476DC,0x17C56B6B,0x1A864DB2,0x1E475005,
-    0x2608EDB8,0x22C9F00F,0x2F8AD6D6,0x2B4BCB61,
-    0x350C9B64,0x31CD86D3,0x3C8EA00A,0x384FBDBD,
-    0x4C11DB70,0x48D0C6C7,0x4593E01E,0x4152FDA9,
-    0x5F15ADAC,0x5BD4B01B,0x569796C2,0x52568B75,
-    0x6A1936C8,0x6ED82B7F,0x639B0DA6,0x675A1011,
-    0x791D4014,0x7DDC5DA3,0x709F7B7A,0x745E66CD,
-    0x9823B6E0,0x9CE2AB57,0x91A18D8E,0x95609039,
-    0x8B27C03C,0x8FE6DD8B,0x82A5FB52,0x8664E6E5,
-    0xBE2B5B58,0xBAEA46EF,0xB7A96036,0xB3687D81,
-    0xAD2F2D84,0xA9EE3033,0xA4AD16EA,0xA06C0B5D,
-    0xD4326D90,0xD0F37027,0xDDB056FE,0xD9714B49,
-    0xC7361B4C,0xC3F706FB,0xCEB42022,0xCA753D95,
-    0xF23A8028,0xF6FB9D9F,0xFBB8BB46,0xFF79A6F1,
-    0xE13EF6F4,0xE5FFEB43,0xE8BCCD9A,0xEC7DD02D,
-    0x34867077,0x30476DC0,0x3D044B19,0x39C556AE,
-    0x278206AB,0x23431B1C,0x2E003DC5,0x2AC12072,
-    0x128E9DCF,0x164F8078,0x1B0CA6A1,0x1FCDBB16,
-    0x018AEB13,0x054BF6A4,0x0808D07D,0x0CC9CDCA,
-    0x7897AB07,0x7C56B6B0,0x71159069,0x75D48DDE,
-    0x6B93DDDB,0x6F52C06C,0x6211E6B5,0x66D0FB02,
-    0x5E9F46BF,0x5A5E5B08,0x571D7DD1,0x53DC6066,
-    0x4D9B3063,0x495A2DD4,0x44190B0D,0x40D816BA,
-    0xACA5C697,0xA864DB20,0xA527FDF9,0xA1E6E04E,
-    0xBFA1B04B,0xBB60ADFC,0xB6238B25,0xB2E29692,
-    0x8AAD2B2F,0x8E6C3698,0x832F1041,0x87EE0DF6,
-    0x99A95DF3,0x9D684044,0x902B669D,0x94EA7B2A,
-    0xE0B41DE7,0xE4750050,0xE9362689,0xEDF73B3E,
-    0xF3B06B3B,0xF771768C,0xFA325055,0xFEF34DE2,
-    0xC6BCF05F,0xC27DEDE8,0xCF3ECB31,0xCBFFD686,
-    0xD5B88683,0xD1799B34,0xDC3ABDED,0xD8FBA05A,
-    0x690CE0EE,0x6DCDFD59,0x608EDB80,0x644FC637,
-    0x7A089632,0x7EC98B85,0x738AAD5C,0x774BB0EB,
-    0x4F040D56,0x4BC510E1,0x46863638,0x42472B8F,
-    0x5C007B8A,0x58C1663D,0x558240E4,0x51435D53,
-    0x251D3B9E,0x21DC2629,0x2C9F00F0,0x285E1D47,
-    0x36194D42,0x32D850F5,0x3F9B762C,0x3B5A6B9B,
-    0x0315D626,0x07D4CB91,0x0A97ED48,0x0E56F0FF,
-    0x1011A0FA,0x14D0BD4D,0x19939B94,0x1D528623,
-    0xF12F560E,0xF5EE4BB9,0xF8AD6D60,0xFC6C70D7,
-    0xE22B20D2,0xE6EA3D65,0xEBA91BBC,0xEF68060B,
-    0xD727BBB6,0xD3E6A601,0xDEA580D8,0xDA649D6F,
-    0xC423CD6A,0xC0E2D0DD,0xCDA1F604,0xC960EBB3,
-    0xBD3E8D7E,0xB9FF90C9,0xB4BCB610,0xB07DABA7,
-    0xAE3AFBA2,0xAAFBE615,0xA7B8C0CC,0xA379DD7B,
-    0x9B3660C6,0x9FF77D71,0x92B45BA8,0x9675461F,
-    0x8832161A,0x8CF30BAD,0x81B02D74,0x857130C3,
-    0x5D8A9099,0x594B8D2E,0x5408ABF7,0x50C9B640,
-    0x4E8EE645,0x4A4FFBF2,0x470CDD2B,0x43CDC09C,
-    0x7B827D21,0x7F436096,0x7200464F,0x76C15BF8,
-    0x68860BFD,0x6C47164A,0x61043093,0x65C52D24,
-    0x119B4BE9,0x155A565E,0x18197087,0x1CD86D30,
-    0x029F3D35,0x065E2082,0x0B1D065B,0x0FDC1BEC,
-    0x3793A651,0x3352BBE6,0x3E119D3F,0x3AD08088,
-    0x2497D08D,0x2056CD3A,0x2D15EBE3,0x29D4F654,
-    0xC5A92679,0xC1683BCE,0xCC2B1D17,0xC8EA00A0,
-    0xD6AD50A5,0xD26C4D12,0xDF2F6BCB,0xDBEE767C,
-    0xE3A1CBC1,0xE760D676,0xEA23F0AF,0xEEE2ED18,
-    0xF0A5BD1D,0xF464A0AA,0xF9278673,0xFDE69BC4,
-    0x89B8FD09,0x8D79E0BE,0x803AC667,0x84FBDBD0,
-    0x9ABC8BD5,0x9E7D9662,0x933EB0BB,0x97FFAD0C,
-    0xAFB010B1,0xAB710D06,0xA6322BDF,0xA2F33668,
-    0xBCB4666D,0xB8757BDA,0xB5365D03,0xB1F740B4};
-
-static unsigned int CalcCRC32(byte *data, unsigned int len)
+unsigned int TelemSerial::CalcCRC32(byte *data, unsigned int len)
 {
   unsigned int i;
-  unsigned int result=0xffffffff;
-  for (i=0; i<len; i++)
+  unsigned int result = 0xffffffff;
+
+  for (i=0; i<len; i++) {
     result=(result << 8) ^ crc32_table[(result >> 24) ^ data[i]];
+  }
+
   return result;
 }
 
-static unsigned int RemoveBytes(unsigned char *b, int remove, int size)
+unsigned int TelemSerial::RemoveBytes(unsigned char *b, int remove, int size)
 {
-  int j;
-    for (j=remove; j<size; j++)
+    int j;
+
+    for (j=remove; j<size; j++) {
       b[j-remove] = b[j];
+    }
+
     size -= remove;
+
     return size;
 }
 
-void TelemSerial::AddInputByte(char ch, T_HFC *hfc)
+void TelemSerial::AddInputByte(char ch)
 {
     T_TelemUpHdr *hdr;
-//    int i;
 
-//    printf("Telem c=%d\r\n", ch);
+//  printf("Telem c=%d\r\n", ch);
     
     /* if full, just clear it */
-    if (telem_recv_bytes>=TELEM_BUFFER_SIZE)
+    if (telem_recv_bytes >= TELEM_BUFFER_SIZE) {
         telem_recv_bytes = 0;
+    }
 
     /* add input byte into the recv buffer and increment telem_recv_bytes*/
     telem_recv_buffer[telem_recv_bytes++] = ch;
@@ -301,7 +260,7 @@ void TelemSerial::AddInputByte(char ch, T_HFC *hfc)
     {
         T_Telem_Params4 *msg = (T_Telem_Params4*)telem_recv_buffer;
 
-        if (ProcessParameters(msg, hfc))
+        if (ProcessParameters(msg))
         {
             telem_good_messages++;
             /* do not confirm new joystick values */
@@ -318,13 +277,11 @@ void TelemSerial::AddInputByte(char ch, T_HFC *hfc)
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
         return;
     }
-    else
-    if (hdr->type==TELEMETRY_COMMANDS5)
-    {
+    else if (hdr->type==TELEMETRY_COMMANDS5) {
+
         T_Telem_Commands5 *msg = (T_Telem_Commands5*)telem_recv_buffer;
 
-        if (Telem_CopyCommand(msg, hfc))
-        {
+        if (CopyCommand(msg)) {
             telem_good_messages++;
             /* this might be produced before the previous one was transmitted !!!!!!! */
             hfc->tcpip_confirm  = true;
@@ -333,7 +290,9 @@ void TelemSerial::AddInputByte(char ch, T_HFC *hfc)
             hfc->tcpip_user1    = 0;
             hfc->tcpip_user2    = 0;
         }
+
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
+
         return;
     }
     else
@@ -398,8 +357,10 @@ void TelemSerial::AddInputByte(char ch, T_HFC *hfc)
 
         if (msg->profile_enable)
         {
-            if (msg->profile_ctrl_level==3) // speed - set home position since this profiling is relative to home
-                SetHome(hfc);
+            if (msg->profile_ctrl_level==3) { // speed - set home position since this profiling is relative to home
+                SetHome();
+            }
+
             hfc->profile_ctrl_variable = msg->profile_ctrl_variable;    // selects the controlled variable for auto-profiling (P, R, Y, C, T)
             hfc->profile_ctrl_level    = msg->profile_ctrl_level;       // selects the level of control for auto-profiling (raw/rate/angle/speed)
             hfc->profile_lag           = msg->profile_lag;              // initial lag (T1) in ms
@@ -460,10 +421,7 @@ void TelemSerial::AddInputByte(char ch, T_HFC *hfc)
     }
 }
 
-extern HMC5883L compass;
-extern GPS gps;
-
-static void Telemetry_InitHdr(unsigned char *msg, int msg_size)
+void TelemSerial::InitHdr(unsigned char *msg, int msg_size)
 {
     msg[0] = 0x47;
     msg[1] = msg_size-4-1;
@@ -471,7 +429,7 @@ static void Telemetry_InitHdr(unsigned char *msg, int msg_size)
     msg[2] = CalcCRC8(msg, msg_size);
 }
 
-static void Telemetry_InitHdr32(unsigned char type, unsigned char *msg, int msg_size)
+void TelemSerial::InitHdr32(unsigned char type, unsigned char *msg, int msg_size)
 {
     T_TelemUpHdr *hdr = (T_TelemUpHdr*)msg;
 
@@ -485,10 +443,10 @@ static void Telemetry_InitHdr32(unsigned char type, unsigned char *msg, int msg_
     hdr->crc        = CalcCRC32((unsigned char*)msg, msg_size);
 }
 
-/* 2639 cycles */
-void Telemetry_Generate_Ctrl0(T_HFC *hfc, T_Telem_Ctrl0 *msg, int time_ms)
+void TelemSerial::Generate_Ctrl0(int time_ms)
 {
     int i;
+    T_Telem_Ctrl0 *msg = &hfc->telemCtrl0;
 
     /* payload */
     msg->time       = time_ms;
@@ -520,13 +478,14 @@ void Telemetry_Generate_Ctrl0(T_HFC *hfc, T_Telem_Ctrl0 *msg, int time_ms)
     msg->longitude = (int)(hfc->positionLatLon[1]*10000000);
     msg->lidar_alt = Float32toFloat16(hfc->altitude_lidar);
     
-    Telemetry_InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
+    InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
 }
 
-/* 795 cycles */
-void Telemetry_Generate_GPS1(T_HFC *hfc, T_Telem_GPS1 *msg, int time_ms)
+void TelemSerial::Generate_GPS1(int time_ms)
 {
     int i;
+    T_Telem_GPS1 *msg = &hfc->telemGPS1;
+
     GpsData gps_data = gps.GetGpsData();
 
     /* payload */
@@ -542,33 +501,35 @@ void Telemetry_Generate_GPS1(T_HFC *hfc, T_Telem_GPS1 *msg, int time_ms)
     else
         for (i=0; i<3; i++) msg->gps_to_waypoint[i] = Float32toFloat16(0);
     for (i=0; i<3; i++) msg->gps_speed_ENU[i] = Float32toFloat16(gps_data.speedENU[i]);
-    Telemetry_InitHdr32(TELEMETRY_GPS, (unsigned char*)msg, sizeof(T_Telem_GPS1));
+    InitHdr32(TELEMETRY_GPS, (unsigned char*)msg, sizeof(T_Telem_GPS1));
 }
 
-extern XBus xbus;
-
-float WinSpeedEst(T_HFC *hfc, float Wangle)
+float TelemSerial::WinSpeedEst(float Wangle)
 {
     int angle = ABS(Wangle)*16;
     int anglei = min(44, angle/16);
     int angler = angle & 0xf;
-    float speed1 = hfc->config.WindSpeedLUT[anglei]*hfc->config.WindTableScale;
-    float speed2 = hfc->config.WindSpeedLUT[anglei+1]*hfc->config.WindTableScale;
+    float speed1 = pConfig->WindSpeedLUT[anglei]*pConfig->WindTableScale;
+    float speed2 = pConfig->WindSpeedLUT[anglei+1]*pConfig->WindTableScale;
     float speed = (speed1*(16-angler) + speed2*angler) * 0.0625f;
-    if (Wangle<0)
+
+    if (Wangle<0) {
         speed = -speed;
+    }
+
     return speed;
 }
 
-/* 1085 cycles */
-void Telemetry_Generate_System2(T_HFC *hfc, T_Telem_System2 *msg, int time_ms, TelemSerial *telem)
+void TelemSerial::Generate_System2(int time_ms)
 {
+    T_Telem_System2 *msg = &hfc->telemSystem2;
+
     GpsData gps_data = gps.GetGpsData();
 	char fixC, fix2, sats2;
     float WangleE = PIDestOutput(&hfc->pid_PitchSpeed, hfc->speed_Iterm_E_lp);
     float WangleN = PIDestOutput(&hfc->pid_PitchSpeed, hfc->speed_Iterm_N_lp);
-    float WspeedE = WinSpeedEst(hfc, WangleE);
-    float WspeedN = WinSpeedEst(hfc, WangleN);
+    float WspeedE = WinSpeedEst(WangleE);
+    float WspeedN = WinSpeedEst(WangleN);
     float Wspeed = sqrtf(WspeedN*WspeedN + WspeedE*WspeedE);
     float Wcour = 0;
 //    printf("%f %f\r\n", WangleE, WangleN);
@@ -602,9 +563,9 @@ void Telemetry_Generate_System2(T_HFC *hfc, T_Telem_System2 *msg, int time_ms, T
     msg->gps_date = gps_data.date;
     msg->precess_period_lp = (hfc->ticks_lp+32)>>6;      // in us
     msg->precess_period_max = hfc->ticks_max;     // in us
-    msg->telem_good_messages       = telem->telem_good_messages;
-    msg->telem_crc_errors          = telem->telem_crc_errors;
-    msg->telem_start_code_searches = telem->telem_start_code_searches;
+    msg->telem_good_messages       = telem_good_messages;
+    msg->telem_crc_errors          = telem_crc_errors;
+    msg->telem_start_code_searches = telem_start_code_searches;
     msg->flight_time_left	= ClipMinMax(hfc->power.flight_time_left, 0, 65535);
     msg->power.Iaux			= min(255, (int)(hfc->power.Iaux*32+0.5f));	// 0-8A		*32
     msg->power.Iesc			= min(4095, (int)(hfc->power.Iesc*64+0.5f));	// 0-64V	*64
@@ -638,49 +599,52 @@ void Telemetry_Generate_System2(T_HFC *hfc, T_Telem_System2 *msg, int time_ms, T
     msg->gyro_offsets[0]   = Float32toFloat16(hfc->gyroOfs[PITCH]);
     msg->gyro_offsets[1]   = Float32toFloat16(hfc->gyroOfs[ROLL]);
     msg->gyro_offsets[2]   = Float32toFloat16(hfc->gyroOfs[YAW]);
-    msg->esc_temp          = Float32toFloat16(hfc->config.linklive ? hfc->esc_temp : hfc->gyro_temp_lp);
+    msg->esc_temp          = Float32toFloat16(pConfig->linklive ? hfc->esc_temp : hfc->gyro_temp_lp);
 
-    Telemetry_InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
+    InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
 
-void Telemetry_Generate_AircraftCfg(T_HFC *hfc, T_AircraftConfig *msg)
+void TelemSerial::Generate_AircraftCfg(void)
 {
-    T_Config *cfg = &hfc->config;
+    T_AircraftConfig *msg = &hfc->aircraftConfig;
+
     float thr_min, thr_max;
 
     /* payload */
-    if (cfg->throttle_ctrl==PROP_VARIABLE_PITCH)
+    if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
     {
-        thr_min = cfg->throttle_values[0];
-        thr_max = 2 * cfg->Stick100range * cfg->throttle_values[1] + cfg->throttle_values[0];
+        thr_min = pConfig->throttle_values[0];
+        thr_max = 2 * pConfig->Stick100range * pConfig->throttle_values[1] + pConfig->throttle_values[0];
     }
     else
     {
-        thr_min = -cfg->Stick100range;
-        thr_max =  cfg->Stick100range;
+        thr_min = -pConfig->Stick100range;
+        thr_max =  pConfig->Stick100range;
     }
 
     msg->throttle_min       = Float32toFloat16(thr_min);       // throttle value at 0%
     msg->throttle_max       = Float32toFloat16(thr_max);       // throttle value at 100%
 
-    msg->power_hover        = cfg->power_typical;              // typical power used at hover
+    msg->power_hover        = pConfig->power_typical;              // typical power used at hover
 
-    msg->collective_flat    = Float32toFloat16(cfg->CollZeroAngle);         // collective value for 0 pitch
+    msg->collective_flat    = Float32toFloat16(pConfig->CollZeroAngle);         // collective value for 0 pitch
     msg->collective_hover   = Float32toFloat16(hfc->pid_CollVspeed.COofs);  // collective at hover
     msg->collective_max     = Float32toFloat16(hfc->pid_CollVspeed.COmax);  // maximum value
 
-    msg->rpm_hover          = cfg->rpm_typical;                             // typical RPM at hover
-    msg->return_speed       = Float32toFloat16(cfg->landing_appr_speed);
-    msg->bat_cells          = cfg->battery_cells;
+    msg->rpm_hover          = pConfig->rpm_typical;                             // typical RPM at hover
+    msg->return_speed       = Float32toFloat16(pConfig->landing_appr_speed);
+    msg->bat_cells          = pConfig->battery_cells;
     msg->unused[0]          = 0;
     msg->unused[1]          = 0;
     msg->unused[2]          = 0;
 
-    Telemetry_InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
+    InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
-void Telemetry_Generate_Tcpip7(T_HFC *hfc, T_Telem_TCPIP7 *msg)
+void TelemSerial::Generate_Tcpip7(void)
 {
+    T_Telem_TCPIP7 *msg = &hfc->telemTcpip7;
+
     msg->type       = TELEMETRY_TCPIP;
 
     /* payload */
@@ -688,11 +652,13 @@ void Telemetry_Generate_Tcpip7(T_HFC *hfc, T_Telem_TCPIP7 *msg)
     msg->org_len    = hfc->tcpip_org_len;
     msg->user1      = hfc->tcpip_user1;
     msg->user2      = hfc->tcpip_user2;
-    Telemetry_InitHdr((unsigned char*)msg, sizeof(T_Telem_TCPIP7));
+    InitHdr((unsigned char*)msg, sizeof(T_Telem_TCPIP7));
 }
 
-int Telemetry_Generate_Streaming(T_HFC *hfc, T_Telem_DataStream3 *msg)
+int TelemSerial::Generate_Streaming(void)
 {
+    T_Telem_DataStream3 *msg = &hfc->telemDataStream3;
+
     int i, size = hfc->streaming_channels * hfc->streaming_samples;
 
     msg->type       = TELEMETRY_DATASTREAM3;
@@ -718,22 +684,24 @@ int Telemetry_Generate_Streaming(T_HFC *hfc, T_Telem_DataStream3 *msg)
         msg->data[i] = hfc->stream_data[i];
         
     size = size*2 + 4 + 4 + 8;
-    Telemetry_InitHdr((unsigned char*)msg, size);
+    InitHdr((unsigned char*)msg, size);
     
     return size;
 }
 
-void Telemetry_Generate_Msg2Ground(T_HFC *hfc, T_Telem_Msg2Ground *msg)
+void TelemSerial::Generate_Msg2Ground(void)
 {
+    T_Telem_Msg2Ground *msg = &hfc->telemMsg2ground;
+
     msg->type       = TELEMETRY_MSG2GROUND;
 
     /* payload */
     msg->msg_id      = hfc->msg2ground_id;
     msg->user_data   = 0;
-    Telemetry_InitHdr((unsigned char*)msg, sizeof(T_Telem_Msg2Ground));
+    InitHdr((unsigned char*)msg, sizeof(T_Telem_Msg2Ground));
 }
 
-void SaveValuesForAbort(T_HFC *hfc)
+void TelemSerial::SaveValuesForAbort(void)
 {
 //	printf("Saved values for abort\r\n");
     hfc->ctrl_initial[THRO]  = xbus.valuesf[XBUS_THR_LV];
@@ -743,80 +711,77 @@ void SaveValuesForAbort(T_HFC *hfc)
     hfc->ctrl_initial[COLL]  = xbus.valuesf[XBUS_THRO];
 }
 
-void ApplyDefaults(T_HFC *hfc)
+void TelemSerial::ApplyDefaults(void)
 {
-    hfc->pid_CollAlt.COmax        = hfc->config.VspeedMax;
-    hfc->pid_CollAlt.COmin        = hfc->config.VspeedMin;
-    hfc->pid_CollAlt.acceleration = hfc->config.VspeedAcc;
-    hfc->pid_Dist2T.COmax         = hfc->config.HspeedMax;
-    hfc->pid_Dist2T.acceleration  = hfc->config.HspeedAcc;
-    Calc_DynYawRate(hfc);
-//	DynamicAccInTurns(hfc, &hfc->pid_Dist2T);
+    hfc->pid_CollAlt.COmax        = pConfig->VspeedMax;
+    hfc->pid_CollAlt.COmin        = pConfig->VspeedMin;
+    hfc->pid_CollAlt.acceleration = pConfig->VspeedAcc;
+    hfc->pid_Dist2T.COmax         = pConfig->HspeedMax;
+    hfc->pid_Dist2T.acceleration  = pConfig->HspeedAcc;
+    CalcDynYawRate();
 }
 
-/*void DynamicAccInTurns(T_HFC *hfc, T_PID *pid)
-{
-	float acc = pid->acceleration;
-	float speed = pid->COmax;	// set speed
-	acc = max(acc, speed*hfc->config.DynAccCurve[0]);	// speed->acc gain
-	acc = min(acc, hfc->config.DynAccCurve[1]);		// max acc
-	hfc->acc_dyn_turns = acc;
-} */
-
-void SelectCtrlSource(T_HFC *hfc, byte source)
+void TelemSerial::SelectCtrlSource(byte source)
 {
     /* save RC stick values when switching away from RCradio source, for the abort function */
-    if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO)
-    	SaveValuesForAbort(hfc);
+    if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO) {
+    	SaveValuesForAbort();
+    }
     
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
     if (source==CTRL_SOURCE_RCRADIO || source==CTRL_SOURCE_JOYSTICK)
     {
-    	ApplyDefaults(hfc);
+    	ApplyDefaults();
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
         hfc->playlist_status = PLAYLIST_STOPPED;
     }
     
-    if (source==CTRL_SOURCE_JOYSTICK)
+    if (source == CTRL_SOURCE_JOYSTICK) {
         hfc->telem_ctrl_period = 100000;   // in us - 10Hz
-    else
+    }
+    else {
         hfc->telem_ctrl_period = 0;
-    hfc->telem_ctrl_period = max(hfc->telem_ctrl_period, hfc->config.telem_min_ctrl_period*1000);
+    }
+
+    hfc->telem_ctrl_period = max(hfc->telem_ctrl_period, pConfig->telem_min_ctrl_period*1000);
     hfc->ctrl_source = source;
     hfc->waypoint_type = WAYPOINT_NONE;
 }
 
-void Calc_DynYawRate(T_HFC *hfc)
+void TelemSerial::CalcDynYawRate(void)
 {
-   float AImax    = hfc->config.TurnAccParams[0];  // m/s2 max side acceleration during turns
-   float MaxSpeed = hfc->config.TurnAccParams[1];  // m/s speed at which the max acc is reached
-   float MinBlend = hfc->config.TurnAccParams[2];  // low speed knee after which yaw rate starts to slow down
-   float MYR = hfc->config.dyn_yaw_rate_max;
+   float AImax    = pConfig->TurnAccParams[0];  // m/s2 max side acceleration during turns
+   float MaxSpeed = pConfig->TurnAccParams[1];  // m/s speed at which the max acc is reached
+   float MinBlend = pConfig->TurnAccParams[2];  // low speed knee after which yaw rate starts to slow down
+   float MYR = pConfig->dyn_yaw_rate_max;
    float Smax = AImax*360/2/PI/MYR;
    float AI = min(AImax, AImax/Smax*hfc->gps_speed);
 
    AI = min(AI, (1-MinBlend)*AImax/max(1, MaxSpeed)*hfc->gps_speed+MinBlend*AImax);
    hfc->acc_dyn_turns = AI;
-   if (hfc->gps_speed<1)
+
+   if (hfc->gps_speed<1) {
      hfc->dyn_yaw_rate = MYR;
-   else
+   }
+   else {
      hfc->dyn_yaw_rate = AI*360/2/PI/hfc->gps_speed;
+   }
 }
 
-float CalcFTWPlimit(T_HFC *hfc, char gps_in_cruise)
+float TelemSerial::CalcFTWPlimit(char gps_in_cruise)
 {
     float current_speed = hfc->cruise_mode && gps_in_cruise ? hfc->gps_speed : hfc->pid_Dist2T.COmax;
 #ifdef THRUST_VECTORING
     float speed = power1_7(current_speed)/max(0.1f, hfc->acc_dyn_turns);
-    float limit = hfc->config.FTWP_retire_sr_factor*speed;
+    float limit = pConfig->FTWP_retire_sr_factor*speed;
 #else
-    float limit = 360*current_speed/hfc->dyn_yaw_rate/2/PI*hfc->config.FTWP_retire_sr_factor;
+    float limit = 360*current_speed/hfc->dyn_yaw_rate/2/PI*pConfig->FTWP_retire_sr_factor;
     limit += 4; // it appears to overshoot by 4m regardless of speed, could be yaw acc
 #endif
     return limit;
 }
 
-void Telemetry_SetWaypoint(T_HFC *hfc, float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire)
+void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire)
 {
 //    printf("Telemetry_SetWaypoint %f %f\r\n", lat, lon);
     /* store stick values for an abort, only the first the waypoint mode is turned on */
@@ -848,7 +813,7 @@ void Telemetry_SetWaypoint(T_HFC *hfc, float lat, float lon, float altitude, uns
         source = CTRL_SOURCE_AUTO3D;
     else
         source = CTRL_SOURCE_AUTO2D;    // 2D otherwise
-    SelectCtrlSource(hfc, source);
+    SelectCtrlSource(source);
     
     hfc->waypoint_pos[0] = lat;
     hfc->waypoint_pos[1] = lon;
@@ -858,13 +823,13 @@ void Telemetry_SetWaypoint(T_HFC *hfc, float lat, float lon, float altitude, uns
 
     hfc->waypoint_type  = waypoint_type;
 
-    SetCtrlMode(hfc, PITCH, CTRL_MODE_POSITION);
-    SetCtrlMode(hfc, ROLL,  CTRL_MODE_POSITION);
-    SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
+    SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
+    SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
+    SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
     /* if altitude specified, set collective to position */
     if (altitude>-9999)
     {
-        SetCtrlMode(hfc, COLL,  CTRL_MODE_POSITION);
+        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
         hfc->waypoint_pos[2] = hfc->altitude_base + altitude;
     }
     hfc->altitude_WPnext = -9999;	// mark as used
@@ -873,7 +838,7 @@ void Telemetry_SetWaypoint(T_HFC *hfc, float lat, float lon, float altitude, uns
 
     /* pre-calculate waypoint path data */
 
-    /* disatance to the next waypoint */
+    /* distance to the next waypoint */
     hfc->waypoint_STdist = DistanceCourse(hfc->waypoint_pos_prev[0], hfc->waypoint_pos_prev[1], hfc->waypoint_pos[0], hfc->waypoint_pos[1], &hfc->waypoint_STcourse);
 //    printf("S->T: dist = %4.1f, cour = %4.1f\r\n", hfc->waypoint_STdist, hfc->waypoint_STcourse);
     
@@ -896,63 +861,54 @@ void Telemetry_SetWaypoint(T_HFC *hfc, float lat, float lon, float altitude, uns
     hfc->pid_Dist2P.COlast = 0;
 
     /* coordinated turns handing in heli mode (thrust vectoring) */
-    Calc_DynYawRate(hfc);
-/*    {
-    	float dYaw = ABS(Wrap180(hfc->waypoint_STcourse - prev_STcourse));
-    	float speed = hfc->pid_Dist2T.COmax;
-    	float sDist = sqrtf(2-2*COSfD(dYaw)) * speed;
-
-    	DynamicAccInTurns(hfc, &hfc->pid_Dist2T);
-    	if (sDist>0)
-    		hfc->dyn_yaw_rate = Min(hfc->config.dyn_yaw_rate_max, dYaw * hfc->acc_dyn_turns / sDist);
-    	else
-    		hfc->dyn_yaw_rate = hfc->config.dyn_yaw_rate_max;
-    }*/
+    CalcDynYawRate();
 
     /* reduce the distance to WP by the WP retire radius to make sure heli is at the right altitude at that moment */
-    {
-      float ofs;
+    float ofs;
 
-      if (hfc->waypoint_type==WAYPOINT_FLYTHROUGH)
-          ofs = CalcFTWPlimit(hfc, false);
-      else
-          ofs = hfc->config.GTWP_retire_radius;
-      hfc->waypoint_STofs = ofs;
-      hfc->waypoint_STdist = Max(1, hfc->waypoint_STdist - ofs);
-    }
+    if (hfc->waypoint_type==WAYPOINT_FLYTHROUGH)
+      ofs = CalcFTWPlimit(false);
+    else
+      ofs = pConfig->GTWP_retire_radius;
+    hfc->waypoint_STofs = ofs;
+    hfc->waypoint_STdist = Max(1, hfc->waypoint_STdist - ofs);
 }
 
-static bool CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
+bool TelemSerial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
 {
     float value = *((float*)pivalue);
 //  printf("%f\r\n", value);
-    if (!pvalue || value>vmax || value<vmin)
+    if (!pvalue || value>vmax || value<vmin) {
         return false;
+    }
+
     *pvalue = value;
     return true;
 }
 
-static bool CheckRangeAndSetI(int *pvalue, byte *pivalue, int vmin, int vmax)
+bool TelemSerial::CheckRangeAndSetI(int *pvalue, byte *pivalue, int vmin, int vmax)
 {
     int value = *((int*)pivalue);
-    if (!pvalue || value>vmax || value<vmin)
+    if (!pvalue || value>vmax || value<vmin) {
         return false;
+    }
+
     *pvalue = value;
     return true;
 }
 
-static bool CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax)
+bool TelemSerial::CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax)
 {
     int value = *((int*)pivalue);
-    if (!pvalue || value>vmax || value<vmin)
+    if (!pvalue || value>vmax || value<vmin) {
         return false;
+    }
+
     *pvalue = value;
     return true;
 }
 
-void Altitude_Update(T_HFC *hfc, float alt_rate, float dT);
-
-static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
+bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
 {
     unsigned int i;
     unsigned int params = (msg->hdr.len+1)/6;
@@ -999,14 +955,16 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, p->data, 0.1f, 10))
-                	hfc->config.VspeedMax = hfc->pid_CollAlt.COmax;
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, p->data, 0.1f, 10)) {
+                	pConfig->VspeedMax = hfc->pid_CollAlt.COmax;
+                }
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, p->data, 0.1f, 100))
-                	hfc->config.VspeedAcc = hfc->pid_CollAlt.acceleration;
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, p->data, 0.1f, 100)) {
+                    pConfig->VspeedAcc = hfc->pid_CollAlt.acceleration;
+                }
             }
             else
             if (sub_param==TELEM_PARAM_WP_TYPE)
@@ -1017,25 +975,26 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
             else
             if (sub_param==TELEM_PARAM_WP_YAWSPEEDRATE)
             {
-//                CheckRangeAndSetF(&hfc->config.yaw_rate_speed, p->data, 10, 10000);
+//                CheckRangeAndSetF(&pConfig->yaw_rate_speed, p->data, 10, 10000);
             }
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_RADIUS)
-                CheckRangeAndSetF(&hfc->config.GTWP_retire_radius, p->data, 0, 20);
+                CheckRangeAndSetF(&pConfig->GTWP_retire_radius, p->data, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_SPEED)
-                CheckRangeAndSetF(&hfc->config.GTWP_retire_speed, p->data, 0, 20);
+                CheckRangeAndSetF(&pConfig->GTWP_retire_speed, p->data, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_FTWP_SR_FACTOR)
-                CheckRangeAndSetF(&hfc->config.FTWP_retire_sr_factor, p->data, 0, 10);
+                CheckRangeAndSetF(&pConfig->FTWP_retire_sr_factor, p->data, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc->config.low_speed_limit, p->data, 1, 30);
+                CheckRangeAndSetF(&pConfig->low_speed_limit, p->data, 1, 30);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, p->data, -10, -0.5))
-                	hfc->config.VspeedMin = hfc->pid_CollAlt.COmin;
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, p->data, -10, -0.5)) {
+                	pConfig->VspeedMin = hfc->pid_CollAlt.COmin;
+                }
             }
             else
             if (sub_param==TELEM_PARAM_WP_ALTITUDE_BASE)
@@ -1046,39 +1005,39 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
         {
             if (sub_param==TELEM_PARAM_STICK_PR_RATE)
             {
-                if (CheckRangeAndSetF(&hfc->config.PRstickRate, p->data, 10, 500))
-                    hfc->PRstick_rate  = hfc->config.PRstickRate/hfc->config.Stick100range;
+                if (CheckRangeAndSetF(&pConfig->PRstickRate, p->data, 10, 500))
+                    hfc->PRstick_rate  = pConfig->PRstickRate/pConfig->Stick100range;
             }
             else
             if (sub_param==TELEM_PARAM_STICK_PR_ANGLE)
             {
-                if (CheckRangeAndSetF(&hfc->config.PRstickAngle, p->data, -180, 180))
-                    hfc->PRstick_angle  = hfc->config.PRstickAngle/hfc->config.Stick100range;
+                if (CheckRangeAndSetF(&pConfig->PRstickAngle, p->data, -180, 180))
+                    hfc->PRstick_angle  = pConfig->PRstickAngle/pConfig->Stick100range;
             }
             else
             if (sub_param==TELEM_PARAM_STICK_HSPEED)
             {
-                if (CheckRangeAndSetF(&hfc->config.StickHspeed, p->data, 0.1f, 50))
-                    hfc->Stick_Hspeed  = hfc->config.StickHspeed/hfc->config.Stick100range;
+                if (CheckRangeAndSetF(&pConfig->StickHspeed, p->data, 0.1f, 50))
+                    hfc->Stick_Hspeed  = pConfig->StickHspeed/pConfig->Stick100range;
             }
             else
             if (sub_param==TELEM_PARAM_STICK_VSPEED)
             {
-                if (CheckRangeAndSetF(&hfc->config.StickVspeed, p->data, 0.1f, 0.8f*hfc->config.VspeedMax))
-                    hfc->Stick_Vspeed  = hfc->config.StickVspeed/hfc->config.Stick100range;
+                if (CheckRangeAndSetF(&pConfig->StickVspeed, p->data, 0.1f, 0.8f*pConfig->VspeedMax))
+                    hfc->Stick_Vspeed  = pConfig->StickVspeed/pConfig->Stick100range;
             }
             else
             if (sub_param==TELEM_PARAM_STICK_Y_RATE)
             {
-                if (CheckRangeAndSetF(&hfc->config.YawStickRate, p->data, 10, 500))
-                    hfc->YawStick_rate  = hfc->config.YawStickRate/hfc->config.Stick100range;
+                if (CheckRangeAndSetF(&pConfig->YawStickRate, p->data, 10, 500))
+                    hfc->YawStick_rate  = pConfig->YawStickRate/pConfig->Stick100range;
             }
             else
             if (sub_param==TELEM_PARAM_STICK_PR_ROTATE)
-                CheckRangeAndSetF(&hfc->config.RollPitchAngle, p->data, -360, 360);
+                CheckRangeAndSetF(&pConfig->RollPitchAngle, p->data, -360, 360);
             else
             if (sub_param==TELEM_PARAM_STICK_H_ACC)
-                CheckRangeAndSetF(&hfc->config.StickHaccel, p->data, 0.5f, 9999);
+                CheckRangeAndSetF(&pConfig->StickHaccel, p->data, 0.5f, 9999);
         }
         else
         if (param==TELEM_PARAM_JOYSTICK)
@@ -1119,8 +1078,10 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
             if (sub_param==TELEM_PARAM_JOY_DELTA_ALT)
             {
                 float dAlt;
-                if (CheckRangeAndSetF(&dAlt, p->data, -10, 10))
-                    Altitude_Update(hfc, dAlt, 1);
+
+                // TODO::SP: FIX
+                /*if (CheckRangeAndSetF(&dAlt, p->data, -10, 10))
+                    AltitudeUpdate(dAlt, 1); */
             }
         }
         else
@@ -1129,57 +1090,61 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
             if (sub_param==TELEM_PARAM_CTRL_HEADING_REL)
             {
                 float value;
-                if (CheckRangeAndSetF(&value, p->data, -180, 180))
-                    Heading_Update(hfc, value, 1);
+
+                // TODO::SP: FIX
+                /*if (CheckRangeAndSetF(&value, p->data, -180, 180))
+                    HeadingUpdate(value, 1);*/
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_HEADING_ABS)
                 CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], p->data, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_LIDAR_ALT)
-                CheckRangeAndSetB(&hfc->config.ManualLidarAltitude, p->data, 0, 1);
+                CheckRangeAndSetB(&pConfig->ManualLidarAltitude, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetB(&hfc->config.wind_compensation, p->data, 0, 1);
+                CheckRangeAndSetB(&pConfig->wind_compensation, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetB(&hfc->config.path_navigation, p->data, 0, 1);
+                CheckRangeAndSetB(&pConfig->path_navigation, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
-                CheckRangeAndSetF(&hfc->config.AngleCollMixing, p->data, 0, 2);
+                CheckRangeAndSetF(&pConfig->AngleCollMixing, p->data, 0, 2);
             else
             if (sub_param==TELEM_PARAM_CTRL_THR_OFFSET)
                 CheckRangeAndSetF(&hfc->throttle_offset, p->data, -1, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_LIMIT)
-                CheckRangeAndSetF(&hfc->config.cruise_speed_limit, p->data, 0, 100);
+                CheckRangeAndSetF(&pConfig->cruise_speed_limit, p->data, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_YAW_ACC)
                 CheckRangeAndSetF(&hfc->pid_YawAngle.acceleration, p->data, 0.1f, 10000);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetB(&hfc->config.nose_to_WP, p->data, 0, 1);
+                CheckRangeAndSetB(&pConfig->nose_to_WP, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDLIMIT)
-                CheckRangeAndSetF(&hfc->config.landing_wind_threshold, p->data, 0, 100);
+                CheckRangeAndSetF(&pConfig->landing_wind_threshold, p->data, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
             {
-                if (CheckRangeAndSetI(&hfc->config.battery_capacity, p->data, 1, 1000000))
+                if (CheckRangeAndSetI(&pConfig->battery_capacity, p->data, 1, 1000000))
                 {
-                    hfc->power.capacity_total = hfc->config.battery_capacity/1000.0f*3600; // As
-                    hfc->power.energy_total   = hfc->power.capacity_total * hfc->config.battery_cells * 3.7f;  // Ws
+                    hfc->power.capacity_total = pConfig->battery_capacity/1000.0f*3600; // As
+                    hfc->power.energy_total   = hfc->power.capacity_total * pConfig->battery_cells * 3.7f;  // Ws
                 }
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDTAB_SCALE)
             {
-                if (CheckRangeAndSetF(&hfc->config.WindTableScale, p->data, 0.1f, 10))
-                    GenerateSpeed2AngleLUT(hfc);
+                /* TODO::SP: This will be in main
+                if (CheckRangeAndSetF(&pConfig->WindTableScale, p->data, 0.1f, 10))
+                    GenerateSpeed2AngleLUT();
+                    */
             }
 //            else
 //            if (sub_param==TELEM_PARAM_CTRL_VSPEED_PID_D)
-//                CheckRangeAndSetF(&hfc->config.VspeedDterm, p->data, -10, 10);
+//                CheckRangeAndSetF(&pConfig->VspeedDterm, p->data, -10, 10);
         }
         else if (param==TELEM_PARAM_PID_TUNE)
         {
@@ -1321,7 +1286,7 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
             hfc->speedCtrlPrevEN[0] = 0;
             hfc->speedCtrlPrevEN[1] = 0;
     	}
-        Telemetry_SetWaypoint(hfc, lat, lon, altitude, waypoint_type, wp_retire);
+        SetWaypoint(lat, lon, altitude, waypoint_type, wp_retire);
     }
     else
     if (altitude>-9999)
@@ -1332,24 +1297,26 @@ static bool ProcessParameters(T_Telem_Params4 *msg, T_HFC *hfc)
     return true;
 }
 
-static bool Telem_CopyCommand(T_Telem_Commands5 *msg, T_HFC *hfc)
+bool TelemSerial::CopyCommand(T_Telem_Commands5 *msg)
 {
-    if (hfc->command.command!=TELEM_CMD_NONE)
-    {
+    if (hfc->command.command != TELEM_CMD_NONE) {
 #if defined(DEBUG)
-        printf("Previous command not processed yet, overwritting it!!!!!!!!!! %d\r\n", hfc->command.command);
+        printf("Previous command not processed yet, overwriting it!!!!!!!!!! %d\r\n", hfc->command.command);
 #endif
     }
+
     hfc->command.command = msg->command;
     hfc->command.sub_cmd = msg->sub_cmd;
+
     *((int*)(hfc->command.data+0)) = *((int*)(msg->data+0));
     *((int*)(hfc->command.data+4)) = *((int*)(msg->data+4));
     *((int*)(hfc->command.data+8)) = *((int*)(msg->data+8));
     *((int*)(hfc->command.data+12))= *((int*)(msg->data+12));
+
     return true;
 }
 
-void SetHome(T_HFC *hfc)
+void TelemSerial::SetHome(void)
 {
     GpsData gps_data = gps.GetGpsData();
 
@@ -1359,38 +1326,38 @@ void SetHome(T_HFC *hfc)
     hfc->altitude_base = hfc->home_pos[2];
 }
 
-void SendMsgToGround(T_HFC *hfc, int msg_id)
+void TelemSerial::SendMsgToGround(int msg_id)
 {
 	hfc->msg2ground_id = msg_id;
 	hfc->msg2ground_count = MSG2GROUND_RESEND_COUNT;
 }
 
 /* returns true when everything is ok, false otherwise */
-static char PreFlightChecks(T_HFC *hfc)
+char TelemSerial::PreFlightChecks(void)
 {
     int gps_error;
 
 	// Resetting IMU before pre-flight check, to deal with noisy compass type
-    ResetIMU(hfc, true);
+    ResetIMU(true);
 
     /* check gyro to be well calibrated and still */
     if (ABS(hfc->gyro_lp_disp[0])>0.05f || ABS(hfc->gyro_lp_disp[1])>0.05f || ABS(hfc->gyro_lp_disp[2])>0.05f)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_GYRO);
+        SendMsgToGround(MSG2GROUND_PFCHECK_GYRO);
         return false;
     }
 
     /* check that acc is within limits */
     if (ABS(hfc->accFilt[0])>0.3f || ABS(hfc->accFilt[1])>0.3f || hfc->accFilt[2]>1.1f || hfc->accFilt[2]<0.9f)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_ACC);
+        SendMsgToGround(MSG2GROUND_PFCHECK_ACC);
         return false;
     }
 
     /* IMU and ACC horizon estimation have to be close to each other */
     if (ABS(hfc->SmoothAcc[PITCH] - hfc->IMUorient[PITCH])>(0.5f*D2R) || ABS(hfc->SmoothAcc[ROLL] - hfc->IMUorient[ROLL])>(0.5f*D2R))
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_IMUACC_HORIZ);
+        SendMsgToGround(MSG2GROUND_PFCHECK_IMUACC_HORIZ);
         return false;
     }
 
@@ -1398,37 +1365,37 @@ static char PreFlightChecks(T_HFC *hfc)
     /* IMU and compass heading estimation have to be close to each other */
     if (ABS(hfc->compass_heading_lp - hfc->IMUorient[YAW]*R2D)>COMP_IMU_ORIENT_DELTA )
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_IMUCOMP_HEAD);
+        SendMsgToGround(MSG2GROUND_PFCHECK_IMUCOMP_HEAD);
         return false;
     }
 
     /* baro */
     if (hfc->baro_pressure<60000 || hfc->baro_pressure>110000 || hfc->baro_altitude_raw_lp<-500 || hfc->baro_altitude_raw_lp>8000)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_BARO);
+        SendMsgToGround(MSG2GROUND_PFCHECK_BARO);
         return false;
     }
 
     /* compass */
     if (ABS(compass.dataXYZcalib[0])>600 || ABS(compass.dataXYZcalib[1])>600 || compass.dataXYZcalib[2]<-600 || compass.dataXYZcalib[2]>-350)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_COMPASS);
+        SendMsgToGround(MSG2GROUND_PFCHECK_COMPASS);
         return false;
     }
 
     /* power module */
-    if (hfc->config.power_node)
+    if (pConfig->power_node)
     {
         if (hfc->stats.can_power_tx_errors)
         {
-            SendMsgToGround(hfc, MSG2GROUND_PFCHECK_CAN_POWER);
+            SendMsgToGround(MSG2GROUND_PFCHECK_CAN_POWER);
             return false;
         }
 
         /* battery */
-        if (hfc->power.battery_level<10 || (hfc->power.Vmain/hfc->config.battery_cells)<3.6f || (hfc->power.Vesc/hfc->config.battery_cells)<3.6f)
+        if (hfc->power.battery_level<10 || (hfc->power.Vmain/pConfig->battery_cells)<3.6f || (hfc->power.Vesc/pConfig->battery_cells)<3.6f)
         {
-            SendMsgToGround(hfc, MSG2GROUND_PFCHECK_BATTERY);
+            SendMsgToGround(MSG2GROUND_PFCHECK_BATTERY);
             return false;
         }
     }
@@ -1436,14 +1403,14 @@ static char PreFlightChecks(T_HFC *hfc)
     /* angle, less than 5 deg */
     if (ABS(hfc->IMUorient[0]*R2D)>5 || ABS(hfc->IMUorient[1]*R2D)>5)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_ANGLE);
+        SendMsgToGround(MSG2GROUND_PFCHECK_ANGLE);
         return false;
     }
 
     /* servo module */
-    if (hfc->config.can_servo && hfc->stats.can_servo_tx_errors)
+    if (pConfig->can_servo && hfc->stats.can_servo_tx_errors)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_CAN_SERVO);
+        SendMsgToGround(MSG2GROUND_PFCHECK_CAN_SERVO);
         return false;
     }
 
@@ -1451,28 +1418,28 @@ static char PreFlightChecks(T_HFC *hfc)
     gps_error = gps.PreFlightCheck();
     if (gps_error)
     {
-        SendMsgToGround(hfc, gps_error-1+MSG2GROUND_PFCHECK_GPS_NOFIX);
+        SendMsgToGround(gps_error-1+MSG2GROUND_PFCHECK_GPS_NOFIX);
         return false;
     }
 
     if (ABS(hfc->altitude-hfc->altitude_gps)>2)
     {
-        SendMsgToGround(hfc, MSG2GROUND_PFCHECK_IMU_GPS_ALT);
+        SendMsgToGround(MSG2GROUND_PFCHECK_IMU_GPS_ALT);
         return false;
     }
     return true;
 }
 
-void Command_TakeoffArm(T_HFC *hfc)
+void TelemSerial::CommandTakeoffArm(void)
 {
     int status = hfc->playlist_status;
 
 	/* check for armed */
     if (!hfc->throttle_armed)
     {
-    	Disarm(hfc);
+    	Disarm();
         /* send message that system has to be armed */
-    	SendMsgToGround(hfc, MSG2GROUND_ARMED_FOR_TAKEOFF);
+    	SendMsgToGround(MSG2GROUND_ARMED_FOR_TAKEOFF);
         return;
     }
 
@@ -1480,30 +1447,30 @@ void Command_TakeoffArm(T_HFC *hfc)
     /* check for xbus being active */
     if (!xbus.receiving)
     {
-    	Disarm(hfc);
+    	Disarm();
         /* send message that xbus radio has to be on */
-    	SendMsgToGround(hfc, MSG2GROUND_XBUS_FOR_TAKEOFF);
+    	SendMsgToGround(MSG2GROUND_XBUS_FOR_TAKEOFF);
         return;
     }
 #endif
 
     /* check sensors */
-    if (!PreFlightChecks(hfc))
+    if (!PreFlightChecks())
     {
-        Disarm(hfc);
+        Disarm();
         return;
     }
 
     hfc->inhibitRCswitches = true;
 
     /* reset all I terms */
-    Reset_Iterms(hfc);
+    //ResetIterms();    // TODO::SP: Declared in MAin
     
     /* set PRY controls to Angle mode, coll to manual */
-    SetCtrlMode(hfc, PITCH, CTRL_MODE_RATE);
-    SetCtrlMode(hfc, ROLL,  CTRL_MODE_RATE);
-    SetCtrlMode(hfc, YAW,   CTRL_MODE_RATE);
-    SetCtrlMode(hfc, COLL,  CTRL_MODE_MANUAL);
+    SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
+    SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_RATE);
+    SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_RATE);
+    SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
     
     /* initialize PRY angles to the current orientation */
     hfc->ctrl_out[RATE][PITCH] = 0;
@@ -1511,23 +1478,23 @@ void Command_TakeoffArm(T_HFC *hfc)
     hfc->ctrl_out[RATE][YAW]   = 0;
     
     /* 0 angle of blades (from config) */
-//    hfc->ctrl_out[RAW][COLL]   = hfc->config.CollZeroAngle;
-//    hfc->pid_CollVspeed.COlast = hfc->config.CollZeroAngle;	// needed once alt hold is enabled and this could be uninitialized for the takeoff condition
+//    hfc->ctrl_out[RAW][COLL]   = pConfig->CollZeroAngle;
+//    hfc->pid_CollVspeed.COlast = pConfig->CollZeroAngle;	// needed once alt hold is enabled and this could be uninitialized for the takeoff condition
 
     hfc->ctrl_collective_raw = hfc->collective_raw_curr;    // set to current position
-    hfc->ctrl_collective_3d  = hfc->config.CollZeroAngle;   // target
+    hfc->ctrl_collective_3d  = pConfig->CollZeroAngle;   // target
     
     /* enable fixed control mode */
-    SelectCtrlSource(hfc, CTRL_SOURCE_AUTO3D);
+    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
     // it is getting reset by select source !!!!!!!!!!!!!!!!!!!!!!!!!!
     hfc->playlist_status = status;
 
     /* send message that to prepare radio and spool up */
     if (hfc->full_auto) {
-    	SendMsgToGround(hfc, MSG2GROUND_ALLOW_SPOOLUP);
+    	SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
     }
     else {
-    	SendMsgToGround(hfc, MSG2GROUND_SPOOLUP);
+    	SendMsgToGround(MSG2GROUND_SPOOLUP);
     }
     
 	hfc->message_from_ground = 0;	// reset it so we can wait for the message from ground
@@ -1540,35 +1507,37 @@ void Command_TakeoffArm(T_HFC *hfc)
 }
 
 /* vspeed needs to be negative */
-void Command_LandingWP(T_HFC *hfc, float lat, float lon, float alt_ground)
+void TelemSerial::CommandLandingWP(float lat, float lon, float alt_ground)
 {
     hfc->gps_to_waypoint[0] = 99;	// need something here so the logic does not immediatelly think it is already there
     								// before it gets properly initialized
     /* set 2D waypoint at the current location */
-    Telemetry_SetWaypoint(hfc, lat, lon, alt_ground, WAYPOINT_GOTO, 0);
+    SetWaypoint(lat, lon, alt_ground, WAYPOINT_GOTO, 0);
 
     hfc->waypoint_type  = WAYPOINT_LANDING;
     hfc->waypoint_stage = FM_LANDING_WAYPOINT;
 }
 
 /* vspeed needs to be negative */
-void Command_Landing(T_HFC *hfc, bool final, bool setWP)
+void TelemSerial::CommandLanding(bool final, bool setWP)
 {
     {
         if (!final && hfc->altitude_lidar>3)
         {
             /* check lidar and send a warning message if no ground lock is being received from lidar */
             if (hfc->altitude_lidar_raw>35)
-                SendMsgToGround(hfc, MSG2GROUND_LIDAR_NOGROUND);
+                SendMsgToGround(MSG2GROUND_LIDAR_NOGROUND);
 
             /* set 2D waypoint at the current location */
-        	if (setWP)
-        		Telemetry_SetWaypoint(hfc, hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
-            SelectCtrlSource(hfc, CTRL_SOURCE_AUTO3D);
-            SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
+        	if (setWP) {
+        		SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
+        	}
+
+            SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            SetCtrlMode(hfc, pConfig, YAW, CTRL_MODE_ANGLE);
 
             /* if wind strong enough, rotate tail down-wind otherwise just keep the current heading */
-            if (hfc->wind_speed>hfc->config.landing_wind_threshold)  // 3m/s
+            if (hfc->wind_speed>pConfig->landing_wind_threshold)  // 3m/s
                 hfc->ctrl_out[ANGLE][YAW] = Wrap180(hfc->wind_course);
             else
                 hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
@@ -1576,18 +1545,18 @@ void Command_Landing(T_HFC *hfc, bool final, bool setWP)
             /* if switching from manual collective, initialize the ctrl speed with the current one */
             if (hfc->control_mode[COLL]<CTRL_MODE_SPEED)
             	hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[UP];
-            SetCtrlMode(hfc, COLL,  CTRL_MODE_SPEED);
-            hfc->ctrl_vspeed_3d = max(-2*hfc->config.landing_vspeed, hfc->pid_CollAlt.COmin);
+            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
+            hfc->ctrl_vspeed_3d = max(-2*pConfig->landing_vspeed, hfc->pid_CollAlt.COmin);
             hfc->waypoint_type  = WAYPOINT_LANDING;
             hfc->waypoint_stage = FM_LANDING_HIGH_ALT;
         }
         else
         {
             /* set PRY controls to speed/Angle mode */
-            SetCtrlMode(hfc, PITCH, CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, ROLL,  CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, COLL,  CTRL_MODE_SPEED);
+            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
             
             /* if previous pitch/roll mode was above speed, initialize Iterm such that CO does not instantly change */
             hfc->ctrl_out[SPEED][PITCH] = 0;
@@ -1596,8 +1565,8 @@ void Command_Landing(T_HFC *hfc, bool final, bool setWP)
             
             /* set vspeed mode and initialize it */
 //            hfc->ctrl_out[SPEED][COLL] = vspeed;
-            hfc->ctrl_vspeed_3d = -hfc->config.landing_vspeed;
-            SelectCtrlSource(hfc, CTRL_SOURCE_AUTO3D);
+            hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed;
+            SelectCtrlSource(CTRL_SOURCE_AUTO3D);
             
             hfc->waypoint_type  = WAYPOINT_LANDING;
             hfc->waypoint_stage = FM_LANDING_LOW_ALT;
@@ -1605,17 +1574,19 @@ void Command_Landing(T_HFC *hfc, bool final, bool setWP)
     }
 }
 
-void Disarm(T_HFC *hfc)
+void TelemSerial::Disarm(void)
 {
 	hfc->throttle_armed    = 0;
 	hfc->inhibitRCswitches = false;
 	hfc->waypoint_type   = WAYPOINT_NONE;
 	hfc->playlist_status = PLAYLIST_STOPPED;
 	hfc->LidarCtrlMode   = false;
-	Save_PIDvalues(hfc);
+
+	// TODO::SP: Need to do this
+	//Save_PIDvalues(hfc);
 }
 
-void Playlist_SaveState(T_HFC *hfc)
+void TelemSerial::PlaylistSaveState(void)
 {
 	T_State *state = &hfc->state;
 	int i;
@@ -1633,7 +1604,7 @@ void Playlist_SaveState(T_HFC *hfc)
     	state->control_mode[i] = hfc->control_mode[i];
 }
 
-void Playlist_RestoreState(T_HFC *hfc)
+void TelemSerial::PlaylistRestoreState(void)
 {
 	T_State *state = &hfc->state;
 	int i;
@@ -1652,13 +1623,15 @@ void Playlist_RestoreState(T_HFC *hfc)
 
     /* re-initialize the waypoint and everything related, since the playlist is not in PLAYING yet,
      * it will use the current position as the starting point */
-    Telemetry_SetWaypoint(hfc, hfc->waypoint_pos[0], hfc->waypoint_pos[1], hfc->waypoint_pos[2] - hfc->altitude_base, hfc->waypoint_type, hfc->waypoint_retire);
-    SaveValuesForAbort(hfc);
+    SetWaypoint(hfc->waypoint_pos[0], hfc->waypoint_pos[1],
+                    (hfc->waypoint_pos[2] - hfc->altitude_base), hfc->waypoint_type, hfc->waypoint_retire);
+
+    SaveValuesForAbort();
 	hfc->playlist_status = PLAYLIST_PLAYING;
 	hfc->delay_counter = 0;
 }
 
-static int FindNearestLandingSite(T_HFC *hfc)
+int TelemSerial::FindNearestLandingSite(void)
 {
 	int i;
 	int index = -1;
@@ -1681,22 +1654,22 @@ static int FindNearestLandingSite(T_HFC *hfc)
 	return index;
 }
 
-void Arm(T_HFC *hfc)
+void TelemSerial::Arm(void)
 {
     if (hfc->throttle_armed)
         return;
 
     /* throttle level needs to be low */
-    if (hfc->throttle_value > -0.95f*hfc->config.Stick100range)
+    if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
     {
-        SendMsgToGround(hfc, MSG2GROUND_ARMING_THROTTLE);
+        SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
         return;
     }
 
     /* cannot arm in manual mode unless explicitely allowed */
-    if (hfc->control_mode[PITCH]==CTRL_MODE_MANUAL && !hfc->config.AllowArmInManual)
+    if (hfc->control_mode[PITCH]==CTRL_MODE_MANUAL && !pConfig->AllowArmInManual)
     {
-        SendMsgToGround(hfc, MSG2GROUND_ARMING_MODE);
+        SendMsgToGround(MSG2GROUND_ARMING_MODE);
         return;
     }
 
@@ -1704,18 +1677,21 @@ void Arm(T_HFC *hfc)
     gps.glitches_ = 0;   // reset GPS glitch counter
     hfc->stats.can_servo_tx_errors = 0;
     hfc->stats.can_power_tx_errors = 0;
-    SetHome(hfc);
+    SetHome();
 
 //        GyroCalibDynamic(hfc);
 }
 
-static void ResetMBED(T_HFC *hfc)
+void TelemSerial::ResetMBED(void)
 {
-    Save_PIDvalues(hfc);
+    // TODO::SP: FIX
+    /*
+    Save_PIDvalues();
     mbed_interface_reset();
+    */
 }
 
-void ProcessCommands(T_HFC *hfc)
+void TelemSerial::ProcessCommands(void)
 {
     byte cmd = hfc->command.command;
     byte sub_cmd = hfc->command.sub_cmd;
@@ -1729,16 +1705,16 @@ void ProcessCommands(T_HFC *hfc)
     {
         if (sub_cmd==CMD_ARM)   // 0-disarm, 1-arm
         {
-            Arm(hfc);
+            Arm();
             hfc->waypoint_type = WAYPOINT_NONE;
         }
         else
-        	Disarm(hfc);
+        	Disarm();
     }
     else
     if (cmd==TELEM_CMD_SET_HOME)
     {
-        SetHome(hfc);
+        SetHome();
     }
     // NOTE::SP: This is no longer used, removing....
 #if 0
@@ -1767,43 +1743,43 @@ void ProcessCommands(T_HFC *hfc)
             hfc->joy_PRmode = true;
 
             /* altitude hold and yaw angle */
-            SetCtrlMode(hfc, PITCH, CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, ROLL,  CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, COLL,  CTRL_MODE_POSITION);
+            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
             /* set target altitude and heading to the current one */
             hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
             hfc->joystick_new_values = 1;
 
         	if (hfc->playlist_status==PLAYLIST_PLAYING)
         	{
-        		Playlist_SaveState(hfc);
-                SelectCtrlSource(hfc, CTRL_SOURCE_JOYSTICK);
+        		PlaylistSaveState();
+                SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
         		hfc->playlist_status = PLAYLIST_PAUSED;
         	}
         	else
 			if (hfc->playlist_status==PLAYLIST_PAUSED)
 			{
-				SelectCtrlSource(hfc, CTRL_SOURCE_JOYSTICK);
+				SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
 				hfc->playlist_status = PLAYLIST_PAUSED;
 			}
 			else
-                SelectCtrlSource(hfc, CTRL_SOURCE_JOYSTICK);
+                SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
         }
         else
         {
         	/* disabling joystick */
         	if (hfc->playlist_status == PLAYLIST_PAUSED)
-        		Playlist_RestoreState(hfc);
+        		PlaylistRestoreState();
         	else
-        		SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
+        		SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         }
     }
     else
     if (cmd==TELEM_CMD_GOTO_HOME)
     {
-    	ApplyDefaults(hfc);
-        Telemetry_SetWaypoint(hfc, hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0); // do not change altitude or perhaps use a preset value for this
+    	ApplyDefaults();
+        SetWaypoint(hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0); // do not change altitude or perhaps use a preset value for this
     }
     else
     if (cmd==TELEM_CMD_PLAYLIST_CONTROL)
@@ -1819,7 +1795,7 @@ void ProcessCommands(T_HFC *hfc)
                 hfc->delay_counter     = 0;
                 
                 /* set default values */
-            	ApplyDefaults(hfc);
+            	ApplyDefaults();
                 /* initialize current waypoint with the current position */
                 hfc->waypoint_pos[0] = hfc->positionLatLon[0];
                 hfc->waypoint_pos[1] = hfc->positionLatLon[1];
@@ -1837,16 +1813,16 @@ void ProcessCommands(T_HFC *hfc)
         {
         	if (hfc->playlist_status==PLAYLIST_PLAYING)
         	{
-            	Playlist_SaveState(hfc);
-                SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
+            	PlaylistSaveState();
+                SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         		hfc->playlist_status = PLAYLIST_PAUSED;
         		if (hfc->full_auto)
         		{
         			/* set speed mode since RCradio switches do not work in full_auto */
-                    SetCtrlMode(hfc, PITCH, CTRL_MODE_SPEED);
-                    SetCtrlMode(hfc, ROLL,  CTRL_MODE_SPEED);
-                    SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
-                    SetCtrlMode(hfc, COLL,  CTRL_MODE_POSITION);
+                    SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+                    SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+                    SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+                    SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
                     /* zero horizontal speed, unlikely a slow acceleration */
                     hfc->ctrl_out[SPEED][PITCH] = 0;
                     hfc->ctrl_out[SPEED][ROLL]  = 0;
@@ -1859,52 +1835,55 @@ void ProcessCommands(T_HFC *hfc)
         if (sub_cmd==PLAYLIST_RESUME)
         {
         	if (hfc->playlist_status == PLAYLIST_PAUSED)
-        		Playlist_RestoreState(hfc);
+        		PlaylistRestoreState();
         }
         else
         if (sub_cmd==PLAYLIST_STOP)
         {
             /* stop playlist and waypoint mode */
-            SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
+            SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         }
     }
     else
     if (cmd==TELEM_CMD_TAKEOFF)
     {
-        if (sub_cmd==TAKEOFF_ARM)
-            Command_TakeoffArm(hfc);
+        if (sub_cmd==TAKEOFF_ARM) {
+            CommandTakeoffArm();
+        }
     }
     else
     if (cmd==TELEM_CMD_LAND)
     {
         hfc->playlist_status = PLAYLIST_STOP;
-        if (sub_cmd==LANDING_CURRENT)
-        	Command_Landing(hfc, false, true);
+        if (sub_cmd==LANDING_CURRENT) {
+        	CommandLanding(false, true);
+        }
         else if (sub_cmd==LANDING_WAYPOINT)
         {
             float lat = *((float*)&hfc->command.data[4]);	// lat as float
             float lon = *((float*)&hfc->command.data[8]);	// lon as float
-        	Command_LandingWP(hfc, lat, lon, 10);
-        	hfc->pid_Dist2T.COmax = hfc->config.landing_appr_speed;
+        	CommandLandingWP(lat, lon, 10);
+        	hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
         }
         else if (sub_cmd==LANDING_SITE)
         {
-        	int site = FindNearestLandingSite(hfc);
+        	int site = FindNearestLandingSite();
 //        	printf("Landing at %d\r\n", site);
         	if (site>=0)
         	{
         		float alt_ground = hfc->landing_sites[site].altitude - hfc->altitude_base + hfc->landing_sites[site].above_ground ;
-        		Command_LandingWP(hfc, hfc->landing_sites[site].lat, hfc->landing_sites[site].lon, alt_ground);
-            	hfc->pid_Dist2T.COmax = hfc->config.landing_appr_speed;
+        		CommandLandingWP(hfc->landing_sites[site].lat, hfc->landing_sites[site].lon, alt_ground);
+            	hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
         	}
-        	else
-            	Command_Landing(hfc, false, true);
+        	else {
+            	CommandLanding(false, true);
+        	}
         }
     }
     else
     if (cmd==TELEM_CMD_POS_HOLD)
     {
-        SetPositionHold(hfc);
+        SetPositionHold();
     }
     else if (cmd==TELEM_CMD_GPS_NEXT)
     {
@@ -1924,16 +1903,16 @@ void ProcessCommands(T_HFC *hfc)
     {
     	if (sub_cmd==KILLSWITCH_AUTOROTATE)
     	{
-            SelectCtrlSource(hfc, CTRL_SOURCE_AUTO3D);
-            SetCtrlMode(hfc, PITCH, CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, ROLL,  CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, COLL,  CTRL_MODE_MANUAL);
+            SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
             hfc->ctrl_angle_pitch_3d 	= 0;
             hfc->ctrl_angle_roll_3d  	= 0;
-            hfc->ctrl_out[RAW][COLL] 	= hfc->config.CollAngleAutoRotate;
+            hfc->ctrl_out[RAW][COLL] 	= pConfig->CollAngleAutoRotate;
         	hfc->auto_throttle 			= true;
-        	hfc->throttle_value 		= -hfc->config.Stick100range;
+        	hfc->throttle_value 		= -pConfig->Stick100range;
     	}
     }
     else if (cmd==TELEM_CMD_TOGGLE_PWR)
@@ -1945,7 +1924,7 @@ void ProcessCommands(T_HFC *hfc)
     }
     else if (cmd==TELEM_CMD_RESET_IMU_ALT)
     {
-        ResetIMU(hfc, false);
+        ResetIMU(false);
 
         /* altitude */
         if (sub_cmd==IMURESET_GPS)
@@ -1956,13 +1935,15 @@ void ProcessCommands(T_HFC *hfc)
     }
     else if (cmd==TELEM_CMD_PREFLIGHT_CHECK)
     {
-        if (PreFlightChecks(hfc))
-            SendMsgToGround(hfc, MSG2GROUND_PFCHECK_ALL_GOOD);
+        if (PreFlightChecks())
+            SendMsgToGround(MSG2GROUND_PFCHECK_ALL_GOOD);
     }
     else if (cmd==TELEM_CMD_RESET)
     {
-        if (sub_cmd == RESET_SUBID)
-            ResetMBED(hfc);
+        if (sub_cmd == RESET_SUBID) {
+            // TODO::SP: NOT APPLICABLE ON AVI FW
+            ResetMBED();
+        }
     }
     else
     {
@@ -1972,17 +1953,18 @@ void ProcessCommands(T_HFC *hfc)
     hfc->command.command = TELEM_CMD_NONE;
 }
 
-void SetPositionHold(T_HFC *hfc)
+void TelemSerial::SetPositionHold(void)
 {
     /* set heading to the current one */
     hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
     /* set vcontrol to max to make sure it can hold the pos */
-	ApplyDefaults(hfc);
-    Telemetry_SetWaypoint(hfc, hfc->positionLatLon[0], hfc->positionLatLon[1], hfc->altitude - hfc->altitude_base, WAYPOINT_GOTO, 0);
+	ApplyDefaults();
+    SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1],
+                                (hfc->altitude - hfc->altitude_base), WAYPOINT_GOTO, 0);
     hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
 }
 
-void ResetIMU(T_HFC *hfc, bool print)
+void TelemSerial::ResetIMU(bool print)
 {
     int i;
     float accGroundENU[3];
@@ -1992,8 +1974,8 @@ void ResetIMU(T_HFC *hfc, bool print)
     hfc->IMUorient[ROLL]  = hfc->SmoothAcc[ROLL];
 
     /* re-orient compass based on the new pitch/roll */
-    hfc->compass_heading = compass.GetHeadingDeg(hfc->config.comp_orient, hfc->config.comp_ofs, hfc->config.comp_gains, hfc->config.fcm_orient,
-                                                hfc->config.comp_declination_offset, hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
+    hfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, pConfig->comp_ofs, pConfig->comp_gains, pConfig->fcm_orient,
+                                                pConfig->comp_declination_offset, hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
     hfc->compass_heading_lp = hfc->compass_heading;
     hfc->IMUorient[YAW] = hfc->compass_heading_lp*D2R;
     IMU_PRY2Q(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL], hfc->IMUorient[YAW]);

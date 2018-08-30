@@ -45,9 +45,9 @@ void LoadGyroCalibData(float ofs[3]);
 
 bool Streaming_Process(T_HFC *hfc);
 
-void Profiling_Process(T_HFC *hfc);
+void Profiling_Process(T_HFC *hfc, ConfigData *pConfig);
 
-void CalibrateSensors(T_HFC *hfc, float gB[3]);
+void CalibrateSensors(T_HFC *hfc, float gB[3], ConfigData *pConfig);
 
 /* float32/float16 conversion
 ** largest +/-65504, smallest +/-6.10352e—6 */

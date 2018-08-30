@@ -119,9 +119,10 @@ HMC5883L::HMC5883L(I2Ci *m_i2c)
     i2c = m_i2c;
     chip = CHIP_NONE;
     new_data_ = 0;
+    pConfigData = NULL;
 }
 
-bool HMC5883L::Init(int compass_type)
+bool HMC5883L::Init(int compass_type, ConfigData *pConfig)
 {
     char id[3]={0,0,0};
 	int numAvgsByte;
@@ -131,6 +132,8 @@ bool HMC5883L::Init(int compass_type)
 	float outputRate;
 
 	int configA;
+
+	pConfigData = pConfig;
 
 	if (compass_type == CHIP_MMC5883MA) {
 	    lsb_per_mga_ = 4.0;
@@ -356,7 +359,9 @@ bool HMC5883L::getRawValues(float dT)
     return true;
 }
     
-float HMC5883L::GetHeadingDeg(unsigned char comp_orient[6], float offsets[3], float gains[3], unsigned char fcm_orient[6], float declination_offset, float pitch, float roll)
+float HMC5883L::GetHeadingDeg(unsigned char comp_orient[6], float offsets[3],
+                                  float gains[3], unsigned char fcm_orient[6],
+                                  float declination_offset, float pitch, float roll)
 {
     int i;
     float heading;
@@ -376,27 +381,17 @@ float HMC5883L::GetHeadingDeg(unsigned char comp_orient[6], float offsets[3], fl
      * the drone.*/
     if( gains[0] == 0 )
     {
-    	for (i=0; i<3; i++)
-    	{
-  		//  		dataXYZcalib[i] =
-  		//  			  hfc.config.comp_calib_matrix[i][0]*( dataXYZ[0] - hfc.config.comp_ofs[0] )
-  		//			+ hfc.config.comp_calib_matrix[i][1]*( dataXYZ[1] - hfc.config.comp_ofs[1] )
-  		//			+ hfc.config.comp_calib_matrix[i][2]*( dataXYZ[2] - hfc.config.comp_ofs[2] );
-			dataXYZcalib[i] =
-			    hfc.config.comp_calib_matrix[0][i]*( dataXYZ[0] - hfc.config.comp_ofs[0] )
-		      + hfc.config.comp_calib_matrix[1][i]*( dataXYZ[1] - hfc.config.comp_ofs[1] )
-              + hfc.config.comp_calib_matrix[2][i]*( dataXYZ[2] - hfc.config.comp_ofs[2] );
-
+    	for (i=0; i<3; i++) {
+			dataXYZcalib[i] = pConfigData->comp_calib_matrix[0][i] * (dataXYZ[0] - pConfigData->comp_ofs[0])
+		                        + pConfigData->comp_calib_matrix[1][i] * (dataXYZ[1] - pConfigData->comp_ofs[1])
+		                        + pConfigData->comp_calib_matrix[2][i] * (dataXYZ[2] - pConfigData->comp_ofs[2]);
     	}
     }
-    else
-    {
-    	for (i=0; i<3; i++)
-    	{
+    else {
+    	for (i=0; i<3; i++) {
     		dataXYZcalib[i] = (dataXYZ[i] - offsets[i]) * gains[i];
     	}
     }
-
 
     data[0] = dataXYZcalib[0];
     data[1] = dataXYZcalib[1];

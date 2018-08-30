@@ -35,7 +35,7 @@ XBus::~XBus(void)
 
 void XBus::ConfigRx()
 {
-    if(hfc.config.SbusEnable == 0)
+    if(sbus_enabled == 0)
     {
     	serial.baud(kXBusBaudrate);
     	serial.attach(this, &XBus::ProcessByte, RawSerial::RxIrq);
@@ -202,7 +202,7 @@ char XBus::NewValues(float dT)
     /* if new packet arrived in the meantime, reset counters and indicate success */
     if (new_values)
     {
-    	if(hfc.config.SbusEnable == 0)
+    	if(sbus_enabled == 0)
     	{
     		int i;
     		for (i=0; i<servos; i++)

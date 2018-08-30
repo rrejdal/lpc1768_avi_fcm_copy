@@ -789,7 +789,7 @@ typedef struct
     int canbus_freq_high;
     int sensor_mode;
     int compass_type;
-} __attribute__((packed)) T_Config;
+} __attribute__((packed)) ConfigData;
 
 typedef struct
 {
@@ -1021,7 +1021,8 @@ typedef struct
     
     void *leds[4];      // pointers to 4 MBED LEDs
 
-    T_Config config;
+    //T_Config config;
+
     T_Command command;
     
     T_Telem_Ctrl0   telemCtrl0;
@@ -1065,9 +1066,10 @@ typedef struct
 	uint16	adc_count;	// samples producing the average values in this period
 } T_PowerValues2;
 
-static inline void SetCtrlMode(T_HFC *hfc, unsigned char channel, unsigned char mode)
+// TODO::SP: FIX THIS TRASH
+static inline void SetCtrlMode(T_HFC *hfc, ConfigData *pConfig, unsigned char channel, unsigned char mode)
 {
-  if (!hfc->config.ctrl_mode_inhibit[channel]) {
+  if (!pConfig->ctrl_mode_inhibit[channel]) {
     hfc->control_mode[channel] = mode;
   }
 }

@@ -5,452 +5,36 @@
 #include "IMU.h"
 #include "telemetry.h"
 #include "NOKIA_5110.h"
+#include "IAP.h"
 
-#define MIN_CONFIG_VERSION      8
+#define MIN_CONFIG_VERSION      9
+
+#define FLASH_CONFIG_ADDR   USER_FLASH_AREA_START
+#define FLASH_CONFIG_SIZE   FLASH_SECTOR_SIZE_16_TO_29
+
+// Load configuration structure from Flash
+int LoadConfiguration(ConfigData *pConfig)
+{
+    // Map hfc config structure onto the flash and validate its version
+    pConfig = (ConfigData*)FLASH_CONFIG_ADDR;
+
+    if (pConfig->config_version != MIN_CONFIG_VERSION) {
+
+        return -1;
+    }
+
+    return 0;
+}
+
+
+
 
 extern HMC5883L compass;
-
-static void InitPIDparams(float pid_params[6], float Kc, float Ki, float Kd, float Ofs, float Max, float Min)
-{
-    pid_params[0] = Kc;
-    pid_params[1] = Ki;
-    pid_params[2] = Kd;
-    pid_params[3] = Ofs;
-    pid_params[4] = Max;
-    pid_params[5] = Min;
-}
-
-static void InitPIDparams5(float pid_params[5], float Kc, float Kd, float Max, float Min, float Acc)
-{
-    pid_params[0] = Kc;
-    pid_params[1] = Kd;
-    pid_params[2] = Max;
-    pid_params[3] = Min;
-    pid_params[4] = Acc;
-}
-
-void Config_SetDefaults(T_HFC *hfc)
-{
-    T_Config *cfg = &hfc->config;
-    int i,j;
-    
-    cfg->config_version      =        0;
-
-    cfg->num_servo_nodes     =        0;
-    cfg->num_gps_nodes       =        0;
-    cfg->servo_raw           =        0;
-    cfg->canbus_freq_high    =        1;
-    cfg->sensor_mode         =        1;
-    cfg->compass_type        =        0;
-
-    cfg->PRstickRate         =        40;      // 40deg/s at full stick
-    cfg->PRstickAngle        =        30;      // 30 deg at full stick
-    cfg->YawStickRate        =        100;     // 100 deg/s at full stick
-    cfg->StickVspeed         =        2;       // 2m/s at full stick
-    cfg->StickHspeed         =        5;      // 10m/s at full stick
-    cfg->StickHaccel         =        2;
-    cfg->AngleCollMixing     =        0;
-    cfg->Stick100range       =        0.571f;  // xbus value for a full stick
-    cfg->VspeedMax           =        10;       // maximum vertical speed, absolute limit, up
-    cfg->VspeedMin           =       -5;        // minimum vertical speed, absolute limit, down
-    cfg->CollZeroAngle       =        0.1f;     // collective servo value for 0 angle
-    cfg->CollAngleAutoRotate =		  -0.1f;	// collective value for auto-rotate
-    cfg->CollThrAutoLevel    =        0.75f;
-    cfg->low_speed_limit     =        1;        // tails follows ground speed vector above 3m/s
-    cfg->RCmodeSwitchOfs	 = 		  1;		// rate/angle/speed by default
-    cfg->YawModeMin          =        2;        // 1-man, 2-rate, 3-angle
-    cfg->YawModeMax          =        2;        // 1-man, 2-rate, 3-angle
-    cfg->dyn_yaw_rate_max	 =        50;
-    cfg->AllowArmInManual    =        0;
-    cfg->ManualLidarAltitude =        0;
-    cfg->LidarFromServo		 =		  0;
-    cfg->wind_compensation   =        1;
-    cfg->path_navigation     =        1;
-    cfg->nose_to_WP          =        1;
-    cfg->autoReset			 =		  1;   // automatically reset the IMU when stationary
-    cfg->can_servo           =        0;
-    cfg->fcm_servo           =        1;
-    cfg->power_node			 = 		  0;
-    cfg->rpm_sensor          =        0;
-    cfg->linklive            =        1;
-    cfg->gps_vspeed          =        0;
-    cfg->gps_units           =        2;
-    cfg->ground_sensor       =        GROUND_SENSOR_NONE;
-    cfg->collective_man_speed=        0.1;  // 0.1 servo value per second
-    cfg->takeoff_angle_rate	 =        2;
-    cfg->landing_vspeed		 =		  0.4f;
-    cfg->landing_vspeed_acc  = 		  0.4f;
-    cfg->landing_appr_speed	 =		  5;
-    cfg->VspeedDownCurve[0]  =		  -0.33f;
-    cfg->VspeedDownCurve[1]  =		  -5;
-    cfg->LidarHVcurve[0]     = 2;       // min speed
-    cfg->LidarHVcurve[1]     = 0.666f;  // slope
-    cfg->LidarHVcurve[2]     = 2;       // min alt
-    cfg->LidarHVcurve[3]     = 20;      // max alt
-    cfg->TurnAccParams[0]    = 5;           // max acc
-    cfg->TurnAccParams[1]    = 10;        // max speed
-    cfg->TurnAccParams[2]    = 0.2;       // minBland
-    cfg->cruise_speed_limit  = 6;       // m/s
-    cfg->landing_wind_threshold = 5;    // m/s
-    cfg->joystick_max_speed     = 10;   // m/s
-    
-    for (i=0; i<5; i++) cfg->ctrl_mode_inhibit[i] = 0;
-    cfg->GTWP_retire_radius     = 1.5f; // 1.5m - radius for retiring GTWP
-    cfg->GTWP_retire_speed      = 0.75f;// 0.75m/s - speed for retiring GTWP
-    cfg->FTWP_retire_sr_factor  = 0.5f; // 5m at 10m/s speed-adjusted radius factor for retiring FTWP  radius = speed*FTWP_retire_sr_factor
-
-    /*mmri:
-     * - default acc_gains and gyro_gains to 0
-     * - default acc_calib_matrix and gyro_calib_matrix to identity matrix
-     *   identiy matrix = { {1,0,0}, {0,1,0}, {0,0,1} }
-     * - defaults are chosen when not available in config file
-     * This is necessary for the code to identify which of the variables,
-     * gains or calib_matrix, are defined in the config file*/
-    for(i=0; i<3; i++)
-    {
-    	cfg->acc_gains[i]  = 0;
-    	cfg->gyro_gains[i] = 0;
-    	cfg->comp_gains[i] = 0;
-    	for(j = 0; j<3; j++)
-    	{
-    		if( i == j )
-    		{
-    			cfg->acc_calib_matrix[i][j] = 1;
-    			cfg->gyro_calib_matrix[i][j] = 1;
-    			cfg->comp_calib_matrix[i][j] = 1;
-    		}
-    		else
-    		{
-    			cfg->acc_calib_matrix[i][j] = 0;
-    			cfg->gyro_calib_matrix[i][j] = 0;
-    			cfg->comp_calib_matrix[i][j] = 0;
-    		}
-    	}
-    }
-
-    cfg->servo_speed[0] = 100;
-    cfg->servo_speed[1] = 100;
-
-    cfg->pwm_period = 10000; // 3333
-    cfg->telem_baudrate = 38400;
-
-    /* Kc, Ti, Td, Ofs, Max, Min, Decay */
-    InitPIDparams(cfg->pitchrate_pid_params, 0.001122979f, 0.03f,  0, 0,      0.55f, -0.55f);
-    InitPIDparams(cfg->rollrate_pid_params,  0.001122979f, 0.03f,  0, 0.032f, 0.55f, -0.55f);
-    InitPIDparams(cfg->pitchangle_pid_params,5.166666667f, 0.7f,   0, 0,      40,    -40);
-    InitPIDparams(cfg->rollangle_pid_params, 5.166666667f, 0.7f,   0, 0,      40,    -40);
-    InitPIDparams(cfg->yawrate_pid_params,   0.00786953f,  0.959f, 0, 0.112f, 0.55f, -0.55f);
-    InitPIDparams(cfg->collvspeed_pid_params,0.031745192f, 0.279f, 0, 0.159f, 0.55f, -0.55f);
-    InitPIDparams(cfg->pitchspeed_pid_params,-4.75857538f, 5.467f, 0, 0     , 30,    -30);
-    InitPIDparams(cfg->rollspeed_pid_params, 5.45733828f,  4.767f, 0, 0     , 30,    -30);
-    InitPIDparams5(cfg->yawangle_pid_params, 2.0f,         0, 120, -120, 180);
-    InitPIDparams5(cfg->collalt_pid_params,  0.829410087f, 0,   2,   -2,   1);
-    InitPIDparams5(cfg->dist2T_pid_params,   0.271397992f, 0,   5,    0,   1);
-    InitPIDparams5(cfg->dist2P_pid_params,   0.271397992f, 0,   2,    0,   1);
-    InitPIDparams5(cfg->pitchCruise_pid_params,  0,        0,  40,  -40,   5);
-    
-    cfg->gyro_ofs[0] = 0;
-    cfg->gyro_ofs[1] = 0;
-    cfg->gyro_ofs[2] = 0;
-    cfg->lidar_offset      = 426;
-
-    cfg->IMUaccGyroBlend      = IMU_ACC_GYRO_FREQ;
-    cfg->AltitudeBaroGPSblend_final = ALTITUDE_BARO_GPS_BLEND_FREQ;
-    cfg->Pos_GPS_IMU_BlendReg       = POS_GPS_IMU_BLEND_REG;
-    cfg->Pos_GPS_IMU_BlendGlitch    = POS_GPS_IMU_BLEND_GLITCH;
-
-    cfg->RollPitchAngle  = 0;       // rotates the impact of P/R controls to P/R servos, clockwise in deg
-
-    // inverts individual servos
-    cfg->servo_revert[0] = 1;   //P
-    cfg->servo_revert[1] = 0;  // R
-    cfg->servo_revert[2] = 1;  // Y
-    cfg->servo_revert[3] = 0;  // C
-    cfg->servo_revert[4] = 0;  // T
-    cfg->servo_revert[5] = 0;  // N/A
-    // gains on individual control channels
-    cfg->control_gains[0] = -1; // P
-    cfg->control_gains[1] =  1; // R
-    cfg->control_gains[2] =  1; // Y
-    cfg->control_gains[3] =  0.5f; // C
-    cfg->throttle_ctrl = 0;   // throttle control mode 0-linear, 1-constant
-    // values for throttle switch mode
-    cfg->throttle_values[0] = -0.685f;  // value when stick is low
-    cfg->throttle_values[1] = 0.5f;     // throttle gain
-    cfg->throttle_gain = 0.999f ;
-    cfg->throttle_multi_min = -0.6f;    // (-0.6 * 500) + 1500 = 1200us  (DJI turns on at 1106)
-
-    cfg->ccpm_type = CCPM_NONE;
-    cfg->SbusEnable = 0;
-    cfg->acc_lp_freq  = 15;
-    cfg->gyro_lp_freq[0] = 20;
-    cfg->gyro_lp_freq[1] = 20;
-    cfg->gyro_lp_freq[2] = 20;
-    cfg->AccIntegGains[0] = 1.1f;
-    cfg->AccIntegGains[0] = 1.1f;
-    cfg->AccIntegGains[0] = 1.05f;
-
-    cfg->baro_lp_freq = 20;
-    cfg->BaroVspeedWeight = 0.4f;
-    cfg->GPSVspeedWeight = 0.4f;
-    cfg->BaroAltitudeWeight = 0.25f;
-    cfg->baro_vspeed_lp_freq = 20;
-    cfg->heading_avgs = 8;
+extern NokiaLcd   myLcd;
 
 
-    cfg->landing_timeout = 5000;    // 5s
-    cfg->telem_min_ctrl_period = 0;	// max telem period in ms
-
-    cfg->battery_cells      = 4;
-    cfg->battery_capacity   = 5000; // 5Ah
-    cfg->power_typical      = 352;  // W
-    cfg->rpm_typical        = 0;
-
-    cfg->gear_ratio     = 9.07;       // motor to main shaft ratio
-    cfg->motor_poles    = 6;          // motor poles
-
-    for (i=0; i<4; i++) cfg->stick_deadband[i] = 0;
-    
-    for (i=0; i<3; i++) cfg->gyro_drift_coeffs[0][i] = 0;
-    for (i=0; i<3; i++) cfg->gyro_drift_coeffs[0][i] = 0;
-    for (i=0; i<3; i++) cfg->gyro_drift_coeffs[0][i] = 0;
-    cfg->gyro_fixed_offsets = 0;
-    /* default angle to speed table for wind measurements */
-    cfg->WindTableScale = 1;
-    cfg->WindSpeedLUT[0] = 0;
-    cfg->WindSpeedLUT[1] = 0.196f;
-    cfg->WindSpeedLUT[2] = 0.424f;
-    cfg->WindSpeedLUT[3] = 0.684f;
-    cfg->WindSpeedLUT[4] = 0.976f;
-    cfg->WindSpeedLUT[5] = 1.3f;
-    cfg->WindSpeedLUT[6] = 1.656f;
-    cfg->WindSpeedLUT[7] = 2.044f;
-    cfg->WindSpeedLUT[8] = 2.464f;
-    cfg->WindSpeedLUT[9] = 2.916f;
-    cfg->WindSpeedLUT[10] = 3.4f;
-    cfg->WindSpeedLUT[11] = 3.916f;
-    cfg->WindSpeedLUT[12] = 4.464f;
-    cfg->WindSpeedLUT[13] = 5.044f;
-    cfg->WindSpeedLUT[14] = 5.656f;
-    cfg->WindSpeedLUT[15] = 6.3f;
-    cfg->WindSpeedLUT[16] = 6.976f;
-    cfg->WindSpeedLUT[17] = 7.684f;
-    cfg->WindSpeedLUT[18] = 8.424f;
-    cfg->WindSpeedLUT[19] = 9.196f;
-    cfg->WindSpeedLUT[20] = 10;
-    cfg->WindSpeedLUT[21] = 10.836f;
-    cfg->WindSpeedLUT[22] = 11.704f;
-    cfg->WindSpeedLUT[23] = 12.604f;
-    cfg->WindSpeedLUT[24] = 13.536f;
-    cfg->WindSpeedLUT[25] = 14.5f;
-    cfg->WindSpeedLUT[26] = 15.496f;
-    cfg->WindSpeedLUT[27] = 16.524f;
-    cfg->WindSpeedLUT[28] = 17.584f;
-    cfg->WindSpeedLUT[29] = 18.676f;
-    cfg->WindSpeedLUT[30] = 19.8f;
-    cfg->WindSpeedLUT[31] = 20.956f;
-    cfg->WindSpeedLUT[32] = 22.144f;
-    cfg->WindSpeedLUT[33] = 23.364f;
-    cfg->WindSpeedLUT[34] = 24.616f;
-    cfg->WindSpeedLUT[35] = 25.9f;
-    cfg->WindSpeedLUT[36] = 27.216f;
-    cfg->WindSpeedLUT[37] = 28.564f;
-    cfg->WindSpeedLUT[38] = 29.944f;
-    cfg->WindSpeedLUT[39] = 31.356f;
-    cfg->WindSpeedLUT[40] = 32.8f;
-    cfg->WindSpeedLUT[41] = 34.276f;
-    cfg->WindSpeedLUT[42] = 35.784f;
-    cfg->WindSpeedLUT[43] = 37.324f;
-    cfg->WindSpeedLUT[44] = 38.896f;
-    cfg->WindSpeedLUT[45] = 40.5f;
-
-    for (i=0; i<V2ENERGY_SIZE; i++)
-        cfg->V2Energy[i] = ((float)i)/(V2ENERGY_SIZE-1);
-
-    /*************************************************************************************/
-
-    hfc->AltitudeBaroGPSblend = ALTITUDE_BARO_GPS_BLEND_FREQ_INIT;
-
-    hfc->calibrate         = 0;
-    hfc->inhibitRCswitches = false;
-
-    hfc->playlist_items = 0;
-    hfc->playlist_status = PLAYLIST_STOPPED;
-    hfc->pl_wp_initialized = false;
-
-    hfc->display_mode = DISPLAY_SPLASH;
-    
-    /* Control modes, 0-inhibit, 1-manual, 2-rate, 3-angle */
-    hfc->control_mode[0] = CTRL_MODE_ANGLE;  // P
-    hfc->control_mode[1] = CTRL_MODE_ANGLE;  // R
-    hfc->control_mode[2] = CTRL_MODE_ANGLE;  // Y
-    hfc->control_mode[3] = CTRL_MODE_MANUAL; // C
-    hfc->control_mode[4] = CTRL_MODE_MANUAL; // T
-    
-    hfc->full_auto      = true;	// full auto by default
-    hfc->auto_throttle	= true;	// auto throttle by default
-    hfc->throttle_armed = 0;    // disables throttle after reset
-    hfc->throttle_offset = 0;
-    hfc->linklive_item   = 0;
-
-    hfc->waypoint_type   = WAYPOINT_NONE;
-
-    hfc->print_counter  = 0;
-    hfc->btnMenuPrev    = true;
-    hfc->btnSelectPrev  = true;
-    hfc->btnMenuCounter = 0;
-    hfc->btnSelectCounter = 0;
-    hfc->ticks_lp       = 0;
-    hfc->ticks_max      = 0;
-    hfc->throttle_width = 0;
-    
-    hfc->landing_sites_num	= 0;
-
-    hfc->ctrl_yaw_rate          = 0;
-    hfc->dyn_yaw_rate           = 50;
-    hfc->orient_reset_counter   = 5000;      // once it reaches zero, IMUorient will be reset to SmoothAcc
-    hfc->gyro_temperature       = 0;
-    hfc->esc_temp               = 20;
-    hfc->gyro_temp_lp           = 0;
-    hfc->gyroOfs[0]           = 0;
-    hfc->gyroOfs[1]           = 0;
-    hfc->gyroOfs[2]           = 0;
-    hfc->gyro_lp_disp[0]        = 0;
-    hfc->gyro_lp_disp[1]        = 0;
-    hfc->gyro_lp_disp[2]        = 0;
-    for (i=0; i<3; i++)
-    {
-        hfc->GPSspeedGroundENU[i]   = 0;        // heli ground speed in ground coordinates [E, N, U] in m/s
-        hfc->accGroundENUhp[i]		= 0;
-        hfc->accGroundENU_prev[i]	= 0;
-        hfc->IMUspeedGroundENU[i]	= 0;
-    }
-    hfc->speedCtrlPrevEN[0]     = 0;
-    hfc->speedCtrlPrevEN[1]     = 0;
-    hfc->speedHeliRFU[0]        = 0;
-    hfc->speedHeliRFU[1]        = 0;
-    hfc->speedHeliRFU[2]        = 0;
-    hfc->ctrl_vspeed_3d			= 0;
-    hfc->ctrl_angle_pitch_3d    = 0;
-    hfc->ctrl_angle_roll_3d     = 0;
-    hfc->acc_dyn_turns			= 2;
-    hfc->cruise_mode            = 0;
-//    hfc->positionEMU[0]         = 0;        // position relative to starting position [E, N, U] in m
-//    hfc->positionEMU[1]         = 0;        // position relative to starting position [E, N, U] in m
-//    hfc->positionEMU[2]         = 0;        // position relative to starting position [E, N, U] in m
-    
-    hfc->ctrl_out[ANGLE][YAW]   = 0;     // in deg
-    hfc->altitude         = 0;     // in m
-    hfc->altitude_baro    = 0;
-    hfc->altitude_gps     = 0;
-    hfc->altitude_ofs     = 0;
-    hfc->altitude_lidar   = 0;
-    hfc->altitude_lidar_raw = 40;
-    hfc->LidarCtrlMode      = false;
-    hfc->distance2WP_min    = 999999;
-    hfc->RPM                = 0;
-    hfc->rpm_pulse          = false;
-    hfc->rpm_time_ms_last   = 0;
-    hfc->rpm_ticks          = Ticks1();
-    hfc->pid_params_changed = false;
-
-    hfc->IMUorient[PITCH]   = 0;
-    hfc->IMUorient[ROLL]    = 0;
-    hfc->SmoothAcc[PITCH]   = 0;
-    hfc->SmoothAcc[ROLL]    = 0;
-    hfc->home_pos[0]   = 43.4710273f;
-    hfc->home_pos[1]   = -80.5796185f;
-    hfc->home_pos[2]   = 99999;
-    hfc->altitude_base = 0;
-    hfc->waypoint_pos[0] = 0;
-    hfc->waypoint_pos[1] = 0;
-    hfc->waypoint_pos[2] = 0;
-    hfc->waypoint_pos_prev[0] = 0;
-    hfc->waypoint_pos_prev[1] = 0;
-    hfc->waypoint_pos_prev[2] = 0;
-    
-    hfc->baro_altitude_raw_lp = -9999;
-    hfc->baro_dT = 0;
-    hfc->baro_vspeed = 0;
-    hfc->baro_vspeed_lp = 0;
-    hfc->baro_vspeedDF = 0;
-    hfc->lidar_vspeed = 0;
-    hfc->tGPS_prev = 0;
-    hfc->gps_new_data = false;
-    hfc->message_from_ground = 0;
-    hfc->lidar_rise = 0;
-    hfc->lidar_fall = 0;
-    hfc->lidar_pulse = 0;
-    hfc->lidar_counter = 0;
-    hfc->compass_heading = 0;
-    hfc->compass_heading_lp = 0;
-    hfc->gps_alt_initialized    = false;
-
-    for (i=0; i<2; i++) hfc->positionLatLon[i] = 0;
-    for (i=0; i<11; i++) hfc->baro_derivative_filter[i] = 0;
-
-    hfc->ctrl_source = CTRL_SOURCE_RCRADIO;    // RCradio is in control
-    
-    hfc->streaming_enable = false;
-    hfc->profile_mode     = PROFILING_OFF;
-    
-    hfc->cpu_utilization_lp = 0;
-    
-    hfc->telem_ctrl_time = 0;
-    hfc->telem_ctrl_period = 0;//100000;   // in uS
-    
-	hfc->msg2ground_id    = 0;
-	hfc->msg2ground_count = 0;
-    hfc->tcpip_confirm = false;
-    hfc->command.command = TELEM_CMD_NONE;
-    
-    hfc->compassMin[0] = hfc->compassMin[1] = hfc->compassMin[2] = 9999;
-    hfc->compassMax[0] = hfc->compassMax[1] = hfc->compassMax[2] = -9999;
-
-    for(i = 0; i < PITCH_COMP_LIMIT; i++)
-    {
-        hfc->comp_pitch_flags[i] = 0;
-    }
-
-    for(i = 0; i < ROLL_COMP_LIMIT; i++)
-    {
-        hfc->comp_roll_flags[i] = 0;
-    }
-
-    hfc->comp_calibrate = NO_COMP_CALIBRATE;
-
-
-    hfc->wind_speed = 0;
-    hfc->wind_course = 0;
-
-    /* power */
-    hfc->power.power_esc 		= 0;
-    hfc->power.power_servo 		= 0;
-    hfc->power.power_aux12v 	= 0;
-    hfc->power.power_armed_led 	= 0;
-
-    hfc->power.Vmain	= 0;
-    hfc->power.Vaux		= 0;
-    hfc->power.Vservo	= 0;
-    hfc->power.Vesc		= 0;
-    hfc->power.Iesc		= 0;
-    hfc->power.Iaux		= 0;
-    hfc->power.battery_level	= 0;	// 0-100%
-    hfc->power.capacity_used	= 0;	// AmpSeconds
-    hfc->power.capacity_total   = 0;
-    hfc->power.flight_time_left = 0;  //
-    hfc->power.energy_total = 0;   // rated Ws of the battery
-    hfc->power.energy_curr  = 0;    // current Ws
-    hfc->power.power_curr   = 0;    // current W
-    hfc->power.initialized  = false;
-    hfc->power.power_lp = 0;
-
-    hfc->mixer_in[PITCH] = 0;
-    hfc->mixer_in[ROLL]  = 0;
-
-    memset(&hfc->stats, 0, sizeof(T_Stats));
-}
-
+#if 0
+//TODO::SP: handle Compass Data
 void Config_Read_Compass(T_HFC *hfc)
 {
 
@@ -462,8 +46,9 @@ void Config_Read_Compass(T_HFC *hfc)
     LoadConfig_Int  ("max",   hfc->compassMax, 3);
 
 }
+#endif
 
-
+#if 0
 void Config_Read(T_Config *cfg)
 {
     Config_Open((char*)"/local/config.txt");
@@ -706,7 +291,9 @@ void Config_Read(T_Config *cfg)
     if (cfg->gyro_fixed_offsets)
         LoadGyroCalibData(cfg->gyro_ofs);
 }
+#endif
 
+#if 0
 void Save_PIDvalues(T_HFC *hfc)
 {
     FILE *fp;
@@ -739,6 +326,7 @@ void Save_PIDvalues(T_HFC *hfc)
 
     fclose(fp);
 }
+#endif
 
 #if 0
 void Config_Save(T_Config *cfg)
@@ -807,44 +395,9 @@ void Config_Save(T_Config *cfg)
 }
 #endif
 
-static float GetAngleFromSpeed(float speed, float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
-{
-  int i;
-  int angle1;
-  int angle2 = ANGLE2SPEED_SIZE-1;
-  float angle;
-  float speed1, speed2;
-  for (i=0; i<ANGLE2SPEED_SIZE; i++)
-    if ((WindSpeedLUT[i]*scale)>speed)
-    {
-      angle2 = i;
-      break;
-    }
-  angle1 = angle2 - 1;
-  speed1 = WindSpeedLUT[angle1]*scale;
-  speed2 = WindSpeedLUT[angle2]*scale;
 
-  if (speed1==speed2)
-    return angle1;
-
-  angle = (angle2-angle1) / (speed2-speed1) * (speed-speed1) + angle1;
-  return angle;
-}
-
-void GenerateSpeed2AngleLUT(T_HFC *hfc)
-{
-    int i;
-    for (i=0; i<SPEED2ANGLE_SIZE; i++)
-    {
-        float speed = i*0.5f;
-        float angle = GetAngleFromSpeed(speed, hfc->config.WindSpeedLUT, hfc->config.WindTableScale);
-        hfc->config.Speed2AngleLUT[i] = angle;
-//        printf("speed %4.1f angle %4.1f\n", speed, angle);
-    }
-}
-
-extern NokiaLcd   myLcd;
-
+#if 0
+// TODO::SP: Add back in
 void Config_ApplyAndInit(T_HFC *hfc)
 {
     T_Config *cfg = &hfc->config;
@@ -919,24 +472,8 @@ void Config_ApplyAndInit(T_HFC *hfc)
 
     GenerateSpeed2AngleLUT(hfc);
 
-    Telemetry_Generate_AircraftCfg(hfc, &hfc->aircraftConfig);
+    // TODO::SP: find telem
+    //telem.Generate_AircraftCfg();
 }
+#endif
 
-void Reset_Iterms(T_HFC *hfc)
-{
-    hfc->pid_PitchRate.Ie  = 0;
-    hfc->pid_RollRate.Ie   = 0;
-    hfc->pid_YawRate.Ie    = 0;
-    hfc->pid_PitchAngle.Ie = 0;
-    hfc->pid_RollAngle.Ie  = 0;
-    hfc->pid_YawAngle.Ie   = 0;
-    hfc->pid_CollVspeed.Ie = 0;
-    hfc->pid_PitchSpeed.Ie = 0;
-    hfc->pid_RollSpeed.Ie  = 0;
-    hfc->pid_CollAlt.Ie    = 0;
-    hfc->pid_Dist2T.Ie     = 0;
-    hfc->pid_Dist2P.Ie     = 0;
-    hfc->pid_PitchCruise.Ie= 0;
-    hfc->speed_Iterm_E     = 0;
-    hfc->speed_Iterm_N     = 0;
-}

@@ -35,6 +35,7 @@
 
 #include "mbed.h"
 #include "I2Ci.h"
+#include "structures.h"
 
 #define CHIP_NONE       0
 #define CHIP_HMC5883L   1
@@ -72,7 +73,7 @@ public:
     HMC5883L(I2Ci *m_i2c);
 
     /**Check sensor ID, initialize the sensor. Returns false if anything fails */
-    bool Init(int compass_type);
+    bool Init(int compass_type, ConfigData *pConfig);
     
     /* Function for setting configuration register A
     *
@@ -139,6 +140,7 @@ public:
        
 private:
     I2Ci *i2c;
+    ConfigData *pConfigData;
     int i2c_address;
     float duration;
     float interval;
