@@ -4,7 +4,7 @@
 #include "structures.h"
 
 
-int LoadConfiguration(ConfigData *pConfig);
+int LoadConfiguration(ConfigData **pConfig);
 
 //void Config_SetDefaults(T_HFC *hfc);
 //void Config_Read(T_Config *cfg);

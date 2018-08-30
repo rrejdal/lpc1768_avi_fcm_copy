@@ -13,17 +13,17 @@
 #define FLASH_CONFIG_SIZE   FLASH_SECTOR_SIZE_16_TO_29
 
 // Load configuration structure from Flash
-int LoadConfiguration(ConfigData *pConfig)
+int LoadConfiguration(ConfigData **pConfig)
 {
     // Map hfc config structure onto the flash and validate its version
-    pConfig = (ConfigData*)FLASH_CONFIG_ADDR;
+    ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if (pConfig->config_version != MIN_CONFIG_VERSION) {
-
-        return -1;
+    if (pConfigData->version != MIN_CONFIG_VERSION) {
+        return 0;
     }
 
-    return 0;
+    *pConfig = pConfigData;
+    return 1;
 }
 
 

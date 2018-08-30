@@ -1100,13 +1100,13 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], p->data, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_LIDAR_ALT)
-                CheckRangeAndSetB(&pConfig->ManualLidarAltitude, p->data, 0, 1);
+                CheckRangeAndSetI(&pConfig->ManualLidarAltitude, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetB(&pConfig->wind_compensation, p->data, 0, 1);
+                CheckRangeAndSetI(&pConfig->wind_compensation, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetB(&pConfig->path_navigation, p->data, 0, 1);
+                CheckRangeAndSetI(&pConfig->path_navigation, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
                 CheckRangeAndSetF(&pConfig->AngleCollMixing, p->data, 0, 2);
@@ -1121,7 +1121,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->pid_YawAngle.acceleration, p->data, 0.1f, 10000);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetB(&pConfig->nose_to_WP, p->data, 0, 1);
+                CheckRangeAndSetI(&pConfig->nose_to_WP, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDLIMIT)
                 CheckRangeAndSetF(&pConfig->landing_wind_threshold, p->data, 0, 100);
@@ -1338,7 +1338,7 @@ char TelemSerial::PreFlightChecks(void)
     int gps_error;
 
 	// Resetting IMU before pre-flight check, to deal with noisy compass type
-    ResetIMU(true);
+    ResetIMU(false);
 
     /* check gyro to be well calibrated and still */
     if (ABS(hfc->gyro_lp_disp[0])>0.05f || ABS(hfc->gyro_lp_disp[1])>0.05f || ABS(hfc->gyro_lp_disp[2])>0.05f)

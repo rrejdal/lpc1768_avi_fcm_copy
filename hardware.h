@@ -28,10 +28,10 @@
 
 #include "PinNames.h"
 
-#define LED_1       P1_28
-#define LED_2       P1_29
-#define LED_3       P1_31
-#define LED_4       P2_2
+#define LED_1       P1_18
+#define LED_2       P1_19
+#define LED_3       P1_21
+#define LED_4       P1_23
 
 #define CHANNEL_1   P2_0
 #define CHANNEL_2   P2_1

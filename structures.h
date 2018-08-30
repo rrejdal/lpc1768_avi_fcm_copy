@@ -614,6 +614,181 @@ typedef struct
     uint16  can_power_tx_errors;
 } T_Stats;
 
+
+typedef struct {
+
+    // User Config Data
+    int version;
+    int num_servo_nodes;
+    int num_gps_nodes;
+    int compass_type;
+    int canbus_freq_high;
+    int LidarFromServo;
+
+    int  autoReset;
+    int  can_servo;
+    int  fcm_servo;
+    int  power_node;
+    int  rpm_sensor;
+    int  linklive;
+    int  gps_vspeed;
+    int  gps_units;
+    int  ground_sensor;
+
+    int ccpm_type;
+    int SbusEnable;
+    int transmitter_protocol;
+    int RCmodeSwitchOfs;
+    int AllowArmInManual;
+
+    int     throttle_ctrl;
+    float   throttle_values[2];
+    float   throttle_gain;
+    float   throttle_multi_min;
+
+    float CollZeroAngle;
+    float CollAngleAutoRotate;
+    float CollThrAutoLevel;
+    float RollPitchAngle;
+
+    float PRstickRate;
+    float PRstickAngle;
+    float YawStickRate;
+    float StickVspeed;
+    float StickHspeed;
+    float StickHaccel;
+    float AngleCollMixing;
+    float Stick100range;
+    float stick_deadband[4];
+
+    float HspeedMax;
+    float HspeedAcc;
+    float VspeedMax;
+    float VspeedMin;
+    float VspeedAcc;
+
+    int landing_timeout;
+    float landing_vspeed;
+    float landing_appr_speed;
+    int   lidar_offset;
+
+    int   battery_cells;
+    int   battery_capacity;
+    int   power_typical;
+    int   rpm_typical;
+    float power_coeffs[6];
+
+    // Enginerring Config Data
+    int sensor_mode;
+    int servo_raw;
+
+    int pwm_period;
+    int telem_baudrate;
+    int telem_min_ctrl_period;
+
+    float dyn_yaw_rate_max;
+    float low_speed_limit;
+
+    float VspeedDownCurve[2];
+    float LidarHVcurve[4];
+    float TurnAccParams[3];
+    float collective_man_speed;
+    float takeoff_angle_rate;
+    float landing_vspeed_acc;
+    float cruise_speed_limit;
+    float landing_wind_threshold;
+    float joystick_max_speed;
+
+    int  ctrl_mode_inhibit[5];
+    float control_gains[5];
+    int  servo_revert[6];
+
+    int YawModeMin;
+    int YawModeMax;
+    int ManualLidarAltitude;
+
+    float AilRange;
+    float EleRange;
+    float RudRange;
+    float TorqCompMult;
+    float CollRange;
+    float CcpmMixer;
+    int   ModelSelect;
+
+    int  wind_compensation;
+    int  path_navigation;
+    int  nose_to_WP;
+
+    float pitchrate_pid_params[6];
+    float rollrate_pid_params[6];
+    float pitchangle_pid_params[6];
+    float rollangle_pid_params[6];
+    float yawrate_pid_params[6];
+    float yawangle_pid_params[5];
+    float collvspeed_pid_params[6];
+    float pitchspeed_pid_params[6];
+    float rollspeed_pid_params[6];
+    float collalt_pid_params[5];
+    float dist2T_pid_params[5];
+    float dist2P_pid_params[5];
+    float pitchCruise_pid_params[5];
+    float imu_pid_params[6];
+    float imu_yaw_pid_params[6];
+
+    float servo_speed[2];
+    int  acc_lp_freq;
+    int  gyro_lp_freq[3];
+    float AccIntegGains[3];
+
+    int  baro_lp_freq;
+    int  baro_vspeed_lp_freq;
+
+    float BaroVspeedWeight;
+    float GPSVspeedWeight;
+    float BaroAltitudeWeight;
+    int   heading_avgs;
+
+    float IMUaccGyroBlend;
+    float AltitudeBaroGPSblend_final;
+    float Pos_GPS_IMU_BlendGlitch;
+    float Pos_GPS_IMU_BlendReg;
+
+    float GTWP_retire_radius;
+    float GTWP_retire_speed;
+    float FTWP_retire_sr_factor;
+
+    unsigned char  acc_orient[6];
+    unsigned char  gyro_orient[6];
+    unsigned char  comp_orient[6];
+    unsigned char  fcm_orient[6];
+    float acc_ofs[3];
+    float acc_gains[3];
+    float acc_calib_matrix[3][3];
+
+    float gyro_ofs[3];
+
+    float gyro_gains[3];
+    float gyro_calib_matrix[3][3];
+    float comp_ofs[3];
+    float comp_gains[3];
+    float comp_calib_matrix[3][3];
+    float comp_declination_offset;
+    int  gyro_fixed_offsets;
+    float gyro_drift_coeffs[3][3];
+
+
+    float WindTableScale;
+    float WindSpeedLUT[46];
+    float Speed2AngleLUT[56];
+
+    float gear_ratio;
+    int  motor_poles;
+
+    float V2Energy[36];
+
+} __attribute__((packed)) ConfigData;
+
+#if 0
 typedef struct 
 {
     /* swash plate/throttle controls */
@@ -790,6 +965,7 @@ typedef struct
     int sensor_mode;
     int compass_type;
 } __attribute__((packed)) ConfigData;
+#endif
 
 typedef struct
 {

@@ -69,7 +69,7 @@ CAN can(CAN_RXD1, CAN_TXD1);
 GPS gps;
 
 //Serial pc(TRGT_TXD, TRGT_RXD);  // Debug Serial Port
-Serial pc(GPS_TX, GPS_RX);  // Debug Serial Port
+//Serial pc(GPS_TX, GPS_RX);  // Debug Serial Port
 
 RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
@@ -95,7 +95,7 @@ ConfigData *pConfig = NULL;
 
 // Text displayed on ShowSplash
 #define AVIDRONE_SPLASH "== AVIDRONE =="
-#define AVIDRONE_FCM_SPLASH "    FCM-2     "
+#define AVIDRONE_FCM_SPLASH "    AVI-FCM      "
 
 #define MAX_NUM_LIDAR        2
 #define MAX_NUM_CASTLE_LINKS 2
@@ -142,10 +142,13 @@ static int canbus_ack = 0;
 static int write_canbus_error = 0;
 
 #define FCM_FATAL_ERROR() { \
-    led1 = 1; led2 = 1; led3 = 1; led4 = 1; \
-    wait(0.5f); \
-    led1 = 0; led2 = 0; led3 = 0; led4 = 0; \
-    wait(0.5f); \
+    while(1) { \
+    	WDT_Kick(); \
+    	led1 = 1; led2 = 1; led3 = 1; led4 = 1; \
+    	wait(1.0f); \
+    	led1 = 0; led2 = 0; led3 = 0; led4 = 0; \
+    	wait(1.0f); \
+    } \
 }
 
 void ProcessButtonSelection();
@@ -265,7 +268,7 @@ void AutoReset(void)
 				 || ABS(hfc.SmoothAcc[PITCH] - hfc.IMUorient[PITCH])>(0.5f*D2R)
 				 || ABS(hfc.SmoothAcc[ROLL]  - hfc.IMUorient[ROLL] )>(0.5f*D2R)  )
 				{
-					telem.ResetIMU(true);
+					telem.ResetIMU(false);
 				}
 			}
 
@@ -295,9 +298,9 @@ static void OrientResetCounter()
       /*mmri: just took out the carriage return so that gyrotemp
        * compensation output data is more easily read in .csv file*/
 #if defined(DEBUG)
-      printf("IMU reset   ====   %f %f === ", hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D);
+    //  printf("IMU reset   ====   %f %f === ", hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D);
 #endif
-      telem.ResetIMU(true);
+      telem.ResetIMU(false);
     }
   }
 }
@@ -605,7 +608,7 @@ static void WriteToServos(void)
 static const char LINE_LABEL[8] = {'T', 'R', 'P', 'Y', 'C', ' ', ' ', ' '};
 static const unsigned char CTRL_MODE2Idx[7] = {RAW, RAW, RATE, ANGLE, SPEED, SPEED, POS};
 
-static void Display_CtrlMode(unsigned char line, unsigned char channel, unsigned char ctrl_inh[5], unsigned char ctrl_modes[5], float ctrl_out[NUM_CTRL_MODES][5], float throttle)
+static void Display_CtrlMode(unsigned char line, unsigned char channel, int ctrl_inh[5], unsigned char ctrl_modes[5], float ctrl_out[NUM_CTRL_MODES][5], float throttle)
 {
     unsigned char ctrl_mode = ctrl_modes[channel];
     float ctrl_value = ctrl_out[CTRL_MODE2Idx[ctrl_mode]][channel];
@@ -1687,10 +1690,10 @@ static void Playlist_ProcessTop(T_HFC *hfc)
                 CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], item->value1.f, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetB(&pConfig->wind_compensation, item->value1.i, 0, 1);
+                CheckRangeAndSetI(&pConfig->wind_compensation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetB(&pConfig->path_navigation, item->value1.i, 0, 1);
+                CheckRangeAndSetI(&pConfig->path_navigation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
                 CheckRangeAndSetF(&pConfig->AngleCollMixing, item->value1.f, 0, 2);
@@ -1699,7 +1702,7 @@ static void Playlist_ProcessTop(T_HFC *hfc)
                 CheckRangeAndSetF(&pConfig->cruise_speed_limit, item->value1.f, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetB(&pConfig->nose_to_WP, item->value1.i, 0, 1);
+                CheckRangeAndSetI(&pConfig->nose_to_WP, item->value1.i, 0, 1);
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -3363,7 +3366,7 @@ static void ProcessStats(void)
 
         if (write_canbus_error > 0) {
 #if defined(DEBUG)
-            printf("CAN write failed messages[%d]\r\n", write_canbus_error);
+           // printf("CAN write failed messages[%d]\r\n", write_canbus_error);
 #endif
             hfc.stats.can_servo_tx_errors = write_canbus_error;
         }
@@ -4115,7 +4118,7 @@ static void ProcessUserCmnds(char c)
     else if (c == ' ')
     {
         printf("\r\nIMU Reset\r\n");
-        telem.ResetIMU(true);
+        telem.ResetIMU(false);
 
         printf("\r\nPITCH measurements\r\n");
         for(int i = 0; i+1 < PITCH_COMP_LIMIT; i=i+2)
@@ -4193,7 +4196,7 @@ void ProcessButtonSelection()
     else
     if (hfc.display_mode==DISPLAY_CALIB)
     {
-        telem.ResetIMU(true);
+        telem.ResetIMU(false);
     }
     else
     if (hfc.display_mode==DISPLAY_COMPASS)
@@ -4296,7 +4299,7 @@ int InitCanServoNodes(int num_servo_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!can_node_found) {
@@ -4323,7 +4326,7 @@ int InitCanGpsNodes(int num_gps_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!can_node_found) {
@@ -4355,7 +4358,7 @@ int ConfigureCanServoNodes(int num_servo_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!canbus_ack) {
@@ -4384,7 +4387,7 @@ int ConfigureCanGpsNodes(int num_gps_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!canbus_ack) {
@@ -4495,9 +4498,9 @@ void InitializeRuntimeData(void)
 //
 int main()
 {
-    pc.baud(PC_BAUDRATE);
+    //pc.baud(PC_BAUDRATE);
 
-    printf("HELLO\r\n");
+    //printf("HELLO\r\n");
 
     spi.frequency(4000000);
     spi.format(8, 0);   // 0-sd ok, disp ok, 1-no sd, disp ok
@@ -4518,48 +4521,46 @@ int main()
 
     SysTick_Run();
 
-    InitializeRuntimeData();
-
-    if ((init_ok = LoadConfiguration(pConfig)) != 0) {
-        myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
-    }
-
-    xbus.SetSbusEnabled(pConfig->SbusEnable);
-
-    telem.Initialize(&hfc, pConfig);
-
     // TODO::SP: Need to do these...
     //Config_Read_Compass(&hfc);
     //Config_ApplyAndInit(&hfc);
 
     myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
 
-    /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
-    int frequency = (pConfig->canbus_freq_high == 1) ? 1000000 : 500000;
-    can.frequency(frequency);
-    can.attach(can_handler);
+    InitializeRuntimeData();
 
-    if (pConfig->num_servo_nodes) {
-        if ((init_ok = InitCanServoNodes(pConfig->num_servo_nodes)) != 0) {
-            init_ok = ConfigureCanServoNodes(pConfig->num_servo_nodes);
-        }
+    if ((init_ok = LoadConfiguration(&pConfig)) != 1) {
+        myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
     }
 
-    if (!init_ok) {
-        myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "CANBUS SERVO", "INITIALIZATION", "FAILED");
-    }
-    else {
-        if (pConfig->num_gps_nodes) {
+    if (init_ok) {
+        /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
+        int frequency = (pConfig->canbus_freq_high == 1) ? 1000000 : 500000;
+        can.frequency(frequency);
+        can.attach(can_handler);
 
-            gps.Init(pConfig->num_gps_nodes);
-
-            if ((init_ok =InitCanGpsNodes(pConfig->num_gps_nodes)) != 0) {
-                init_ok = ConfigureCanGpsNodes(pConfig->num_gps_nodes);
+        if (pConfig->num_servo_nodes) {
+            if ((init_ok = InitCanServoNodes(pConfig->num_servo_nodes)) != 0) {
+                init_ok = ConfigureCanServoNodes(pConfig->num_servo_nodes);
             }
         }
 
         if (!init_ok) {
-            myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "CANBUS GPS", "INITIALIZATION", "FAILED");
+            myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "CANBUS SERVO", "INITIALIZATION", "FAILED");
+        }
+        else {
+            if (pConfig->num_gps_nodes) {
+
+                gps.Init(pConfig->num_gps_nodes);
+
+                if ((init_ok =InitCanGpsNodes(pConfig->num_gps_nodes)) != 0) {
+                    init_ok = ConfigureCanGpsNodes(pConfig->num_gps_nodes);
+                }
+            }
+
+            if (!init_ok) {
+                myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "CANBUS GPS", "INITIALIZATION", "FAILED");
+            }
         }
     }
 
@@ -4604,17 +4605,20 @@ int main()
             myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
             init_ok = 0;
         }
-    }
 
-    xbus.ConfigRx();
-    telemetry.baud(pConfig->telem_baudrate);
+        xbus.SetSbusEnabled(pConfig->SbusEnable);
+        xbus.ConfigRx();
 
-    Servos_Init(&hfc);
+        telem.Initialize(&hfc, pConfig);
+        telemetry.baud(pConfig->telem_baudrate);
 
-    if (pConfig->LidarFromServo == 0) {
-        hfc.lidar_rise = GetTime_us();
-        lidar.fall(&Lidar_fall);
-        lidar.rise(&Lidar_rise);
+        Servos_Init(&hfc);
+
+        if (pConfig->LidarFromServo == 0) {
+            hfc.lidar_rise = GetTime_us();
+            lidar.fall(&Lidar_fall);
+            lidar.rise(&Lidar_rise);
+        }
     }
 
     if (init_ok) {
@@ -4629,9 +4633,9 @@ int main()
             // Main FCM control loop
             do_control();
 
-            if (pc.readable()) {
-                ProcessUserCmnds(pc.getc());
-            }
+            //if (pc.readable()) {
+            //    ProcessUserCmnds(pc.getc());
+            //}
         }
     }
     else {
