@@ -122,7 +122,7 @@ HMC5883L::HMC5883L(I2Ci *m_i2c)
     pConfigData = NULL;
 }
 
-bool HMC5883L::Init(int compass_type, ConfigData *pConfig)
+bool HMC5883L::Init(int compass_type, const ConfigData *pConfig)
 {
     char id[3]={0,0,0};
 	int numAvgsByte;
@@ -359,8 +359,8 @@ bool HMC5883L::getRawValues(float dT)
     return true;
 }
     
-float HMC5883L::GetHeadingDeg(unsigned char comp_orient[6], float offsets[3],
-                                  float gains[3], unsigned char fcm_orient[6],
+float HMC5883L::GetHeadingDeg(const unsigned char comp_orient[6], const float offsets[3],
+                                  const float gains[3], const unsigned char fcm_orient[6],
                                   float declination_offset, float pitch, float roll)
 {
     int i;

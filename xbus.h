@@ -28,7 +28,7 @@
 const float sbusScale = 0.0014880938f;
 const float sbusBias = -1.523808f;
 
-extern T_HFC hfc;
+extern FlightControlData hfc;
 
 struct sbusFrame_s {
     uint8_t syncByte;

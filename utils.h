@@ -43,11 +43,11 @@ void SaveConfig_Byte(FILE *fp, const char *name, unsigned char *value, int N);
 void GetLogFileName(char *filename);
 void LoadGyroCalibData(float ofs[3]);
 
-bool Streaming_Process(T_HFC *hfc);
+bool Streaming_Process(FlightControlData *hfc);
 
-void Profiling_Process(T_HFC *hfc, ConfigData *pConfig);
+void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
 
-void CalibrateSensors(T_HFC *hfc, float gB[3], ConfigData *pConfig);
+void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig);
 
 /* float32/float16 conversion
 ** largest +/-65504, smallest +/-6.10352e—6 */
@@ -59,7 +59,7 @@ void WDT_Kick();
 void WDT_Init(float timeout);
 bool WDT_ResetByWDT();
 
-void SensorCalib(T_HFC *hfc, float dT);
-void GyroCalibDynamic(T_HFC *hfc);
+void SensorCalib(FlightControlData *hfc, float dT);
+void GyroCalibDynamic(FlightControlData *hfc);
 
 #endif

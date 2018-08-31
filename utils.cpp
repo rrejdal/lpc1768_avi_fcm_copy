@@ -502,7 +502,7 @@ unsigned short int Float32toFloat16(const float in1)
 extern HMC5883L compass;   
 extern XBus xbus;
 
-static uint16 Streaming_GetValue(T_HFC *hfc, byte param)
+static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
 {
     byte index = param&0x3;
     uint16 value = 0;
@@ -634,7 +634,7 @@ case LOG_PARAM_POSITION:            // heli position relative to home [horizonta
 */
 
 /* returns true when the internal storage is full and the packets needs to be generated */
-bool Streaming_Process(T_HFC *hfc)
+bool Streaming_Process(FlightControlData *hfc)
 {
     if (!hfc->streaming_enable)
         return false;
@@ -666,7 +666,7 @@ bool Streaming_Process(T_HFC *hfc)
     return false;
 }
 
-void Profiling_Process(T_HFC *hfc, ConfigData *pConfig)
+void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
 {
     if (hfc->profile_mode == PROFILING_START)
     {
@@ -726,14 +726,14 @@ void Profiling_Process(T_HFC *hfc, ConfigData *pConfig)
     }
 }
 
-void GyroCalibDynamic(T_HFC *hfc)
+void GyroCalibDynamic(FlightControlData *hfc)
 {
     int i;
     for (i=0; i<3; i++)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
 
-void CalibrateSensors(T_HFC *hfc, float gB[3], ConfigData *pConfig)
+void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
 {
     int i;
     DigitalOut **LEDs = (DigitalOut**)hfc->leds;

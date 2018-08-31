@@ -16,7 +16,7 @@ public:
 
     TelemSerial(RawSerial *m_serial);
 
-    void Initialize(T_HFC *p_hfc, ConfigData *p_config) { hfc = p_hfc, pConfig = p_config; }
+    void Initialize(FlightControlData *p_hfc, const ConfigData *p_config) { hfc = p_hfc, pConfig = p_config; }
 
     /* receiving stuff */
     void ProcessCommands(void);
@@ -68,8 +68,8 @@ private:
     } T_Tentry;
 
     RawSerial *serial;
-    T_HFC *hfc;
-    ConfigData *pConfig;
+    FlightControlData *hfc;
+    const ConfigData *pConfig;
     T_Tentry curr_msg;
     T_Tentry Q[MAX_TELEM_MESSAGES];
     unsigned char messages;

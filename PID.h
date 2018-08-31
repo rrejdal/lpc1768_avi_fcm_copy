@@ -18,8 +18,8 @@ typedef struct
   char  decay;
 } T_PID;
 
-void  PID_Init(T_PID *pid, float params[8], char clip360, char decay);
-void  PID_P_Acc_Init(T_PID *pid, float params[5], char clip360, char decel);
+void  PID_Init(T_PID *pid, const float params[8], char clip360, char decay);
+void  PID_P_Acc_Init(T_PID *pid, const float params[5], char clip360, char decel);
 float PID(T_PID *pid, float SP, float PV, float dT);
 void  PID_SetForEnable(T_PID *pid, float SP, float PV, float CO);
 float PID_P_Acc(T_PID *pid, float SP, float PV, float dT, bool ignore_acc_max, bool double_acc);
