@@ -29,13 +29,20 @@
 int LoadConfiguration(ConfigData **pConfig);
 int SavePIDUpdates(FlightControlData *fcm_data);
 
+// Config Info
 #define MIN_CONFIG_VERSION      9
-
-#define FLASH_CONFIG_ADDR       USER_FLASH_AREA_START
+#define FLASH_CONFIG_ADDR       FLASH_SECTOR_29
 #define FLASH_CONFIG_SECTOR     29
 #define FLASH_CONFIG_SECTORS    (1 - 1)
 #define FLASH_CONFIG_SIZE       FLASH_SECTOR_SIZE_16_TO_29
+#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
 
+// Compass Calibration Info
+#define MIN_COMPASS_CAL_VERSION 1
+#define FLASH_COMPASS_CAL_ADDR      FLASH_SECTOR_28
+#define FLASH_COMPASS_CAL_SECTOR    28
+#define FLASH_COMPASS_CAL_SECTORS   (1 - 1)
+#define FLASH_COMAPSS_CAL_SIZE      FLASH_SECTOR_SIZE_16_TO_29
 #define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
 
 IAP iap;    // Provides In Application Programming of the Flash.
@@ -58,6 +65,24 @@ int LoadConfiguration(const ConfigData **pConfig)
     *pConfig = pConfigData;
     return 0;
 }
+
+/**
+  * @brief  Return a pointer to comapss calibration Data held in Flash.
+  * @param  **pCompass_cal: pointer to calibration Data in Flash
+  * @retval -1 if Config Data mismatch version, 0 on Success
+  */
+int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal)
+{
+    CompassCalibrationData *pCompass = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
+
+    if ((pCompass->version != MIN_COMPASS_CAL_VERSION) || !pCompass->valid) {
+        return -1;
+    }
+
+    *pCompass_cal = pCompass;
+    return 0;
+}
+
 
 /**
   * @brief  Update P, I, D values in config stucture
@@ -168,8 +193,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
 
-    // Erase Current Config
-    // TODO::SP: Error Handling
+    // Erase...
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
@@ -178,7 +202,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
         return -1;
     }
 
-    // Write Updated Config
+    // Write...
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
@@ -190,22 +214,43 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     return 0;
 }
 
-#if 0
-//TODO::SP: handle Compass Data
-void Config_Read_Compass(FlightControlData *hfc)
+/**
+  * @brief  Update New compass calibration values to Flash.
+  * @param  *pCompass_cal: pointer to compass calibration data in RAM
+  * @retval -1 on error, 0 on success
+  */
+int SaveCompassCalibration(CompassCalibrationData *pCompass_cal)
 {
+    CompassCalibrationData *pData = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
 
-    Config_Open((char*)"/local/compass.txt");
+    if (pData->version != MIN_COMPASS_CAL_VERSION) {
+        return -1;
+    }
 
-    LoadConfig_Float("ofs",   hfc->config.comp_ofs,   3);
-    LoadConfig_Float("gains", hfc->config.comp_gains, 3);
-    LoadConfig_Int  ("min",   hfc->compassMin, 3);
-    LoadConfig_Int  ("max",   hfc->compassMax, 3);
+    if (sizeof(CompassCalibrationData) > MAX_CONFIG_SIZE) {
+        return -1;
+    }
 
+    // Erase...
+    if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.erase(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    // Write...
+    if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.write((char *)pData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    return 0;
 }
-#endif
-
-
 
 #if 0
 void Config_Save(T_Config *cfg)

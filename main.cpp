@@ -48,7 +48,9 @@ void AltitudeUpdate(float alt_rate, float dT);
 void HeadingUpdate(float heading_rate, float dT);
 
 extern int LoadConfiguration(const ConfigData **pConfig);
+extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 extern int SavePIDUpdates(FlightControlData *fcm_data);
+extern int SaveCompassCalibration(CompassCalibrationData *pCompass_cal);
 
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
@@ -1410,11 +1412,11 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 sPRINTf(str, (char*)"HEAD %+3.1fdeg  ", hfc->compass_heading_lp);
                 myLcd.SetLine(1, str, 0);
             }
-            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, hfc->compassMin[0], hfc->compassMax[0]);
+            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, hfc->compass_cal.compassMin[0], hfc->compass_cal.compassMax[0]);
             myLcd.SetLine(2, str, 0);
-            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, hfc->compassMin[1], hfc->compassMax[1]);
+            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, hfc->compass_cal.compassMin[1], hfc->compass_cal.compassMax[1]);
             myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, hfc->compassMin[2], hfc->compassMax[2]);
+            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, hfc->compass_cal.compassMin[2], hfc->compass_cal.compassMax[2]);
             myLcd.SetLine(4, str, 0);
         }
     }
@@ -1995,6 +1997,8 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->throttle_armed = 0;
                 hfc->waypoint_stage = FM_LANDING_TIMEOUT;
                 hfc->touchdown_time = hfc->time_ms;
+
+                // TODO::SP: Error Handling on Flash write error??
                 SavePIDUpdates(hfc);
             }
         }
@@ -2875,24 +2879,19 @@ static void SensorsRescale(float accRaw[3], float gyroRaw[3])
     float tmp[3] = {0}; // temporary variable, used for calibration
 
     /* recalculate gyro drifts based on temperature data*/
-    if (!pConfig->gyro_fixed_offsets && (hfc.print_counter&0x3ff)==3)
-    {
-      float t = hfc.gyro_temp_lp;
-      for (i=0; i<3; i++)
-      {
-          // TODO::SP: FIX This is writing to readonly config area
-          /*
-          pConfig->gyro_ofs[i] = t*( t*pConfig->gyro_drift_coeffs[i][0]
-                              +  pConfig->gyro_drift_coeffs[i][1] )
-                              +  pConfig->gyro_drift_coeffs[i][2];
-                              */
-      }
+    if (!pConfig->gyro_fixed_offsets && (hfc.print_counter&0x3ff)==3)  {
+        float t = hfc.gyro_temp_lp;
+
+        for (i=0; i<3; i++) {
+            hfc.rw_cfg.gyro_ofs[i] = t*( t*pConfig->gyro_drift_coeffs[i][0]
+                                             + pConfig->gyro_drift_coeffs[i][1] )
+                                             + pConfig->gyro_drift_coeffs[i][2];
+        }
     }
   
     /* remove gyro drift */
-    for (i=0; i<3; i++)
-    {
-        gyroRaw[i] -= pConfig->gyro_ofs[i];
+    for (i=0; i<3; i++) {
+        gyroRaw[i] -= hfc.rw_cfg.gyro_ofs[i];
     }
 
     /* mmri: apply gain to gyro
@@ -3503,17 +3502,17 @@ static void CompassCalibration(void)
      * - If not calibrating, only update max and min if limits are not exceeded*/
     for (i=0; i<3; i++)
     {
-        hfc.compassMin[i] = min(hfc.compassMin[i], compass.dataXYZ[i]);
-        hfc.compassMax[i] = max(hfc.compassMax[i], compass.dataXYZ[i]);
-        mag_range[i] = hfc.compassMax[i] - hfc.compassMin[i];
+        hfc.compass_cal.compassMin[i] = min(hfc.compass_cal.compassMin[i], compass.dataXYZ[i]);
+        hfc.compass_cal.compassMax[i] = max(hfc.compass_cal.compassMax[i], compass.dataXYZ[i]);
+        mag_range[i] = hfc.compass_cal.compassMax[i] - hfc.compass_cal.compassMin[i];
     }
 
     for(i = 0; i<3; i++)
     {
         if( mag_range[i] > max_range )
         {
-            hfc.compassMax[i] = 0;
-            hfc.compassMin[i] = 0;
+            hfc.compass_cal.compassMax[i] = 0;
+            hfc.compass_cal.compassMin[i] = 0;
         }
     }
 
@@ -3592,13 +3591,17 @@ static void CompassCalibration(void)
     {
         for (i=0; i<3; i++)
         {
-            //TOFO::SP: Fix - writting config
-            /*
-            pConfig->comp_ofs[i] = (hfc.compassMin[i]+hfc.compassMax[i]+1)/2;
-            pConfig->comp_gains[i] = 500.0f/((hfc.compassMax[i]-hfc.compassMin[i])/2.0f);
-            */
+            hfc.compass_cal.comp_ofs[i] = (hfc.compass_cal.compassMin[i]+hfc.compass_cal.compassMax[i]+1)/2;
+            hfc.compass_cal.comp_gains[i] = 500.0f/((hfc.compass_cal.compassMax[i]-hfc.compass_cal.compassMin[i])/2.0f);
         }
 
+        hfc.compass_cal.valid = 1;
+
+        // TODO::SP: Error handling...?
+        SaveCompassCalibration(&hfc.compass_cal);
+        hfc.comp_calibrate = NO_COMP_CALIBRATE;
+
+#if 0
         FILE *fh;
 
         fh = fopen("/local/compass.txt", "w");
@@ -3624,6 +3627,7 @@ static void CompassCalibration(void)
 
         hfc.comp_calibrate = NO_COMP_CALIBRATE;
         printf("Done Calibration\r\n");
+#endif
     }
 
 }
@@ -3678,9 +3682,8 @@ void do_control()
         int new_values = (pConfig->num_gps_nodes == 0) ? compass.getRawValues(dT): compass.HaveNewData();
 
         if (new_values) {
-            hfc.compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, pConfig->comp_ofs, pConfig->comp_gains,
+            hfc.compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, hfc.compass_cal.comp_ofs, hfc.compass_cal.comp_gains,
                                                             pConfig->fcm_orient, pConfig->comp_declination_offset,
-                                                            /*hfc.SmoothAcc[PITCH], hfc.SmoothAcc[ROLL]);*/
                                                             hfc.IMUorient[PITCH], hfc.IMUorient[ROLL]);
 
             if (hfc.compass_heading_lp == 0) {
@@ -4129,8 +4132,8 @@ static void ProcessUserCmnds(char c)
             printf("%5d - %d  %5d - %5d\r\n",i,hfc.comp_roll_flags[i],i+1,hfc.comp_roll_flags[i+1]);
         }
 
-        printf("ofs:\t%5.2f\t%5.2f\t%5.2f\r\n", pConfig->comp_ofs[0], pConfig->comp_ofs[1], pConfig->comp_ofs[2]);
-        printf("gains:\t%5.2f\t%5.2f\t%5.2f\r\n", pConfig->comp_gains[0], pConfig->comp_gains[1], pConfig->comp_gains[2]);
+        printf("ofs:\t%5.2f\t%5.2f\t%5.2f\r\n", hfc.compass_cal.comp_ofs[0],  hfc.compass_cal.comp_ofs[1],  hfc.compass_cal.comp_ofs[2]);
+        printf("gains:\t%5.2f\t%5.2f\t%5.2f\r\n", hfc.compass_cal.comp_gains[0], hfc.compass_cal.comp_gains[1], hfc.compass_cal.comp_gains[2]);
     }
 }
 
@@ -4200,8 +4203,8 @@ void ProcessButtonSelection()
     {
         int i = 0;
 
-        hfc.compassMin[0] = hfc.compassMin[1] = hfc.compassMin[2] = 9999;
-        hfc.compassMax[0] = hfc.compassMax[1] = hfc.compassMax[2] = -9999;
+        hfc.compass_cal.compassMin[0] = hfc.compass_cal.compassMin[1] = hfc.compass_cal.compassMin[2] = 9999;
+        hfc.compass_cal.compassMax[0] = hfc.compass_cal.compassMax[1] = hfc.compass_cal.compassMax[2] = -9999;
 
         for(i = 0; i < PITCH_COMP_LIMIT; i++)
         {
@@ -4519,10 +4522,8 @@ void InitializeRuntimeData(void)
 
     hfc.orient_reset_counter = pConfig->orient_reset_counter;
 
-    // NOTE:SP: This is all data which is normally updated at runtim e
-    // back to the config data. Duplicated here for time being as Config
-    // is now read only.
-    // TODO:SP: Double check that references are correct
+    // NOTE:SP: This is data which is updated at runtime to a duplicated
+    // Read/Write area.
     hfc.rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
     hfc.rw_cfg.GTWP_retire_speed = pConfig->GTWP_retire_speed;
     hfc.rw_cfg.FTWP_retire_sr_factor = pConfig->FTWP_retire_sr_factor;
@@ -4564,11 +4565,38 @@ void InitializeRuntimeData(void)
     hfc.distance2WP_min = 999999;
     hfc.rpm_ticks          = Ticks1();
     hfc.comp_calibrate = NO_COMP_CALIBRATE;
-    hfc.compassMin[0] = hfc.compassMin[1] = hfc.compassMin[2] = 9999;
-    hfc.compassMax[0] = hfc.compassMax[1] = hfc.compassMax[2] = -9999;
+
+    for (int i = 0; i < 3; i++) {
+        hfc.rw_cfg.gyro_ofs[i] = pConfig->gyro_ofs[i];
+    }
 
     GenerateSpeed2AngleLUT();
 
+    // If there is a valid compass calibration, load it.
+    // otherwise use values from config.
+    const CompassCalibrationData *pCompass_cal = NULL;
+
+    if (LoadCompassCalibration(&pCompass_cal) != 0) {
+        memcpy(&hfc.compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
+    }
+    else {
+        // no valid calibration, use values from config
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.comp_ofs[i] = pConfig->comp_ofs[i];
+        }
+
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.comp_gains[i] = pConfig->comp_gains[i];
+        }
+
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.compassMin[i] = pConfig->compassMin[i];
+        }
+
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.compassMax[i] = pConfig->compassMax[i];
+        }
+    }
 }
 
 //
@@ -4596,9 +4624,6 @@ int main()
     xbus.revert[1] = 1;
 
     SysTick_Run();
-
-    // TODO::SP: Need to do these...
-    //Config_Read_Compass(&hfc);
 
     myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
 
@@ -4673,7 +4698,10 @@ int main()
                 compass.enable_i2c_MPU6050(MPU6050_ADDRESS);
             }
 
-            if (!compass.Init(pConfig->compass_type, pConfig)) {
+            // If have compass calibration data in Flash, load it.
+
+
+            if (!compass.Init(pConfig)) {
                 myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
                 init_ok = 0;
             }

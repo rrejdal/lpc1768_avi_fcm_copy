@@ -777,6 +777,9 @@ typedef struct ConfigurationData {
     float gyro_calib_matrix[3][3];
     float comp_ofs[3];
     float comp_gains[3];
+    float compassMin[3];
+    float compassMax[3];
+
     float comp_calib_matrix[3][3];
     float comp_declination_offset;
     int  gyro_fixed_offsets;
@@ -823,7 +826,18 @@ typedef struct
     float landing_wind_threshold;
     int battery_capacity;
     float WindTableScale;
+    float gyro_ofs[3];
 } ModifiableConfigData;
+
+typedef struct
+{
+    int version;
+    int valid;
+    float comp_ofs[3];
+    float comp_gains[3];
+    float compassMin[3];
+    float compassMax[3];
+} CompassCalibrationData;
 
 typedef struct
 {
@@ -993,8 +1007,6 @@ typedef struct
     float        linklive_values[13];   // castle linklive actual values
     unsigned int linklive_period_T;
     
-    int compassMin[3];      // min and max compass values [R/F/U]
-    int compassMax[3];
     int comp_pitch_flags[PITCH_COMP_LIMIT+1]; // used to tack whether the compass hit pitches from -85 to 85 deg
     int comp_roll_flags[ROLL_COMP_LIMIT+1]; // used to check whether the compass hit rolls from -175 to 175 degress
     int comp_calibrate;     // 0 means not calibrating, 1 means calibrating, 2 means just finished calibration
@@ -1057,6 +1069,8 @@ typedef struct
 
     ModifiableConfigData rw_cfg;
 
+    CompassCalibrationData compass_cal;
+
     T_Command command;
     T_Telem_Ctrl0   telemCtrl0;
     T_Telem_GPS1    telemGPS1;
@@ -1080,8 +1094,6 @@ typedef struct
 
     /* extra 6000 bytes work, 12000 does not */
 } FlightControlData;
-
-
 
 
 

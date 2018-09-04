@@ -122,7 +122,7 @@ HMC5883L::HMC5883L(I2Ci *m_i2c)
     pConfigData = NULL;
 }
 
-bool HMC5883L::Init(int compass_type, const ConfigData *pConfig)
+bool HMC5883L::Init(const ConfigData *pConfig)
 {
     char id[3]={0,0,0};
 	int numAvgsByte;
@@ -135,7 +135,7 @@ bool HMC5883L::Init(int compass_type, const ConfigData *pConfig)
 
 	pConfigData = pConfig;
 
-	if (compass_type == CHIP_MMC5883MA) {
+	if (pConfigData->compass_type == CHIP_MMC5883MA) {
 	    lsb_per_mga_ = 4.0;
 	    return true;
 	}
@@ -382,9 +382,9 @@ float HMC5883L::GetHeadingDeg(const unsigned char comp_orient[6], const float of
     if( gains[0] == 0 )
     {
     	for (i=0; i<3; i++) {
-			dataXYZcalib[i] = pConfigData->comp_calib_matrix[0][i] * (dataXYZ[0] - pConfigData->comp_ofs[0])
-		                        + pConfigData->comp_calib_matrix[1][i] * (dataXYZ[1] - pConfigData->comp_ofs[1])
-		                        + pConfigData->comp_calib_matrix[2][i] * (dataXYZ[2] - pConfigData->comp_ofs[2]);
+			dataXYZcalib[i] = pConfigData->comp_calib_matrix[0][i] * (dataXYZ[0] - offsets[0])
+		                        + pConfigData->comp_calib_matrix[1][i] * (dataXYZ[1] - offsets[1])
+		                        + pConfigData->comp_calib_matrix[2][i] * (dataXYZ[2] - offsets[2]);
     	}
     }
     else {

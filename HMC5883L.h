@@ -73,7 +73,7 @@ public:
     HMC5883L(I2Ci *m_i2c);
 
     /**Check sensor ID, initialize the sensor. Returns false if anything fails */
-    bool Init(int compass_type, const ConfigData *pConfig);
+    bool Init(const ConfigData *pConfig);
     
     /* Function for setting configuration register A
     *

@@ -1579,6 +1579,8 @@ void TelemSerial::Disarm(void)
 	hfc->waypoint_type   = WAYPOINT_NONE;
 	hfc->playlist_status = PLAYLIST_STOPPED;
 	hfc->LidarCtrlMode   = false;
+
+	// TODO::SP: Error handling on Flash write error??
 	SavePIDUpdates(hfc);
 }
 
@@ -1970,8 +1972,9 @@ void TelemSerial::ResetIMU(bool print)
     hfc->IMUorient[ROLL]  = hfc->SmoothAcc[ROLL];
 
     /* re-orient compass based on the new pitch/roll */
-    hfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, pConfig->comp_ofs, pConfig->comp_gains, pConfig->fcm_orient,
-                                                pConfig->comp_declination_offset, hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
+    hfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, hfc->compass_cal.comp_ofs, hfc->compass_cal.comp_gains,
+                                                    pConfig->fcm_orient, pConfig->comp_declination_offset,
+                                                    hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
     hfc->compass_heading_lp = hfc->compass_heading;
     hfc->IMUorient[YAW] = hfc->compass_heading_lp*D2R;
     IMU_PRY2Q(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL], hfc->IMUorient[YAW]);

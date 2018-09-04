@@ -773,18 +773,18 @@ void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
     {
       for (i=0; i<3; i++)
       {
-        pConfig->gyro_ofs[i]  = hfc->calib_gyro_avg[i]/hfc->calib_count;
+        hfc->rw_cfg.gyro_ofs[i]  = hfc->calib_gyro_avg[i]/hfc->calib_count;
         hfc->calib_gyro_avg[i]  = 0;
         hfc->gyroOfs[i] = 0;
       }
       LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
       printf("= Calibrated: ");
-      printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", pConfig->gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2], hfc->gyro_temp_lp);
+      printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2], hfc->gyro_temp_lp);
       {
         FILE *fp = fopen("/local/gyro_cal.txt", "w");  // Open "out.txt" on the local file system for writing
         if (fp)
         {
-            fprintf(fp, "%f\t%f\t%f\t%f\r\n", hfc->gyro_temp_lp, pConfig->gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2]);
+            fprintf(fp, "%f\t%f\t%f\t%f\r\n", hfc->gyro_temp_lp, hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2]);
             fclose(fp);
         }
       }      
