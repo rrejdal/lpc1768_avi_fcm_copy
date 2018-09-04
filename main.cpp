@@ -50,7 +50,7 @@ void HeadingUpdate(float heading_rate, float dT);
 extern int LoadConfiguration(const ConfigData **pConfig);
 extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 extern int SavePIDUpdates(FlightControlData *fcm_data);
-extern int SaveCompassCalibration(CompassCalibrationData *pCompass_cal);
+extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
@@ -4637,7 +4637,7 @@ int main()
 
         InitializeRuntimeData();
 
-        //SavePIDUpdates(&hfc);
+        //SavePIDUpdates(&hfc); // just for testing
 
         /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
         int frequency = (pConfig->canbus_freq_high == 1) ? 1000000 : 500000;

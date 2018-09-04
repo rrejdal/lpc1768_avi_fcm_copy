@@ -26,8 +26,10 @@
 #include "structures.h"
 #include "IAP.h"
 
-int LoadConfiguration(ConfigData **pConfig);
+int LoadConfiguration(const ConfigData **pConfig);
+int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 int SavePIDUpdates(FlightControlData *fcm_data);
+int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
 // Config Info
 #define MIN_CONFIG_VERSION      9
@@ -46,6 +48,8 @@ int SavePIDUpdates(FlightControlData *fcm_data);
 #define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
 
 IAP iap;    // Provides In Application Programming of the Flash.
+
+int __attribute__((__section__(".ramconfig"))) ram_config; // this is defined by the linker. DO NOT CHANGE!
 
 /**
   * @brief  Return a pointer to Config Data held in Flash .
@@ -178,16 +182,13 @@ int SavePIDUpdates(FlightControlData *fcm_data)
         return -1;
     }
 
-    // Grab some memory to copy config strcture into.
-    // TODO:SP: This should be reserved from the linker so that we do not need to malloc
-    //          and so ensure we alsways have the memory we need!
-    ConfigData *pConfigData = (ConfigData *) malloc(sizeof(ConfigData));
+    // Copy Flash config into reserved RAM space (setup from Linker)
+    ConfigData *pConfigData = (ConfigData *)&ram_config;
     if (pConfigData == NULL) {
-        // No available Memory !
         return -1;
     }
 
-    // copy config data to RAM
+    // copy config data from Flash to RAM
     memcpy(pConfigData, pFlashConfigData, sizeof(ConfigData));
 
     // Overwrite PID config values
@@ -219,7 +220,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
   * @param  *pCompass_cal: pointer to compass calibration data in RAM
   * @retval -1 on error, 0 on success
   */
-int SaveCompassCalibration(CompassCalibrationData *pCompass_cal)
+int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
 {
     CompassCalibrationData *pData = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
 
