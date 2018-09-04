@@ -193,8 +193,8 @@ void GenerateSpeed2AngleLUT(void)
     int i;
     for (i=0; i<SPEED2ANGLE_SIZE; i++) {
         float speed = i*0.5f;
-        float angle = GetAngleFromSpeed(speed, pConfig->WindSpeedLUT, hfc.WindTableScale);
-        hfc.Speed2AngleLUT[i] = angle;
+        float angle = GetAngleFromSpeed(speed, pConfig->WindSpeedLUT, hfc.rw_cfg.WindTableScale);
+        hfc.rw_cfg.Speed2AngleLUT[i] = angle;
     }
 }
 
@@ -1617,13 +1617,13 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, item->value1.f, 0.1f, 10))
-                	hfc->VspeedMax = hfc->pid_CollAlt.COmax;
+                	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, item->value1.f, 0.1f, 100))
-                	hfc->VspeedAcc = hfc->pid_CollAlt.acceleration;
+                	hfc->rw_cfg.VspeedAcc = hfc->pid_CollAlt.acceleration;
             }
             else
 //            if (sub_param==TELEM_PARAM_WP_TYPE)
@@ -1638,21 +1638,21 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             }
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_RADIUS)
-                CheckRangeAndSetF(&hfc->GTWP_retire_radius, item->value1.f, 0, 20);
+                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_radius, item->value1.f, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_SPEED)
-                CheckRangeAndSetF(&hfc->GTWP_retire_speed, item->value1.f, 0, 20);
+                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_speed, item->value1.f, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_FTWP_SR_FACTOR)
-                CheckRangeAndSetF(&hfc->FTWP_retire_sr_factor, item->value1.f, 0, 10);
+                CheckRangeAndSetF(&hfc->rw_cfg.FTWP_retire_sr_factor, item->value1.f, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc->low_speed_limit, item->value1.f, 1, 30);
+                CheckRangeAndSetF(&hfc->rw_cfg.low_speed_limit, item->value1.f, 1, 30);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, item->value1.f, -10, -0.5))
-                	hfc->VspeedMin = hfc->pid_CollAlt.COmin;
+                	hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
             }
             else
             if (sub_param==TELEM_PARAM_WP_ALTITUDE_BASE)
@@ -1677,19 +1677,19 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
                 CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], item->value1.f, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetI(&hfc->wind_compensation, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.wind_compensation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetI(&hfc->path_navigation, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.path_navigation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
-                CheckRangeAndSetF(&hfc->AngleCollMixing, item->value1.f, 0, 2);
+                CheckRangeAndSetF(&hfc->rw_cfg.AngleCollMixing, item->value1.f, 0, 2);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_LIMIT)
-                CheckRangeAndSetF(&hfc->cruise_speed_limit, item->value1.f, 0, 100);
+                CheckRangeAndSetF(&hfc->rw_cfg.cruise_speed_limit, item->value1.f, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetI(&hfc->nose_to_WP, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -1936,7 +1936,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
     {
         if (hfc->waypoint_stage == FM_LANDING_WAYPOINT)
         {
-            if (gps_data.HspeedC <= hfc->GTWP_retire_speed && hfc->gps_to_waypoint[0] <= hfc->GTWP_retire_radius)
+            if (gps_data.HspeedC <= hfc->rw_cfg.GTWP_retire_speed && hfc->gps_to_waypoint[0] <= hfc->rw_cfg.GTWP_retire_radius)
             {
                 /* send out message and setup timeout */
                 hfc->waypoint_stage = FM_LANDING_HOLD;
@@ -2269,12 +2269,12 @@ static void ServoUpdate(float dT)
         {
           if (hfc.joy_PRmode)
           {
-              SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.StickHaccel, dT);
-              SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.StickHaccel, dT);
+              SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.rw_cfg.StickHaccel, dT);
+              SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.rw_cfg.StickHaccel, dT);
           }
           else
           {
-            hfc.ctrl_out[SPEED][PITCH] += hfc.joy_values[THRO]*hfc.StickHaccel*dT;
+            hfc.ctrl_out[SPEED][PITCH] += hfc.joy_values[THRO]*hfc.rw_cfg.StickHaccel*dT;
 
             if (hfc.ctrl_out[SPEED][PITCH] > pConfig->joystick_max_speed)
               hfc.ctrl_out[SPEED][PITCH] = pConfig->joystick_max_speed;
@@ -2282,13 +2282,13 @@ static void ServoUpdate(float dT)
             if (hfc.joy_values[THRO]<0 && hfc.ctrl_out[SPEED][PITCH]<0)
               hfc.ctrl_out[SPEED][PITCH] = 0;
 
-            SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   0,  hfc.StickHaccel, dT);
+            SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   0,  hfc.rw_cfg.StickHaccel, dT);
           }
         }
         else
         {
-          SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.StickHaccel, dT);
-          SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.StickHaccel, dT);
+          SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.rw_cfg.StickHaccel, dT);
+          SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.rw_cfg.StickHaccel, dT);
         }
 
         hfc.ctrl_out[RATE][PITCH]  = hfc.ctrl_out[RAW][PITCH]*hfc.PRstick_rate  + hfc.pid_PitchAngle.COofs;
@@ -2317,7 +2317,7 @@ static void ServoUpdate(float dT)
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
-        if (hfc.ManualLidarAltitude) {
+        if (hfc.rw_cfg.ManualLidarAltitude) {
             hfc.ctrl_out[POS][COLL] = 2 + 2*hfc.ctrl_out[RAW][COLL];
         }
 
@@ -2394,7 +2394,7 @@ static void ServoUpdate(float dT)
 
         /* do path navigation only once far enough from the target
         ** since otherwise trust vectoring will take care of the final approach */
-        if (hfc.path_navigation && distance_to_ref>2)
+        if (hfc.rw_cfg.path_navigation && distance_to_ref>2)
         {
             /* add a side vector to the main speed vector to the target waypoint.
             ** The side vector is proportional to the current distance from the path
@@ -2457,7 +2457,7 @@ static void ServoUpdate(float dT)
       /* for high speeds, make the nose to point towards the target,
       * or to follow the ground speed vector. For low speeds, do not change it */
       if (distance_to_ref>5)
-          hfc.ctrl_out[ANGLE][YAW] = hfc.nose_to_WP ? course_to_ref : hfc.waypoint_STcourse;
+          hfc.ctrl_out[ANGLE][YAW] = hfc.rw_cfg.nose_to_WP ? course_to_ref : hfc.waypoint_STcourse;
 
 #ifndef THRUST_VECTORING
       if (/*speed>pConfig->low_speed_limit &&*/ distance_to_ref>5 || hfc.waypoint_type==WAYPOINT_FLYTHROUGH)
@@ -2507,7 +2507,7 @@ static void ServoUpdate(float dT)
           {
               /* once it gets close enough at low enough speed, also wait for altitude to match the target !!!!!!!!! */
               GpsData gps_data = gps.GetGpsData();
-              if (gps_data.HspeedC <= hfc.GTWP_retire_speed && distance_to_ref <= hfc.GTWP_retire_radius)
+              if (gps_data.HspeedC <= hfc.rw_cfg.GTWP_retire_speed && distance_to_ref <= hfc.rw_cfg.GTWP_retire_radius)
                 retire_waypoint = true;
           }
       }
@@ -2531,7 +2531,7 @@ static void ServoUpdate(float dT)
 //      if (!(hfc.print_counter&0x1f))
 //        printf("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
       /* rotate E/N speed PID I-terms into current R/F */
-      if (hfc.wind_compensation)
+      if (hfc.rw_cfg.wind_compensation)
       {
           Rotate(hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.IMUorient[YAW], &hfc.pid_RollSpeed.Ie, &hfc.pid_PitchSpeed.Ie);
 //          if (!(hfc.print_counter&0x1f))
@@ -2553,7 +2553,7 @@ static void ServoUpdate(float dT)
 
       if (!hfc.cruise_mode)
       {
-          if (ABS(hfc.ctrl_out[SPEED][PITCH]) >= hfc.cruise_speed_limit)
+          if (ABS(hfc.ctrl_out[SPEED][PITCH]) >= hfc.rw_cfg.cruise_speed_limit)
           {
               hfc.cruise_mode = true;
               /* smoothly engage cruise mode by keeping the current angle */
@@ -2562,7 +2562,7 @@ static void ServoUpdate(float dT)
       }
       else
       {
-          if (ABS(hfc.ctrl_out[SPEED][PITCH]) < 0.8f*hfc.cruise_speed_limit)
+          if (ABS(hfc.ctrl_out[SPEED][PITCH]) < 0.8f*hfc.rw_cfg.cruise_speed_limit)
           {
               hfc.cruise_mode = false;
               /* smoothly engage normal speed mode */
@@ -2572,7 +2572,7 @@ static void ServoUpdate(float dT)
       if (hfc.cruise_mode)
       {
           /* set trip to an angle, which corresponds to the target speed */
-          float angle = hfc.Speed2AngleLUT[min((int)(ABS(hfc.ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
+          float angle = hfc.rw_cfg.Speed2AngleLUT[min((int)(ABS(hfc.ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
           if (hfc.ctrl_out[SPEED][PITCH]<0)
               angle = -angle;
           hfc.pid_PitchCruise.COofs = angle;
@@ -2588,7 +2588,7 @@ static void ServoUpdate(float dT)
 //          printf("cS %5.3f mS %5.3f a %5.2f i %f\n", hfc.ctrl_out[SPEED][ROLL], hfc.speedHeliRFU[0], hfc.ctrl_out[ANGLE][ROLL], hfc.pid_RollSpeed.Ie);
 
       /* rotate back R/F I-terms to E/N */
-      if (hfc.wind_compensation)
+      if (hfc.rw_cfg.wind_compensation)
       {
           Rotate(hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie, -hfc.IMUorient[YAW], &hfc.speed_Iterm_E, &hfc.speed_Iterm_N);
 //          if (!(hfc.print_counter&0x1f))
@@ -2739,16 +2739,16 @@ static void ServoUpdate(float dT)
         }
 
         /* never use lidar ctrl mode in manual lidar ctrl mode */
-        if (hfc.ManualLidarAltitude) {
+        if (hfc.rw_cfg.ManualLidarAltitude) {
             hfc.LidarCtrlMode = false;
         }
 
         /* select regular or lidar based altitude values */
-        CurrAltitude = hfc.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
+        CurrAltitude = hfc.rw_cfg.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
         CtrlAltitude = hfc.LidarCtrlMode ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
 
         /* increase vertical down speed limit with an increased horizontal speed */
-        vspeedmin = max(pConfig->VspeedDownCurve[1], hfc.VspeedMin+pConfig->VspeedDownCurve[0]*hfc.gps_speed);
+        vspeedmin = max(pConfig->VspeedDownCurve[1], hfc.rw_cfg.VspeedMin+pConfig->VspeedDownCurve[0]*hfc.gps_speed);
 		hfc.pid_CollAlt.COmin = vspeedmin;
 
 //        if (!(hfc.print_counter&0x3f))
@@ -2798,8 +2798,8 @@ static void ServoUpdate(float dT)
     /* for fixed pitch prop, collective drives the throttle, throttle lever gates it */
     if (pConfig->throttle_ctrl==PROP_FIXED_PITCH)
     {
-        if (hfc.AngleCollMixing) {
-            hfc.ctrl_out[RAW][COLL] += hfc.AngleCollMixing*(1/AngleCompensation-1);
+        if (hfc.rw_cfg.AngleCollMixing) {
+            hfc.ctrl_out[RAW][COLL] += hfc.rw_cfg.AngleCollMixing*(1/AngleCompensation-1);
         }
 
         hfc.ctrl_out[RAW][THRO] = hfc.ctrl_out[RAW][COLL];
@@ -3024,7 +3024,7 @@ static void UpdateBatteryStatus(float dT)
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
     /* when current is below 0.2C, battery is considered unloaded */
-    if (I < (0.0002f * hfc.battery_capacity)) {
+    if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
@@ -4478,11 +4478,11 @@ void InitializeRuntimeData(void)
 
     // save default values for playlist mode, duplicated and used within hfc.
     //   - These used to be in cfg, but this is now READ only
-    hfc.VspeedMax = hfc.pid_CollAlt.COmax;
-    hfc.VspeedMin = hfc.pid_CollAlt.COmin;
-    hfc.VspeedAcc = hfc.pid_CollAlt.acceleration;
-    hfc.HspeedMax = hfc.pid_Dist2T.COmax;
-    hfc.HspeedAcc = hfc.pid_Dist2T.acceleration;
+    hfc.rw_cfg.VspeedMax = hfc.pid_CollAlt.COmax;
+    hfc.rw_cfg.VspeedMin = hfc.pid_CollAlt.COmin;
+    hfc.rw_cfg.VspeedAcc = hfc.pid_CollAlt.acceleration;
+    hfc.rw_cfg.HspeedMax = hfc.pid_Dist2T.COmax;
+    hfc.rw_cfg.HspeedAcc = hfc.pid_Dist2T.acceleration;
 
     // initialize sensor's low pass filters
     for (int i=0; i < 3; i++) {
@@ -4523,26 +4523,26 @@ void InitializeRuntimeData(void)
     // back to the config data. Duplicated here for time being as Config
     // is now read only.
     // TODO:SP: Double check that references are correct
-    hfc.GTWP_retire_radius = pConfig->GTWP_retire_radius;
-    hfc.GTWP_retire_speed = pConfig->GTWP_retire_speed;
-    hfc.FTWP_retire_sr_factor = pConfig->FTWP_retire_sr_factor;
-    hfc.low_speed_limit = pConfig->low_speed_limit;
-    hfc.PRstickRate = pConfig->PRstickRate;
-    hfc.PRstickAngle = pConfig->PRstickAngle;
-    hfc.YawStickRate = pConfig->YawStickRate;
-    hfc.StickVspeed = pConfig->StickVspeed;
-    hfc.StickHspeed = pConfig->StickHspeed;
-    hfc.StickHaccel = pConfig->StickHaccel;
-    hfc.RollPitchAngle = pConfig->RollPitchAngle;
-    hfc.wind_compensation = pConfig->wind_compensation;
-    hfc.path_navigation = pConfig->path_navigation;
-    hfc.ManualLidarAltitude = pConfig->ManualLidarAltitude;
-    hfc.AngleCollMixing = pConfig->AngleCollMixing;
-    hfc.cruise_speed_limit = pConfig->cruise_speed_limit;
-    hfc.nose_to_WP = pConfig->nose_to_WP;
-    hfc.landing_wind_threshold = pConfig->landing_wind_threshold;
-    hfc.battery_capacity = pConfig->battery_capacity;
-    hfc.WindTableScale = pConfig->WindTableScale;
+    hfc.rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
+    hfc.rw_cfg.GTWP_retire_speed = pConfig->GTWP_retire_speed;
+    hfc.rw_cfg.FTWP_retire_sr_factor = pConfig->FTWP_retire_sr_factor;
+    hfc.rw_cfg.low_speed_limit = pConfig->low_speed_limit;
+    hfc.rw_cfg.PRstickRate = pConfig->PRstickRate;
+    hfc.rw_cfg.PRstickAngle = pConfig->PRstickAngle;
+    hfc.rw_cfg.YawStickRate = pConfig->YawStickRate;
+    hfc.rw_cfg.StickVspeed = pConfig->StickVspeed;
+    hfc.rw_cfg.StickHspeed = pConfig->StickHspeed;
+    hfc.rw_cfg.StickHaccel = pConfig->StickHaccel;
+    hfc.rw_cfg.RollPitchAngle = pConfig->RollPitchAngle;
+    hfc.rw_cfg.wind_compensation = pConfig->wind_compensation;
+    hfc.rw_cfg.path_navigation = pConfig->path_navigation;
+    hfc.rw_cfg.ManualLidarAltitude = pConfig->ManualLidarAltitude;
+    hfc.rw_cfg.AngleCollMixing = pConfig->AngleCollMixing;
+    hfc.rw_cfg.cruise_speed_limit = pConfig->cruise_speed_limit;
+    hfc.rw_cfg.nose_to_WP = pConfig->nose_to_WP;
+    hfc.rw_cfg.landing_wind_threshold = pConfig->landing_wind_threshold;
+    hfc.rw_cfg.battery_capacity = pConfig->battery_capacity;
+    hfc.rw_cfg.WindTableScale = pConfig->WindTableScale;
 
     hfc.command.command = TELEM_CMD_NONE;
     hfc.full_auto = true;

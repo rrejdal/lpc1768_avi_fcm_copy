@@ -711,7 +711,7 @@ typedef struct ConfigurationData {
 
     int YawModeMin;
     int YawModeMax;
-    int ManualLidarAltitude;
+    unsigned char ManualLidarAltitude;
 
     float AilRange;
     float EleRange;
@@ -721,9 +721,9 @@ typedef struct ConfigurationData {
     float CcpmMixer;
     int   ModelSelect;
 
-    int  wind_compensation;
-    int  path_navigation;
-    int  nose_to_WP;
+    unsigned char  wind_compensation;
+    unsigned char  path_navigation;
+    unsigned char  nose_to_WP;
 
     float pitchrate_pid_params[6];
     float rollrate_pid_params[6];
@@ -792,6 +792,38 @@ typedef struct ConfigurationData {
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
+
+// This data is initialized from the config, but may be updated at Runtime, through Telemetry.
+// Keep it here to easily see which config data is writable.
+typedef struct
+{
+    float HspeedMax;
+    float HspeedAcc;
+    float VspeedMax;
+    float VspeedMin;
+    float VspeedAcc;
+    float Speed2AngleLUT[56];
+    float GTWP_retire_radius;
+    float GTWP_retire_speed;
+    float FTWP_retire_sr_factor;
+    float low_speed_limit;
+    float PRstickRate;
+    float PRstickAngle;
+    float YawStickRate;
+    float StickVspeed;
+    float StickHspeed;
+    float StickHaccel;
+    float RollPitchAngle;
+    unsigned char wind_compensation;
+    unsigned char path_navigation;
+    unsigned char ManualLidarAltitude;
+    float AngleCollMixing;
+    float cruise_speed_limit;
+    unsigned char nose_to_WP;
+    float landing_wind_threshold;
+    int battery_capacity;
+    float WindTableScale;
+} ModifiableConfigData;
 
 typedef struct
 {
@@ -1021,36 +1053,9 @@ typedef struct
     uint16  tcpip_user1;  // custom field 1
     uint16  tcpip_user2;  // custom field 2
     
-    // Copied/defaulted from Config
-    // TODO:SP: Rename these or move to a new section for r/w data
-    float HspeedMax;
-    float HspeedAcc;
-    float VspeedMax;
-    float VspeedMin;
-    float VspeedAcc;
-    float Speed2AngleLUT[56];
-    float GTWP_retire_radius;
-    float GTWP_retire_speed;
-    float FTWP_retire_sr_factor;
-    float low_speed_limit;
-    float PRstickRate;
-    float PRstickAngle;
-    float YawStickRate;
-    float StickVspeed;
-    float StickHspeed;
-    float StickHaccel;
-    float RollPitchAngle;
-    int wind_compensation;
-    int path_navigation;
-    int ManualLidarAltitude;
-    float AngleCollMixing;
-    float cruise_speed_limit;
-    int nose_to_WP;
-    float landing_wind_threshold;
-    int battery_capacity;
-    float WindTableScale;
-
     void *leds[4];      // pointers to 4 MBED LEDs
+
+    ModifiableConfigData rw_cfg;
 
     T_Command command;
     T_Telem_Ctrl0   telemCtrl0;
@@ -1075,6 +1080,10 @@ typedef struct
 
     /* extra 6000 bytes work, 12000 does not */
 } FlightControlData;
+
+
+
+
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
  * 					  AVICAN_POWER_VALUES2 all uint16 Vservo, Vaux12V, dTms_adc, adc_count */

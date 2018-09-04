@@ -513,8 +513,8 @@ float TelemSerial::WinSpeedEst(float Wangle)
     int angle = ABS(Wangle)*16;
     int anglei = min(44, angle/16);
     int angler = angle & 0xf;
-    float speed1 = pConfig->WindSpeedLUT[anglei]*hfc->WindTableScale;
-    float speed2 = pConfig->WindSpeedLUT[anglei+1]*hfc->WindTableScale;
+    float speed1 = pConfig->WindSpeedLUT[anglei]*hfc->rw_cfg.WindTableScale;
+    float speed2 = pConfig->WindSpeedLUT[anglei+1]*hfc->rw_cfg.WindTableScale;
     float speed = (speed1*(16-angler) + speed2*angler) * 0.0625f;
 
     if (Wangle<0) {
@@ -717,11 +717,11 @@ void TelemSerial::SaveValuesForAbort(void)
 
 void TelemSerial::ApplyDefaults(void)
 {
-    hfc->pid_CollAlt.COmax        = hfc->VspeedMax;
-    hfc->pid_CollAlt.COmin        = hfc->VspeedMin;
-    hfc->pid_CollAlt.acceleration = hfc->VspeedAcc;
-    hfc->pid_Dist2T.COmax         = hfc->HspeedMax;
-    hfc->pid_Dist2T.acceleration  = hfc->HspeedAcc;
+    hfc->pid_CollAlt.COmax        = hfc->rw_cfg.VspeedMax;
+    hfc->pid_CollAlt.COmin        = hfc->rw_cfg.VspeedMin;
+    hfc->pid_CollAlt.acceleration = hfc->rw_cfg.VspeedAcc;
+    hfc->pid_Dist2T.COmax         = hfc->rw_cfg.HspeedMax;
+    hfc->pid_Dist2T.acceleration  = hfc->rw_cfg.HspeedAcc;
     CalcDynYawRate();
 }
 
@@ -779,7 +779,7 @@ float TelemSerial::CalcFTWPlimit(char gps_in_cruise)
     float speed = power1_7(current_speed)/max(0.1f, hfc->acc_dyn_turns);
     float limit = hfc->FTWP_retire_sr_factor*speed;
 #else
-    float limit = 360*current_speed/hfc->dyn_yaw_rate/2/PI*hfc->FTWP_retire_sr_factor;
+    float limit = 360*current_speed/hfc->dyn_yaw_rate/2/PI*hfc->rw_cfg.FTWP_retire_sr_factor;
     limit += 4; // it appears to overshoot by 4m regardless of speed, could be yaw acc
 #endif
     return limit;
@@ -874,7 +874,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
       ofs = CalcFTWPlimit(false);
     }
     else {
-      ofs = hfc->GTWP_retire_radius;
+      ofs = hfc->rw_cfg.GTWP_retire_radius;
     }
 
     hfc->waypoint_STofs = ofs;
@@ -963,14 +963,14 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, p->data, 0.1f, 10)) {
-                	hfc->VspeedMax = hfc->pid_CollAlt.COmax;
+                	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
                 }
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, p->data, 0.1f, 100)) {
-                    hfc->VspeedAcc = hfc->pid_CollAlt.acceleration;
+                    hfc->rw_cfg.VspeedAcc = hfc->pid_CollAlt.acceleration;
                 }
             }
             else
@@ -986,21 +986,21 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             }
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_RADIUS)
-                CheckRangeAndSetF(&hfc->GTWP_retire_radius, p->data, 0, 20);
+                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_radius, p->data, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_SPEED)
-                CheckRangeAndSetF(&hfc->GTWP_retire_speed, p->data, 0, 20);
+                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_speed, p->data, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_FTWP_SR_FACTOR)
-                CheckRangeAndSetF(&hfc->FTWP_retire_sr_factor, p->data, 0, 10);
+                CheckRangeAndSetF(&hfc->rw_cfg.FTWP_retire_sr_factor, p->data, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc->low_speed_limit, p->data, 1, 30);
+                CheckRangeAndSetF(&hfc->rw_cfg.low_speed_limit, p->data, 1, 30);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, p->data, -10, -0.5)) {
-                	hfc->VspeedMin = hfc->pid_CollAlt.COmin;
+                	hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
                 }
             }
             else
@@ -1010,33 +1010,33 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
         else
         if (param==TELEM_PARAM_STICK) {
             if (sub_param==TELEM_PARAM_STICK_PR_RATE) {
-                if (CheckRangeAndSetF(&hfc->PRstickRate, p->data, 10, 500)) {
-                    hfc->PRstick_rate  = hfc->PRstickRate/pConfig->Stick100range;
+                if (CheckRangeAndSetF(&hfc->rw_cfg.PRstickRate, p->data, 10, 500)) {
+                    hfc->PRstick_rate  = hfc->rw_cfg.PRstickRate/pConfig->Stick100range;
                 }
             }
             else if (sub_param==TELEM_PARAM_STICK_PR_ANGLE) {
-                if (CheckRangeAndSetF(&hfc->PRstickAngle, p->data, -180, 180)) {
-                    hfc->PRstick_angle  = hfc->PRstickAngle/pConfig->Stick100range;
+                if (CheckRangeAndSetF(&hfc->rw_cfg.PRstickAngle, p->data, -180, 180)) {
+                    hfc->PRstick_angle  = hfc->rw_cfg.PRstickAngle/pConfig->Stick100range;
                 }
             }
             else if (sub_param==TELEM_PARAM_STICK_HSPEED) {
-                if (CheckRangeAndSetF(&hfc->StickHspeed, p->data, 0.1f, 50)) {
-                    hfc->Stick_Hspeed  = hfc->StickHspeed/pConfig->Stick100range;
+                if (CheckRangeAndSetF(&hfc->rw_cfg.StickHspeed, p->data, 0.1f, 50)) {
+                    hfc->Stick_Hspeed  = hfc->rw_cfg.StickHspeed/pConfig->Stick100range;
                 }
             }
             else if (sub_param==TELEM_PARAM_STICK_VSPEED) {
-                if (CheckRangeAndSetF(&hfc->StickVspeed, p->data, 0.1f, 0.8f*hfc->VspeedMax))
-                    hfc->Stick_Vspeed  = hfc->StickVspeed/pConfig->Stick100range;
+                if (CheckRangeAndSetF(&hfc->rw_cfg.StickVspeed, p->data, 0.1f, 0.8f*hfc->rw_cfg.VspeedMax))
+                    hfc->Stick_Vspeed  = hfc->rw_cfg.StickVspeed/pConfig->Stick100range;
             }
             else if (sub_param==TELEM_PARAM_STICK_Y_RATE) {
-                if (CheckRangeAndSetF(&hfc->YawStickRate, p->data, 10, 500))
-                    hfc->YawStick_rate  = hfc->YawStickRate/pConfig->Stick100range;
+                if (CheckRangeAndSetF(&hfc->rw_cfg.YawStickRate, p->data, 10, 500))
+                    hfc->YawStick_rate  = hfc->rw_cfg.YawStickRate/pConfig->Stick100range;
             }
             else if (sub_param==TELEM_PARAM_STICK_PR_ROTATE) {
-                CheckRangeAndSetF(&hfc->RollPitchAngle, p->data, -360, 360);
+                CheckRangeAndSetF(&hfc->rw_cfg.RollPitchAngle, p->data, -360, 360);
             }
             else if (sub_param==TELEM_PARAM_STICK_H_ACC) {
-                CheckRangeAndSetF(&hfc->StickHaccel, p->data, 0.5f, 9999);
+                CheckRangeAndSetF(&hfc->rw_cfg.StickHaccel, p->data, 0.5f, 9999);
             }
         }
         else
@@ -1098,44 +1098,44 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], p->data, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_LIDAR_ALT)
-                CheckRangeAndSetI(&hfc->ManualLidarAltitude, p->data, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.ManualLidarAltitude, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetI(&hfc->wind_compensation, p->data, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.wind_compensation, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetI(&hfc->path_navigation, p->data, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.path_navigation, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
-                CheckRangeAndSetF(&hfc->AngleCollMixing, p->data, 0, 2);
+                CheckRangeAndSetF(&hfc->rw_cfg.AngleCollMixing, p->data, 0, 2);
             else
             if (sub_param==TELEM_PARAM_CTRL_THR_OFFSET)
                 CheckRangeAndSetF(&hfc->throttle_offset, p->data, -1, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_LIMIT)
-                CheckRangeAndSetF(&hfc->cruise_speed_limit, p->data, 0, 100);
+                CheckRangeAndSetF(&hfc->rw_cfg.cruise_speed_limit, p->data, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_YAW_ACC)
                 CheckRangeAndSetF(&hfc->pid_YawAngle.acceleration, p->data, 0.1f, 10000);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetI(&hfc->nose_to_WP, p->data, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.nose_to_WP, p->data, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDLIMIT)
-                CheckRangeAndSetF(&hfc->landing_wind_threshold, p->data, 0, 100);
+                CheckRangeAndSetF(&hfc->rw_cfg.landing_wind_threshold, p->data, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
             {
-                if (CheckRangeAndSetI(&hfc->battery_capacity, p->data, 1, 1000000))
+                if (CheckRangeAndSetI(&hfc->rw_cfg.battery_capacity, p->data, 1, 1000000))
                 {
-                    hfc->power.capacity_total = hfc->battery_capacity/1000.0f*3600; // As
+                    hfc->power.capacity_total = hfc->rw_cfg.battery_capacity/1000.0f*3600; // As
                     hfc->power.energy_total   = hfc->power.capacity_total * pConfig->battery_cells * 3.7f;  // Ws
                 }
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDTAB_SCALE)
             {
-                if (CheckRangeAndSetF(&hfc->WindTableScale, p->data, 0.1f, 10)) {
+                if (CheckRangeAndSetF(&hfc->rw_cfg.WindTableScale, p->data, 0.1f, 10)) {
                     GenerateSpeed2AngleLUT();
                 }
             }
@@ -1531,7 +1531,7 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
             SetCtrlMode(hfc, pConfig, YAW, CTRL_MODE_ANGLE);
 
             /* if wind strong enough, rotate tail down-wind otherwise just keep the current heading */
-            if (hfc->wind_speed > hfc->landing_wind_threshold) {  // 3m/s
+            if (hfc->wind_speed > hfc->rw_cfg.landing_wind_threshold) {  // 3m/s
                 hfc->ctrl_out[ANGLE][YAW] = Wrap180(hfc->wind_course);
             }
             else {
