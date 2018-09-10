@@ -26,8 +26,8 @@ unsigned int GetTime_ms();
 unsigned int GetTime_us();
 unsigned int Ticks_us_minT(unsigned int minT_us, int *utilization);
 
-volatile void perf_t1();
-volatile void perf_t2();
+void perf_t1();
+void perf_t2();
 void perf_printf();
 
 char LoadConfig_Float(const char *name, float *value, int N);

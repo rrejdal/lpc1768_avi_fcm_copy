@@ -35,7 +35,7 @@
 #define     USER_FLASH_AREA_START_STR( x )      STR( x )
 #define     STR( x )                            #x
 
-unsigned char user_area[ USER_FLASH_AREA_SIZE ] __attribute__((section( ".ARM.__at_" USER_FLASH_AREA_START_STR( USER_FLASH_AREA_START ) ), zero_init));
+unsigned char user_area[ USER_FLASH_AREA_SIZE ] __attribute__((section( ".ARM.__at_" USER_FLASH_AREA_START_STR( USER_FLASH_AREA_START ) )));
 
 /*
  *  Reserve of flash area is explained by Igor. Please refer next URL

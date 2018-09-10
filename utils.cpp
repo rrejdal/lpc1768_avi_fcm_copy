@@ -43,7 +43,7 @@ float Distance(float lat1, float long1, float lat2, float long2)
     return dist;
 }
 
-volatile void perf_t1()
+void perf_t1()
 {
     if ((LPC_SC->PCONP & (1<<16)) != (1<<16))
     {
@@ -55,7 +55,7 @@ volatile void perf_t1()
     p1_counter = LPC_RIT->RICOUNTER;
 }
 
-volatile void perf_t2()
+void perf_t2()
 {
     unsigned int p2 = LPC_RIT->RICOUNTER;
     int delta = p2 - p1_counter;
