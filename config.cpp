@@ -62,7 +62,7 @@ int LoadConfiguration(const ConfigData **pConfig)
     // TODO::SP: Should be a header in the file representing config data version etc...
     ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if (pConfigData->version != MIN_CONFIG_VERSION) {
+    if (pConfigData->header.version != MIN_CONFIG_VERSION) {
         return -1;
     }
 
@@ -173,7 +173,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // Re-Write config with PID update values from Telemetry.
     ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if (pFlashConfigData->version != MIN_CONFIG_VERSION) {
+    if (pFlashConfigData->header.version != MIN_CONFIG_VERSION) {
         return -1;
     }
 

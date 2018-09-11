@@ -614,11 +614,17 @@ typedef struct
     uint16  can_power_tx_errors;
 } T_Stats;
 
+typedef struct {
+	int checksum;
+	int total_size;	// Total Number of bytes (including Header)
+	int version;
+	char date_time[20];
+} ConfigurationDataHeader;
 
 typedef struct ConfigurationData {
 
     // User Config Data
-    int version;
+	ConfigurationDataHeader header;
     int num_servo_nodes;
     int num_gps_nodes;
     int compass_type;

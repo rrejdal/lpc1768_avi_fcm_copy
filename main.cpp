@@ -43,6 +43,9 @@
 
 //#define PR_DEBUG
 
+extern int __attribute__((__section__(".ramconfig"))) ram_config;
+static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
+
 void GenerateSpeed2AngleLUT(void);
 void ResetIterms(void);
 void AltitudeUpdate(float alt_rate, float dT);
@@ -4099,44 +4102,51 @@ static void Servos_Init(FlightControlData *hfc)
     }
 }
 
+volatile int rx_in=0;
+
+/**
+  * @brief  ConfigRx callback handler.
+  * @param  none
+  * @retval none
+  */
+static void ConfigRx(void)
+{
+	while ((serial.readable()) && (((rx_in + 1) % (int)sizeof(ConfigData)) != 0)) {
+		pRamConfigData[rx_in++] = serial._getc();
+	}
+}
+
+/**
+  * @brief  Process user commands from USB Serial Port.
+  * @param  received command byte
+  * @retval none
+  */
 static void ProcessUserCmnds(char c)
 {
-    if (c=='1' || c=='2' || c=='3' || c=='4')
-	{
-		if (c=='1')
-		{
-			hfc.throttle_armed 	= !hfc.throttle_armed;
-            serial.printf("\r\nDRONE ARMED STATE = %d\r\n", hfc.throttle_armed );
+	char request[10] = {0};
+	unsigned char *pConfigData = (unsigned char *)&ram_config;
+
+	// 'L' == Load Request
+	if (c == 'L') {
+
+		serial.printf("OK\r\n");
+
+		// Wait for Load Type - config
+		serial.scanf("%9s", request);
+		if (strcmp(request, "config") == 0) {
+			// Clear current RamConfig in preparation for new data.
+			memset(pConfigData, 0x00, sizeof(ConfigData));
+
+			serial.attach(&ConfigRx);	// This handles incoming configuration file
+
+			serial.printf("ACK\r\n");	// Informs Host to start transfer
 		}
+		else {
+			// Unknown command
+			serial.printf("NACK\r\n");
+		}
+	}
 
-		// TODO::SP: what are these for?
-		if (c=='2')
-			hfc.power.power_servo 	= !hfc.power.power_servo;
-		else if (c=='3')
-			hfc.power.power_aux12v	= !hfc.power.power_aux12v;
-		else if (c=='4')
-			hfc.power.power_armed_led = !hfc.power.power_armed_led;
-    }
-    else if (c == ' ')
-    {
-        serial.printf("\r\nIMU Reset\r\n");
-        telem.ResetIMU(false);
-
-        serial.printf("\r\nPITCH measurements\r\n");
-        for(int i = 0; i+1 < PITCH_COMP_LIMIT; i=i+2)
-        {
-            serial.printf("%5d - %d  %5d - %5d\r\n",i,hfc.comp_pitch_flags[i],i+1,hfc.comp_pitch_flags[i+1]);
-        }
-
-        serial.printf("\r\nROLL measurements\r\n");
-        for(int i = 0; i+1 < ROLL_COMP_LIMIT; i=i+2)
-        {
-            serial.printf("%5d - %d  %5d - %5d\r\n",i,hfc.comp_roll_flags[i],i+1,hfc.comp_roll_flags[i+1]);
-        }
-
-        serial.printf("ofs:\t%5.2f\t%5.2f\t%5.2f\r\n", hfc.compass_cal.comp_ofs[0],  hfc.compass_cal.comp_ofs[1],  hfc.compass_cal.comp_ofs[2]);
-        serial.printf("gains:\t%5.2f\t%5.2f\t%5.2f\r\n", hfc.compass_cal.comp_gains[0], hfc.compass_cal.comp_gains[1], hfc.compass_cal.comp_gains[2]);
-    }
 }
 
 void ProcessButtonSelection()
@@ -4441,6 +4451,9 @@ static void ServoHeartbeat(int num_servo_nodes)
 //
 void InitializeRuntimeData(void)
 {
+	// Clear out the Runtime RAm copy of the config Data
+	memset(pRamConfigData, 0x00, sizeof(ConfigData));
+
     if (pConfig->gyro_fixed_offsets) {
         // TODO::SP: ?? need this?
         //LoadGyroCalibData();
@@ -4601,16 +4614,12 @@ void InitializeRuntimeData(void)
     }
 }
 
-//
+/**
+  * @brief  main.
+  * @retval none
+  */
 int main()
 {
-    //pc.baud(PC_BAUDRATE);
-
-	//while (1) {
-	//	serial.printf("HELLO\r\n");
-	//	wait(1.0);
-	//}
-
     spi.frequency(4000000);
     spi.format(8, 0);   // 0-sd ok, disp ok, 1-no sd, disp ok
 
@@ -4703,9 +4712,6 @@ int main()
                 compass.enable_i2c_MPU6050(MPU6050_ADDRESS);
             }
 
-            // If have compass calibration data in Flash, load it.
-
-
             if (!compass.Init(pConfig)) {
                 myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
                 init_ok = 0;
@@ -4748,9 +4754,10 @@ int main()
             // Main FCM control loop
             do_control();
 
-            //if (pc.readable()) {
-            //    ProcessUserCmnds(pc.getc());
-            //}
+            if (serial.connected() && serial.readable()) {
+            	ProcessUserCmnds(serial.getc());
+            }
+
         }
     }
     else {
