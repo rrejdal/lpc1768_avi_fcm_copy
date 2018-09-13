@@ -4122,7 +4122,8 @@ static bool have_config = false;
   */
 static void ConfigRx(void)
 {
-	while ((serial.readable()) && (((rx_in + 1) % (int)sizeof(ConfigData)) != 0)) {
+
+	while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
 		pRamConfigData[rx_in++] = serial._getc();
 	}
 
@@ -4150,19 +4151,25 @@ static void ProcessUserCmnds(char c)
 		serial.scanf("%19s", request);
 		if (strcmp(request, "config_upload") == 0) {
 			// Clear current RamConfig in preparation for new data.
-			memset((uint8_t *)&ram_config, 0x00, sizeof(ConfigData));
+			memset((uint8_t *)&ram_config, 0xFF, MAX_CONFIG_SIZE);
 
 			serial.attach(&ConfigRx);	// This handles incoming configuration file
 
 			have_config = false;
+
+			// Clear chars
+			while (serial.readable()) {
+				int rx = serial._getc();
+			}
+
 			serial.printf("ACK");	// Informs Host to start transfer
 
 			while (!have_config) {}
 
+			unsigned char *pData = (unsigned char *)&ram_config;
+			pData += sizeof(ConfigurationDataHeader);
 			// CRC data and check.
-			if (crc32b((uint8_t *)pConfig->num_servo_nodes,
-						(sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))
-					     == pRamConfigData->header.checksum) {
+			if (pRamConfigData->header.checksum == crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
 
 				if (SaveNewConfig() == 0) {
 

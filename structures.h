@@ -4,6 +4,8 @@
 #include "defines.h"
 #include "PID.h"
 
+#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
+
 #define LANDING_SITES		20
 #define SPEED2ANGLE_SIZE    56
 #define ANGLE2SPEED_SIZE    46

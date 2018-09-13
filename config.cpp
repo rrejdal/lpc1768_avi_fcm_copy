@@ -46,7 +46,6 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 #define FLASH_COMPASS_CAL_SECTOR    28
 #define FLASH_COMPASS_CAL_SECTORS   (1 - 1)
 #define FLASH_COMAPSS_CAL_SIZE      FLASH_SECTOR_SIZE_16_TO_29
-#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
 
 IAP iap;    // Provides In Application Programming of the Flash.
 

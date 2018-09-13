@@ -825,7 +825,7 @@ bool WDT_ResetByWDT()
   * @param  length: length of data to be crc'd
   * @retval the calculated crc
   */
-uint32_t crc32b(uint8_t *message, uint32_t length)
+uint32_t crc32b(unsigned char *message, uint32_t length)
 {
    int i, j;
    unsigned int byte_val, crc, mask;
