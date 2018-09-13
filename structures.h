@@ -640,6 +640,7 @@ typedef struct ConfigurationData {
     int  gps_vspeed;
     int  gps_units;
     int  ground_sensor;
+    int  imu_internal;
 
     int ccpm_type;
     int SbusEnable;

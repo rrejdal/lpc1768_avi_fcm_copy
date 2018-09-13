@@ -4103,7 +4103,7 @@ static void Servos_Init(FlightControlData *hfc)
 }
 
 volatile int rx_in=0;
-
+static bool have_config = false;
 /**
   * @brief  ConfigRx callback handler.
   * @param  none
@@ -4114,6 +4114,8 @@ static void ConfigRx(void)
 	while ((serial.readable()) && (((rx_in + 1) % (int)sizeof(ConfigData)) != 0)) {
 		pRamConfigData[rx_in++] = serial._getc();
 	}
+
+	have_config = true;
 }
 
 /**
@@ -4123,27 +4125,68 @@ static void ConfigRx(void)
   */
 static void ProcessUserCmnds(char c)
 {
-	char request[10] = {0};
+	char request[20] = {0};
 	unsigned char *pConfigData = (unsigned char *)&ram_config;
 
 	// 'L' == Load Request
 	if (c == 'L') {
 
-		serial.printf("OK\r\n");
+		led1 = 1; led2 = 1; led3 = 1; led4 = 1;
+
+		serial.printf("OK");
 
 		// Wait for Load Type - config
-		serial.scanf("%9s", request);
-		if (strcmp(request, "config") == 0) {
+		serial.scanf("%19s", request);
+		if (strcmp(request, "config_upload") == 0) {
 			// Clear current RamConfig in preparation for new data.
 			memset(pConfigData, 0x00, sizeof(ConfigData));
 
 			serial.attach(&ConfigRx);	// This handles incoming configuration file
 
-			serial.printf("ACK\r\n");	// Informs Host to start transfer
+			have_config = false;
+			serial.printf("ACK");	// Informs Host to start transfer
+
+			while (!have_config) {}
+
+			serial.printf("ACK");	// Informs Host, all done
+
+			int state = 0;
+			for (int i=0; i < 5; i++) {
+				led1 = state;
+				led2 = state;
+				led3 = state;
+				led4 = state;
+
+				state = !state;
+				wait(0.3f);
+			}
+
+            NVIC_SystemReset();
+		}
+		else if (strcmp(request, "config_dlload") == 0) {
+			// Download fcm configuration to requester
+			//serial.printf("ACK");
+
+			const int16_t block_size = 64;
+			uint8_t *pData = (uint8_t*)pConfig;
+			int16_t block_num = (sizeof(ConfigData) / block_size) +1;
+			do {
+
+				if (block_num == 1) {
+					serial.writeBlock(pData, (sizeof(ConfigData) % block_size));
+				}
+				else {
+					serial.writeBlock(pData, block_size);
+				}
+
+				pData += block_size;
+
+			} while (--block_num >= 1);
+
 		}
 		else {
 			// Unknown command
-			serial.printf("NACK\r\n");
+			serial.printf("NACK");
 		}
 	}
 
@@ -4754,10 +4797,10 @@ int main()
             // Main FCM control loop
             do_control();
 
+            // Process Serial command sif USB is available
             if (serial.connected() && serial.readable()) {
             	ProcessUserCmnds(serial.getc());
             }
-
         }
     }
     else {
