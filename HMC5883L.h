@@ -35,6 +35,7 @@
 
 #include "mbed.h"
 #include "I2Ci.h"
+#include "structures.h"
 
 #define CHIP_NONE       0
 #define CHIP_HMC5883L   1
@@ -72,7 +73,7 @@ public:
     HMC5883L(I2Ci *m_i2c);
 
     /**Check sensor ID, initialize the sensor. Returns false if anything fails */
-    bool Init(int compass_type);
+    bool Init(const ConfigData *pConfig);
     
     /* Function for setting configuration register A
     *
@@ -123,7 +124,8 @@ public:
     * @returns heading in degrees, +/-180, 0 is north, clock-wise */
     bool getRawValues(float dT);
 
-    float GetHeadingDeg(unsigned char comp_orient[6], float offsets[3], float gains[3], unsigned char FCM_orient[6], float declination_offset, float pitch, float roll);
+    float GetHeadingDeg(const unsigned char comp_orient[6], const float offsets[3], const float gains[3],
+                            const unsigned char FCM_orient[6], float declination_offset, float pitch, float roll);
     
     char getID(char id[3], int adr, int reg);
 
@@ -139,6 +141,7 @@ public:
        
 private:
     I2Ci *i2c;
+    const ConfigData *pConfigData;
     int i2c_address;
     float duration;
     float interval;

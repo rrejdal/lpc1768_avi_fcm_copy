@@ -23,9 +23,9 @@
   *
   ******************************************************************************
   */
-#include "hardware.h"
-#include "IMU_calib.h"
+#include <stddef.h>
 #include "mbed.h"
+#include "hardware.h"
 #include "MPU6050.h"
 #include "utils.h"
 #include "mymath.h"
@@ -33,17 +33,31 @@
 #include "IMU.h"
 #include "xbus.h"
 #include "PID.h"
-#include "config.h"
 #include "HMC5883L.h"
 #include "BMP180.h"
 #include "pGPS.h"
 #include "telemetry.h"
 #include "avican.h"
-#include <stddef.h>
+#include "USBSerial.h"
 #include "version.h"
 
 //#define PR_DEBUG
 
+extern int __attribute__((__section__(".ramconfig"))) ram_config;
+static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
+
+void GenerateSpeed2AngleLUT(void);
+void ResetIterms(void);
+void AltitudeUpdate(float alt_rate, float dT);
+void HeadingUpdate(float heading_rate, float dT);
+
+extern int LoadConfiguration(const ConfigData **pConfig);
+extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
+extern int SaveNewConfig(void);
+extern int SavePIDUpdates(FlightControlData *fcm_data);
+extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+
+USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
 
@@ -61,12 +75,12 @@ DigitalOut  led3(LED_3);
 DigitalOut  led4(LED_4);
 DigitalOut  ArmedLed(LED_3);
 
-XBus    xbus(XBUS_IN);
+XBus xbus(XBUS_IN);
 CAN can(CAN_RXD1, CAN_TXD1);
 GPS gps;
 
 //Serial pc(TRGT_TXD, TRGT_RXD);  // Debug Serial Port
-Serial pc(GPS_TX, GPS_RX);  // Debug Serial Port
+//Serial pc(GPS_TX, GPS_RX);  // Debug Serial Port
 
 RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
@@ -85,13 +99,14 @@ DigitalInOut *servoTman = NULL;// throttle p26     // 1 driven timer, supports c
 InterruptIn  *linklive = NULL; // linklive input p26
 Ticker throttle_timer;
 
-T_HFC hfc;
+FlightControlData hfc = {0};
+const ConfigData *pConfig = NULL;
 
 #define USE_AVI_CAN
 
 // Text displayed on ShowSplash
 #define AVIDRONE_SPLASH "== AVIDRONE =="
-#define AVIDRONE_FCM_SPLASH "    FCM-2     "
+#define AVIDRONE_FCM_SPLASH "    AVI-FCM      "
 
 #define MAX_NUM_LIDAR        2
 #define MAX_NUM_CASTLE_LINKS 2
@@ -138,19 +153,89 @@ static int canbus_ack = 0;
 static int write_canbus_error = 0;
 
 #define FCM_FATAL_ERROR() { \
-    led1 = 1; led2 = 1; led3 = 1; led4 = 1; \
-    wait(0.5f); \
-    led1 = 0; led2 = 0; led3 = 0; led4 = 0; \
-    wait(0.5f); \
+    while(1) { \
+    	WDT_Kick(); \
+    	led1 = 1; led2 = 1; led3 = 1; led4 = 1; \
+    	wait(1.0f); \
+    	led1 = 0; led2 = 0; led3 = 0; led4 = 0; \
+    	wait(1.0f); \
+    } \
 }
 
-void button_Select();
+#define FCM_NOTIFY_CFG_UPDATED() { \
+    int state = 0; \
+	for (int i=0; i < 10; i++) { \
+    	WDT_Kick(); \
+    	led1 = led2 = led3 = led4 = state; \
+    	wait(0.3f); \
+    	state = !state; \
+    } \
+}
+
+void ProcessButtonSelection();
 static void Buttons();
 static void PrintOrient();
-void RPM_rise();
+static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
 
-void AutoReset()
+float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
+{
+  int i;
+  int angle1;
+  int angle2 = ANGLE2SPEED_SIZE-1;
+  float angle;
+  float speed1, speed2;
+
+  for (i=0; i<ANGLE2SPEED_SIZE; i++) {
+    if ((WindSpeedLUT[i]*scale)>speed) {
+      angle2 = i;
+      break;
+    }
+  }
+
+  angle1 = angle2 - 1;
+  speed1 = WindSpeedLUT[angle1]*scale;
+  speed2 = WindSpeedLUT[angle2]*scale;
+
+  if (speed1==speed2) {
+    return angle1;
+  }
+
+  angle = (angle2-angle1) / (speed2-speed1) * (speed-speed1) + angle1;
+
+  return angle;
+}
+
+void GenerateSpeed2AngleLUT(void)
+{
+    int i;
+    for (i=0; i<SPEED2ANGLE_SIZE; i++) {
+        float speed = i*0.5f;
+        float angle = GetAngleFromSpeed(speed, pConfig->WindSpeedLUT, hfc.rw_cfg.WindTableScale);
+        hfc.rw_cfg.Speed2AngleLUT[i] = angle;
+    }
+}
+
+void ResetIterms(void)
+{
+    hfc.pid_PitchRate.Ie  = 0;
+    hfc.pid_RollRate.Ie   = 0;
+    hfc.pid_YawRate.Ie    = 0;
+    hfc.pid_PitchAngle.Ie = 0;
+    hfc.pid_RollAngle.Ie  = 0;
+    hfc.pid_YawAngle.Ie   = 0;
+    hfc.pid_CollVspeed.Ie = 0;
+    hfc.pid_PitchSpeed.Ie = 0;
+    hfc.pid_RollSpeed.Ie  = 0;
+    hfc.pid_CollAlt.Ie    = 0;
+    hfc.pid_Dist2T.Ie     = 0;
+    hfc.pid_Dist2P.Ie     = 0;
+    hfc.pid_PitchCruise.Ie= 0;
+    hfc.speed_Iterm_E     = 0;
+    hfc.speed_Iterm_N     = 0;
+}
+
+void AutoReset(void)
 {
 	float delta_accel[3];
 	float delta_orient[3];
@@ -160,7 +245,7 @@ void AutoReset()
 
 	if( !hfc.throttle_armed )
 	{
-		if( hfc.config.autoReset && ((hfc.print_counter % 500) == 0) )
+		if( pConfig->autoReset && ((hfc.print_counter % 500) == 0) )
 		{
 			for(int i = 0; i < 3; i++)
 			{
@@ -185,14 +270,14 @@ void AutoReset()
 				 || ABS(hfc.SmoothAcc[PITCH] - hfc.IMUorient[PITCH])>(0.5f*D2R)
 				 || ABS(hfc.SmoothAcc[ROLL]  - hfc.IMUorient[ROLL] )>(0.5f*D2R)  )
 				{
-					ResetIMU(&hfc, true);
+					telem.ResetIMU(false);
 				}
 			}
 
 			/*Check if GPS signal is good, if so, then reset if
 			 * IMU altitude and GPS altitude differ by more than 2m */
 			GpsData gps_data = gps.GetGpsData();
-			if ( (gps_data.fix>GPS_FIX_NONE && gps_data.PDOP<250) || (hfc.config.gps_units == 0) )
+			if ( (gps_data.fix>GPS_FIX_NONE && gps_data.PDOP<250) || (pConfig->gps_units == 0) )
 			{
 				if( ABS(hfc.altitude_baro - hfc.altitude_gps) >= 2 )
 				{
@@ -215,9 +300,9 @@ static void OrientResetCounter()
       /*mmri: just took out the carriage return so that gyrotemp
        * compensation output data is more easily read in .csv file*/
 #if defined(DEBUG)
-      printf("IMU reset   ====   %f %f === ", hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D);
+    //  serial.printf("IMU reset   ====   %f %f === ", hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D);
 #endif
-      ResetIMU(&hfc, true);
+      telem.ResetIMU(false);
     }
   }
 }
@@ -247,13 +332,13 @@ void Get_Orientation(float *SmoothAcc, float *AccData, float dt)
     SmoothAcc[PITCH] = (AccAngle[PITCH] - SmoothAcc[PITCH])*dt*AccLP_Freq + SmoothAcc[PITCH]; // Averaging pitch ACC values
 } 
 
-void linklive_fall()
+static void linklive_fall(void)
 {
     hfc.linklive_t2 = CLOCK();
     linklive->fall(NULL);
 }
 
-void throttle_pulse_int()
+static void throttle_pulse_int(void)
 {
     servoTman->write(1);
     hfc.linklive_t1 = CLOCK();
@@ -296,7 +381,7 @@ static const short int LL2TEMP[128] = {
 
 signed short int pwm_values[MAX_NUMBER_SERVO_NODES][8];
 
-void WriteToServoNodes(int num_servo_nodes)
+static void WriteToServoNodes(int num_servo_nodes)
 {
     CANMessage can_tx_message;
     static int pwm_out = 0;
@@ -305,9 +390,9 @@ void WriteToServoNodes(int num_servo_nodes)
     for (int i=0; i < num_servo_nodes; i++) {
         for (int j=0; j < 8; j++) {
             temp = servo_node_pwm[i+1].servo_out[j];
-            //printf("WriteToServos[%d][%d], temp=%f\r\n", i+1, j, temp);
+            //serial.printf("WriteToServos[%d][%d], temp=%f\r\n", i+1, j, temp);
             pwm_values[i][j] = (((SERVOMINMAX(temp) * 32767) * 500) /32768) + 1500;
-            //printf("pwm_values[%d][%d] = %d\r\n", i, j, pwm_values[i][j]);
+            //serial.printf("pwm_values[%d][%d] = %d\r\n", i, j, pwm_values[i][j]);
         }
     }
 
@@ -346,7 +431,7 @@ void WriteToServoNodes(int num_servo_nodes)
  * The last two of the servos are handled by the FCM since CAN servo can only manage
  * the first 6.
  */
-void WriteToServos(void)
+static void WriteToServos(void)
 {
     float pwm_values[8];
 
@@ -354,7 +439,7 @@ void WriteToServos(void)
     for (int i = 0; i < 8; i++) {
         temp = hfc.servos_out[i];
         if (i < 6) {
-            if (hfc.config.servo_revert[i] & (1<<i)) {
+            if (pConfig->servo_revert[i] & (1<<i)) {
                 temp = -hfc.servos_out[i];
             }
         }
@@ -363,13 +448,13 @@ void WriteToServos(void)
         pwm_values[i] = SERVOMINMAX(temp);
 
         /* For Canbus Servo, scale into 13bits signed */
-        if (hfc.config.can_servo) {
+        if (pConfig->can_servo) {
             pwm_values[i] *= 4095;
         }
     }
 
     /* write it out */
-    if (hfc.config.can_servo)
+    if (pConfig->can_servo)
     {
         CANMessage msgo;
         T_Servos servos;
@@ -425,7 +510,7 @@ void WriteToServos(void)
         }
     }
 
-    if (hfc.config.fcm_servo) {
+    if (pConfig->fcm_servo) {
         if (servoX) {
           servoX->pulsewidth_us((int)(1500.5f + pwm_values[5] * 500));  //s5
         }
@@ -437,7 +522,7 @@ void WriteToServos(void)
         servoP.pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));   // (A)   pitch
         servoR.pulsewidth_us((int)(1500.5f + pwm_values[1] * 500));    // (B) roll
 
-        if (hfc.config.ccpm_type==CCPM_OCTO) {
+        if (pConfig->ccpm_type==CCPM_OCTO) {
             servoY.pulsewidth_us((int)(1500.5f + pwm_values[6] * 500));	// last two octo channels   s6
             servoC.pulsewidth_us((int)(1500.5f + pwm_values[7] * 500)); // on S4 and S5 of FCM output s7
         }
@@ -454,7 +539,7 @@ void WriteToServos(void)
             if (hfc.servoT_counter >= 20) {
 
                 int delta = (hfc.linklive_t2 - hfc.linklive_t1);
-//                printf("%dus\n", delta);
+//                serial.printf("%dus\n", delta);
                 linklive->fall(NULL);
                 servoTman->output();
                 servoTman->write(0);
@@ -466,7 +551,7 @@ void WriteToServos(void)
 
                     unsigned int T = CLOCK();
                     unsigned int delta_us = (T - hfc.linklive_period_T + 48)/96;
-                    float *coeffs = hfc.config.power_coeffs;
+                    const float *coeffs = pConfig->power_coeffs;
 
                     hfc.linklive_item = 1;
                     hfc.linklive_period_T = T;
@@ -477,8 +562,8 @@ void WriteToServos(void)
                     hfc.power.Vservo = hfc.linklive_values[9];    // V BEC
                     hfc.power.Vaux   = hfc.linklive_values[9];    // V BEC
 
-                    if (!hfc.config.rpm_sensor) {
-                        hfc.RPM = hfc.linklive_values[8] / hfc.config.gear_ratio / hfc.config.motor_poles;
+                    if (!pConfig->rpm_sensor) {
+                        hfc.RPM = hfc.linklive_values[8] / pConfig->gear_ratio / pConfig->motor_poles;
                     }
 
                     if (hfc.linklive_values[11] > hfc.linklive_values[12]) {
@@ -498,7 +583,7 @@ void WriteToServos(void)
                             hfc.esc_temp = (temp + 3*hfc.esc_temp)*0.25f;
                         }
                     }
-//                    printf("Iesc %5.1f Iaux %4.1f Vmain %5.2f Vesc %5.2f Vaux %5.2f RPM %4.0f Temp %4.1f\n",
+//                    serial.printf("Iesc %5.1f Iaux %4.1f Vmain %5.2f Vesc %5.2f Vaux %5.2f RPM %4.0f Temp %4.1f\n",
 //                            hfc->power.Iesc, hfc->power.Iaux, hfc->power.Vmain, hfc->power.Vesc, hfc->power.Vaux, hfc->RPM, hfc->esc_temp);
 
                     /* 50us */
@@ -510,12 +595,12 @@ void WriteToServos(void)
 
                 if (hfc.linklive_item==2) {
                     hfc.linklive_calib = 1000.0f/Max(delta, 500*96);
-//                    printf("Calib %d\n", delta);
+//                    serial.printf("Calib %d\n", delta);
                 }
 
                 if ((hfc.linklive_item>2) && (hfc.linklive_item<13)) {
                     hfc.linklive_values[hfc.linklive_item] = ((delta * hfc.linklive_calib) - 500.0f) * LINKLIVE_SCALES[hfc.linklive_item];
-//                    printf("%02d %4d %4.2f\n", hfc->linklive_item, delta, hfc->linklive_values[hfc->linklive_item]);
+//                    serial.printf("%02d %4d %4.2f\n", hfc->linklive_item, delta, hfc->linklive_values[hfc->linklive_item]);
                 }
             }
         }
@@ -525,7 +610,7 @@ void WriteToServos(void)
 static const char LINE_LABEL[8] = {'T', 'R', 'P', 'Y', 'C', ' ', ' ', ' '};
 static const unsigned char CTRL_MODE2Idx[7] = {RAW, RAW, RATE, ANGLE, SPEED, SPEED, POS};
 
-static void Display_CtrlMode(unsigned char line, unsigned char channel, unsigned char ctrl_inh[5], unsigned char ctrl_modes[5], float ctrl_out[NUM_CTRL_MODES][5], float throttle)
+static void Display_CtrlMode(unsigned char line, unsigned char channel, const int ctrl_inh[5], unsigned char ctrl_modes[5], float ctrl_out[NUM_CTRL_MODES][5], float throttle)
 {
     unsigned char ctrl_mode = ctrl_modes[channel];
     float ctrl_value = ctrl_out[CTRL_MODE2Idx[ctrl_mode]][channel];
@@ -565,96 +650,96 @@ static void Display_CtrlMode(unsigned char line, unsigned char channel, unsigned
     myLcd.SetLine(channel, str, 0);
 }
 
-static void SetControlMode(T_HFC *hfc)
+static void SetControlMode(void)
 {
     if (xbus.valuesf[XBUS_CTRLMODE_SW]>0.5f)
-        hfc->full_auto = true;
+        hfc.full_auto = true;
     else
-        hfc->full_auto = false;
+        hfc.full_auto = false;
 
 #ifdef PR_DEBUG
     if ((hfc->print_counter&0xff)==2) {
-        printf("SetControlMode full_auto=%d\r\n", hfc->full_auto);
+        serial.printf("SetControlMode full_auto=%d\r\n", hfc->full_auto);
     }
 #endif
 
     /* in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle */
-    if (hfc->full_auto)
+    if (hfc.full_auto)
     {
-    	SaveValuesForAbort(hfc);
-    	hfc->auto_throttle = true;
+    	telem.SaveValuesForAbort();
+    	hfc.auto_throttle = true;
     	return;
     }
 
     /* this needs to be after full_auto check otherwise takeoff cannot be aborted */
-    if (hfc->inhibitRCswitches)
+    if (hfc.inhibitRCswitches)
         return;
 
     /* in non-RCradio mode, check for stick movement to abort */
-    if (hfc->ctrl_source!=CTRL_SOURCE_RCRADIO)
+    if (hfc.ctrl_source!=CTRL_SOURCE_RCRADIO)
     {
         char abort = 0;
-		if (ABS(hfc->ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS)
+		if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS)
 			abort = 1;
-		if (ABS(hfc->ctrl_initial[ROLL]  - xbus.valuesf[XBUS_ROLL])  > AUTO_PROF_TERMINATE_THRS)
+		if (ABS(hfc.ctrl_initial[ROLL]  - xbus.valuesf[XBUS_ROLL])  > AUTO_PROF_TERMINATE_THRS)
 			abort = 1;
-		if (hfc->ctrl_source==CTRL_SOURCE_AUTO3D || hfc->ctrl_source==CTRL_SOURCE_JOYSTICK)
+		if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK)
 		{
-			if (ABS(hfc->ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])  > AUTO_PROF_TERMINATE_THRS)
+			if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])  > AUTO_PROF_TERMINATE_THRS)
 				abort = 1;
-			if (ABS(hfc->ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])   > AUTO_PROF_TERMINATE_THRS)
+			if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])   > AUTO_PROF_TERMINATE_THRS)
 				abort = 1;
 		}
         
         if (abort)
         {
-        	if (hfc->playlist_status==PLAYLIST_PLAYING)
+        	if (hfc.playlist_status==PLAYLIST_PLAYING)
         	{
-        		Playlist_SaveState(hfc);
-        		SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
-        		hfc->playlist_status = PLAYLIST_PAUSED;
+        		telem.PlaylistSaveState();
+        		telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+        		hfc.playlist_status = PLAYLIST_PAUSED;
         	}
         	else
         	{
-        		if (hfc->playlist_status == PLAYLIST_PAUSED)
+        		if (hfc.playlist_status == PLAYLIST_PAUSED)
         		{
-        			SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
-            		hfc->playlist_status = PLAYLIST_PAUSED;
+        			telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            		hfc.playlist_status = PLAYLIST_PAUSED;
         		}
         		else
-        			SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
+        			telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         	}
         }
     }
 
     /* if auto throttle in auto mode, switch back to manual throttle on a throttle lever move */
-    if (hfc->auto_throttle)
+    if (hfc.auto_throttle)
     {
-    	if (ABS(hfc->ctrl_initial[THRO] - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
-    		hfc->auto_throttle = false;
+    	if (ABS(hfc.ctrl_initial[THRO] - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
+    		hfc.auto_throttle = false;
     }
 
     /* collective mode, only in RCradio or auto2D modes */
-    if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO || hfc->ctrl_source==CTRL_SOURCE_AUTO2D)
+    if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_AUTO2D)
     {
-        if (!hfc->config.ctrl_mode_inhibit[COLL])
+        if (!pConfig->ctrl_mode_inhibit[COLL])
         {
             if (xbus.valuesf[XBUS_THR_SW]>0.5f)
-                hfc->control_mode[COLL] = CTRL_MODE_MANUAL;
+                hfc.control_mode[COLL] = CTRL_MODE_MANUAL;
             else if (xbus.valuesf[XBUS_THR_SW]<-0.5f)
-                hfc->control_mode[COLL] = CTRL_MODE_POSITION;
+                hfc.control_mode[COLL] = CTRL_MODE_POSITION;
             else
-                hfc->control_mode[COLL] = CTRL_MODE_SPEED;
+                hfc.control_mode[COLL] = CTRL_MODE_SPEED;
         }
 #ifdef PR_DEBUG
     if ((hfc->print_counter&0xff)==2) {
-            printf("control_mode[COLL] =%d\r\n", hfc->control_mode[COLL]);
+            serial.printf("control_mode[COLL] =%d\r\n", hfc->control_mode[COLL]);
     }
 #endif
     }
 
     /* pitch/rate/yaw mode switches checked only in RCradio mode */
-    if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO)
+    if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
     {
     	int mode;
 
@@ -668,22 +753,22 @@ static void SetControlMode(T_HFC *hfc)
     		mode = CTRL_MODE_RATE;
 		}
 
-    	mode += hfc->config.RCmodeSwitchOfs;	// shift the mode up
+    	mode += pConfig->RCmodeSwitchOfs;	// shift the mode up
     	mode = min(mode, CTRL_MODE_POSITION);
 
-		SetCtrlMode(hfc, PITCH, mode);
-		SetCtrlMode(hfc, ROLL,  mode);
-		SetCtrlMode(hfc, YAW,   ClipMinMax(mode, hfc->config.YawModeMin, hfc->config.YawModeMax));
+		SetCtrlMode(&hfc, pConfig, PITCH, mode);
+		SetCtrlMode(&hfc, pConfig, ROLL,  mode);
+		SetCtrlMode(&hfc, pConfig, YAW,   ClipMinMax(mode, pConfig->YawModeMin, pConfig->YawModeMax));
 
 		/* during profiling, force the given mode */
-	    if (hfc->profile_mode == PROFILING_ON)
-	        SetCtrlMode(hfc, hfc->profile_ctrl_variable, hfc->profile_ctrl_level+1);
+	    if (hfc.profile_mode == PROFILING_ON)
+	        SetCtrlMode(&hfc, pConfig, hfc.profile_ctrl_variable, hfc.profile_ctrl_level+1);
     }
 
 #ifdef PR_DEBUG
     if ((hfc->print_counter&0xff)==2) {
         for (int i=0; i < 5; i++) {
-            printf("SetCtrlMode hfc->control_mode[%d] = %d\r\n", i, hfc->control_mode[i]);
+            serial.printf("SetCtrlMode hfc->control_mode[%d] = %d\r\n", i, hfc->control_mode[i]);
         }
     }
 #endif
@@ -767,17 +852,17 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     elevGain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
     dcpGain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
 
-    ROLL_Taileron  = hfc.mixer_in[ROLL]  * hfc.config.AilRange;
-    PITCH_Televator = hfc.mixer_in[PITCH] * hfc.config.EleRange * elevGain;
-    YAW_Trudder   = hfc.mixer_in[YAW]   * hfc.config.RudRange;
+    ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
+    PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * elevGain;
+    YAW_Trudder   = hfc.mixer_in[YAW]   * pConfig->RudRange;
 
     // Differential collective pitch calculation
     // Torque compensation due to dcp and elevator
     dcp      = PITCH_Televator * dcpGain;
-    torqComp = dcp * hfc.config.TorqCompMult;
+    torqComp = dcp * pConfig->TorqCompMult;
 
-    TcollectFront = hfc.mixer_in[COLL] * hfc.config.CollRange - dcp;
-    TcollectRear  = hfc.mixer_in[COLL] * hfc.config.CollRange + dcp;
+    TcollectFront = hfc.mixer_in[COLL] * pConfig->CollRange - dcp;
+    TcollectRear  = hfc.mixer_in[COLL] * pConfig->CollRange + dcp;
 
     ROLL_TaileronFront = ROLL_Taileron + YAW_Trudder + torqComp;
     ROLL_TaileronRear  = ROLL_Taileron - YAW_Trudder - torqComp;
@@ -792,29 +877,29 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     // Throttle(1)
     // CcpmMixer value of 0.5 multiplier is used for 120deg CCPM
     // CcpmMixer value of 1.0 multiplier is used for 140deg CCPM
-    if (hfc.config.ModelSelect == 1) {
+    if (pConfig->ModelSelect == 1) {
         // Selection for E6T
         // Front Servo
-        servo_node_pwm[1].servo_out[1] = 0 - ROLL_TaileronFront - (hfc.config.CcpmMixer * PITCH_Televator) - TcollectFront;   // aFrontServo
-        servo_node_pwm[1].servo_out[2] = 0 - ROLL_TaileronFront + (hfc.config.CcpmMixer * PITCH_Televator) + TcollectFront;   // bFrontServo
+        servo_node_pwm[1].servo_out[1] = 0 - ROLL_TaileronFront - (pConfig->CcpmMixer * PITCH_Televator) - TcollectFront;   // aFrontServo
+        servo_node_pwm[1].servo_out[2] = 0 - ROLL_TaileronFront + (pConfig->CcpmMixer * PITCH_Televator) + TcollectFront;   // bFrontServo
         servo_node_pwm[1].servo_out[3] = 0 + TcollectFront + PITCH_Televator;                                                 // cFrontServo
 
         // Rear Servo
-        servo_node_pwm[2].servo_out[1] = 0 - TcollectRear  + (hfc.config.CcpmMixer * PITCH_Televator) + ROLL_TaileronRear;    // aRearServo
-        servo_node_pwm[2].servo_out[2] = 0 + TcollectRear  - (hfc.config.CcpmMixer * PITCH_Televator) + ROLL_TaileronRear;    // bRearServo
+        servo_node_pwm[2].servo_out[1] = 0 - TcollectRear  + (pConfig->CcpmMixer * PITCH_Televator) + ROLL_TaileronRear;    // aRearServo
+        servo_node_pwm[2].servo_out[2] = 0 + TcollectRear  - (pConfig->CcpmMixer * PITCH_Televator) + ROLL_TaileronRear;    // bRearServo
         servo_node_pwm[2].servo_out[3] = 0 + TcollectRear  - PITCH_Televator;
 
     }
     else {
         // Selection for 210T
         // Front Servo
-        servo_node_pwm[1].servo_out[1] = 0 + ROLL_TaileronFront - (hfc.config.CcpmMixer * PITCH_Televator) + TcollectFront;   // aFrontServo
-        servo_node_pwm[1].servo_out[2] = 0 + ROLL_TaileronFront + (hfc.config.CcpmMixer * PITCH_Televator) - TcollectFront;   // bFrontServo
+        servo_node_pwm[1].servo_out[1] = 0 + ROLL_TaileronFront - (pConfig->CcpmMixer * PITCH_Televator) + TcollectFront;   // aFrontServo
+        servo_node_pwm[1].servo_out[2] = 0 + ROLL_TaileronFront + (pConfig->CcpmMixer * PITCH_Televator) - TcollectFront;   // bFrontServo
         servo_node_pwm[1].servo_out[3] = 0 + TcollectFront + PITCH_Televator;                                                 // cFrontServo
 
         // Rear Servo
-        servo_node_pwm[2].servo_out[1] = 0 + TcollectRear  - (hfc.config.CcpmMixer * PITCH_Televator) - ROLL_TaileronRear;    // aRearServo
-        servo_node_pwm[2].servo_out[2] = 0 - TcollectRear  + (hfc.config.CcpmMixer * PITCH_Televator) - ROLL_TaileronRear;    // bRearServo
+        servo_node_pwm[2].servo_out[1] = 0 + TcollectRear  - (pConfig->CcpmMixer * PITCH_Televator) - ROLL_TaileronRear;    // aRearServo
+        servo_node_pwm[2].servo_out[2] = 0 - TcollectRear  + (pConfig->CcpmMixer * PITCH_Televator) - ROLL_TaileronRear;    // bRearServo
         servo_node_pwm[2].servo_out[3] = 0 - TcollectRear  - PITCH_Televator;                                                 // cRearServo
     }
 }
@@ -830,11 +915,11 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
  * T, R, P, Y controls */
 static void MixerQuad()
 {
-    hfc.servos_out[0] = hfc.mixer_in[THRO] * hfc.config.throttle_gain;
-    hfc.servos_out[1] = hfc.mixer_in[THRO] * hfc.config.throttle_gain;
-    hfc.servos_out[2] = hfc.mixer_in[THRO] * hfc.config.throttle_gain;
+    hfc.servos_out[0] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
+    hfc.servos_out[1] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
+    hfc.servos_out[2] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
     hfc.servos_out[6] = 0;
-    hfc.servos_out[4] = hfc.mixer_in[THRO] * hfc.config.throttle_gain;
+    hfc.servos_out[4] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
     hfc.servos_out[7] = 0;
 
 	if(hfc.throttle_value > 0.5 && hfc.throttle_armed)	// Geoff's LEDs
@@ -864,7 +949,7 @@ static void MixerQuad()
     hfc.servos_out[4] += hfc.mixer_in[YAW];			//cw
 
 //    if ((hfc.print_counter&0x7ff)==2)
-//        printf("%d %d %d %d\n", (int)(servos_out[0]*1000),(int)(servos_out[1]*1000),(int)(servos_out[2]*1000),(int)(servos_out[3]*1000));
+//        serial.printf("%d %d %d %d\n", (int)(servos_out[0]*1000),(int)(servos_out[1]*1000),(int)(servos_out[2]*1000),(int)(servos_out[3]*1000));
 
 
     //Keep motors from turning off once armed
@@ -872,8 +957,8 @@ static void MixerQuad()
     {
         int i;
         for (i=0; i<8; i++){
-    	if(hfc.servos_out[i] < hfc.config.throttle_multi_min)
-    	    hfc.servos_out[i] = hfc.config.throttle_multi_min;
+    	if(hfc.servos_out[i] < pConfig->throttle_multi_min)
+    	    hfc.servos_out[i] = pConfig->throttle_multi_min;
         }
     }
 }
@@ -889,14 +974,14 @@ static void MixerQuad()
  * T, R, P, Y - controls */
 static void MixerHex(void)
 {
-    hfc.servos_out[0] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[1] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[2] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[3] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[4] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[5] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[6] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[7] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
+    hfc.servos_out[0] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[1] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[2] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[3] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[4] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[5] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[6] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[7] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
 
     hfc.servos_out[4] -= hfc.mixer_in[ROLL]*0.5f;
     hfc.servos_out[1] -= hfc.mixer_in[ROLL];
@@ -922,8 +1007,8 @@ static void MixerHex(void)
     {
         int i;
         for (i=0; i<8; i++){
-    	if(hfc.servos_out[i] < hfc.config.throttle_multi_min)
-    	    hfc.servos_out[i] = hfc.config.throttle_multi_min;
+    	if(hfc.servos_out[i] < pConfig->throttle_multi_min)
+    	    hfc.servos_out[i] = pConfig->throttle_multi_min;
         }
     }
 }
@@ -945,14 +1030,14 @@ static void MixerHex(void)
  * T, R, P, Y controls */
 static void MixerOcto(void)
 {
-    hfc.servos_out[0] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[1] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[2] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[3] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[4] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[5] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[6] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
-    hfc.servos_out[7] = hfc.mixer_in[THRO]* hfc.config.throttle_gain;
+    hfc.servos_out[0] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[1] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[2] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[3] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[4] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[5] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[6] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    hfc.servos_out[7] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
 
     hfc.servos_out[0] += hfc.mixer_in[PITCH];
     hfc.servos_out[1] += hfc.mixer_in[PITCH] * 0.414174f;
@@ -986,15 +1071,15 @@ static void MixerOcto(void)
     {
         int i;
         for (i=0; i<8; i++){
-    	if(hfc.servos_out[i] < hfc.config.throttle_multi_min)
-    	    hfc.servos_out[i] = hfc.config.throttle_multi_min;
+    	if(hfc.servos_out[i] < pConfig->throttle_multi_min)
+    	    hfc.servos_out[i] = pConfig->throttle_multi_min;
         }
     }
 }
 
 static void ServoMixer(void)
 {
-    if (hfc.config.ccpm_type == CCPM_NONE)
+    if (pConfig->ccpm_type == CCPM_NONE)
     {
         hfc.servos_out[THRO]  = hfc.mixer_in[THRO];
         hfc.servos_out[PITCH] = hfc.mixer_in[PITCH];
@@ -1002,33 +1087,33 @@ static void ServoMixer(void)
         hfc.servos_out[YAW]   = hfc.mixer_in[YAW];
         hfc.servos_out[COLL]  = 0;
     }
-    else if (hfc.config.ccpm_type == CCPM_120)
+    else if (pConfig->ccpm_type == CCPM_120)
     {
         hfc.servos_out[YAW]  = hfc.mixer_in[YAW];
         hfc.servos_out[THRO] = hfc.mixer_in[THRO];
         CCPM120mix(hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[COLL],
                     &hfc.servos_out[CCPM_A], &hfc.servos_out[CCPM_B], &hfc.servos_out[CCPM_C]);
     }
-    else if (hfc.config.ccpm_type == CCPM_140)
+    else if (pConfig->ccpm_type == CCPM_140)
     {
         hfc.servos_out[YAW] = hfc.mixer_in[YAW];
         hfc.servos_out[THRO] = hfc.mixer_in[THRO];
         CCPM140mix(hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[COLL],
                         &hfc.servos_out[CCPM_A], &hfc.servos_out[CCPM_B], &hfc.servos_out[CCPM_C]);
     }
-    else if (hfc.config.ccpm_type == CCPM_HEX)
+    else if (pConfig->ccpm_type == CCPM_HEX)
     {
         MixerHex();
     }
-    else if (hfc.config.ccpm_type==CCPM_QUAD)
+    else if (pConfig->ccpm_type==CCPM_QUAD)
     {
         MixerQuad();
     }
-    else if (hfc.config.ccpm_type==CCPM_OCTO)
+    else if (pConfig->ccpm_type==CCPM_OCTO)
     {
         MixerOcto();
     }
-    else if (hfc.config.ccpm_type == MIXERTANDEM)
+    else if (pConfig->ccpm_type == MIXERTANDEM)
     {
         //hfc->servos_out[THRO] = hfc->mixer_in[THRO];
         servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO]; // Link Live Throttle on Servo output 0
@@ -1037,7 +1122,7 @@ static void ServoMixer(void)
     }
 }
 
-static inline void ProcessStickInputs(T_HFC *hfc, float dT)
+static inline void ProcessStickInputs(FlightControlData *hfc, float dT)
 {
     int channel;
     
@@ -1071,7 +1156,7 @@ static inline void ProcessStickInputs(T_HFC *hfc, float dT)
                 hfc->ctrl_out[RAW][channel] = v;
 #ifdef PR_DEBUG
                 if ((hfc->print_counter&0xff)==2) {
-                    printf("ProcessStickInputs::  hfc->ctrl_out[RAW][channel %d] = %f\r\n", channel, hfc->ctrl_out[RAW][channel]);
+                    serial.printf("ProcessStickInputs::  hfc->ctrl_out[RAW][channel %d] = %f\r\n", channel, hfc->ctrl_out[RAW][channel]);
                 }
 #endif
             }
@@ -1079,35 +1164,41 @@ static inline void ProcessStickInputs(T_HFC *hfc, float dT)
     }
 }
 
-void Heading_Update(T_HFC *hfc, float heading_rate, float dT)
+void HeadingUpdate(float heading_rate, float dT)
 {
-    hfc->ctrl_out[ANGLE][YAW] += heading_rate*dT;
-    if (hfc->ctrl_out[ANGLE][YAW]>180)
-      hfc->ctrl_out[ANGLE][YAW]-=360;
-    else if (hfc->ctrl_out[ANGLE][YAW]<-180)
-      hfc->ctrl_out[ANGLE][YAW]+=360; 
+    hfc.ctrl_out[ANGLE][YAW] += heading_rate*dT;
+
+    if (hfc.ctrl_out[ANGLE][YAW]>180) {
+      hfc.ctrl_out[ANGLE][YAW]-=360;
+    }
+    else if (hfc.ctrl_out[ANGLE][YAW]<-180) {
+      hfc.ctrl_out[ANGLE][YAW]+=360;
+    }
 }
 
-void Altitude_Update(T_HFC *hfc, float alt_rate, float dT)
+void AltitudeUpdate(float alt_rate, float dT)
 {
-    hfc->ctrl_out[POS][COLL] += alt_rate*dT;
-    if (hfc->ctrl_out[POS][COLL] > 7000)
-      hfc->ctrl_out[POS][COLL] = 7000;
-    else if (hfc->ctrl_out[POS][COLL] < 0)
-      hfc->ctrl_out[POS][COLL] = 0;
+    hfc.ctrl_out[POS][COLL] += alt_rate*dT;
+
+    if (hfc.ctrl_out[POS][COLL] > 7000) {
+        hfc.ctrl_out[POS][COLL] = 7000;
+    }
+    else if (hfc.ctrl_out[POS][COLL] < 0) {
+        hfc.ctrl_out[POS][COLL] = 0;
+    }
 }
 
 static const char CTRL_MODES[7] = {'-', 'M', 'R', 'A', 'S', 'G', 'P'};
 
-static char GetModeChar(T_HFC *hfc, byte channel)
+static char GetModeChar(FlightControlData *hfc, byte channel)
 {
-    if (hfc->config.ctrl_mode_inhibit[channel])
+    if (pConfig->ctrl_mode_inhibit[channel])
         return CTRL_MODES[0];
     else
         return CTRL_MODES[hfc->control_mode[channel]];
 }
 
-static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
+static void Display_Process(FlightControlData *hfc, char xbus_new_values, float dT)
 {
     char str[40];
 
@@ -1151,10 +1242,10 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
                 PRINTs(str, (char*)"GPS  ----");
             myLcd.SetLine(1, str, 0);
             // Bat     %
-            sPRINTdf(str, (char*)"Bat  %d%% %4.2fV", (int)hfc->power.battery_level, hfc->power.Vmain/hfc->config.battery_cells);
+            sPRINTdf(str, (char*)"Bat  %d%% %4.2fV", (int)hfc->power.battery_level, hfc->power.Vmain/pConfig->battery_cells);
             myLcd.SetLine(2, str, 0);
             // Xbus
-            if(hfc->config.SbusEnable == 0)
+            if(pConfig->SbusEnable == 0)
             {
             if (!xbus.receiving)
                 PRINTs(str, (char*)"Xbus ----");
@@ -1163,7 +1254,7 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
             else
                 PRINTs(str, (char*)"Xbus Good");
             }
-            if(hfc->config.SbusEnable == 1)
+            if(pConfig->SbusEnable == 1)
             {
 			if (!xbus.receiving)
 				PRINTs(str, (char*)"Sbus ----");
@@ -1187,7 +1278,7 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
     {
         if ((hfc->print_counter&0xff)==2)
         {
-            sPRINTfd(str, (char*)"BAT %4.2fV %dC", hfc->power.Vmain, hfc->config.battery_cells);
+            sPRINTfd(str, (char*)"BAT %4.2fV %dC", hfc->power.Vmain, pConfig->battery_cells);
             myLcd.SetLine(0, str, 0);
             sPRINTff(str, (char*)"ESC %3.1fV %3.1fA", hfc->power.Vesc, hfc->power.Iesc);
             myLcd.SetLine(1, str, 0);
@@ -1203,12 +1294,12 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
     {
         if (xbus_new_values)
         {
-            float thr1 = (hfc->ctrl_out[RAW][THRO] + hfc->config.Stick100range)*0.5f;
-            Display_CtrlMode(0, THRO,  hfc->config.ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // throttle
-            Display_CtrlMode(1, ROLL,  hfc->config.ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // roll
-            Display_CtrlMode(2, PITCH, hfc->config.ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // pitch
-            Display_CtrlMode(3, YAW,   hfc->config.ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // yaw
-            Display_CtrlMode(4, COLL,  hfc->config.ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // collective
+            float thr1 = (hfc->ctrl_out[RAW][THRO] + pConfig->Stick100range)*0.5f;
+            Display_CtrlMode(0, THRO,  pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // throttle
+            Display_CtrlMode(1, ROLL,  pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // roll
+            Display_CtrlMode(2, PITCH, pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // pitch
+            Display_CtrlMode(3, YAW,   pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // yaw
+            Display_CtrlMode(4, COLL,  pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // collective
         }
     }
     else if (hfc->display_mode == DISPLAY_XBUS)
@@ -1337,11 +1428,11 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
                 sPRINTf(str, (char*)"HEAD %+3.1fdeg  ", hfc->compass_heading_lp);
                 myLcd.SetLine(1, str, 0);
             }
-            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, hfc->compassMin[0], hfc->compassMax[0]);
+            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, hfc->compass_cal.compassMin[0], hfc->compass_cal.compassMax[0]);
             myLcd.SetLine(2, str, 0);
-            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, hfc->compassMin[1], hfc->compassMax[1]);
+            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, hfc->compass_cal.compassMin[1], hfc->compass_cal.compassMax[1]);
             myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, hfc->compassMin[2], hfc->compassMax[2]);
+            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, hfc->compass_cal.compassMin[2], hfc->compass_cal.compassMax[2]);
             myLcd.SetLine(4, str, 0);
         }
     }
@@ -1414,7 +1505,7 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
 
 /*static void CheckRangeAndSetD(double *pvalue, double value, double vmin, double vmax)
 {
-//  printf("%f\r\n", value);
+//  serial.printf("%f\r\n", value);
     if (!pvalue || value>vmax || value<vmin)
         return;
     *pvalue = value;
@@ -1422,7 +1513,7 @@ static void Display_Process(T_HFC *hfc, char xbus_new_values, float dT)
 
 static bool CheckRangeAndSetF(float *pvalue, float value, float vmin, float vmax)
 {
-//  printf("%f\r\n", value);
+//  serial.printf("%f\r\n", value);
     if (!pvalue || value>vmax || value<vmin)
         return false;
     *pvalue = value;
@@ -1443,7 +1534,7 @@ static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax)
     *pvalue = value;
 }
 
-static void Playlist_ProcessTop(T_HFC *hfc)
+static void Playlist_ProcessTop(FlightControlData *hfc)
 {
     T_PlaylistItem *item;
     
@@ -1458,7 +1549,7 @@ static void Playlist_ProcessTop(T_HFC *hfc)
         hfc->playlist_status = PLAYLIST_STOPPED;
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc->throttle_armed)
-        	SetPositionHold(hfc);
+        	telem.SetPositionHold();
         return;
     }
 
@@ -1472,7 +1563,7 @@ static void Playlist_ProcessTop(T_HFC *hfc)
         {
             if (!hfc->pl_wp_initialized)
             {
-                Telemetry_SetWaypoint(hfc, item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc->altitude_WPnext, item->data[0], item->data[1]);
+                telem.SetWaypoint(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc->altitude_WPnext, item->data[0], item->data[1]);
                 hfc->pl_wp_initialized = true;
             }
         }
@@ -1483,7 +1574,7 @@ static void Playlist_ProcessTop(T_HFC *hfc)
             if (hfc->waypoint_type != WAYPOINT_TAKEOFF)
             {
                 // TODO::??: check if in the air, if so, do NOT TAKE OFF!
-                Command_TakeoffArm(hfc);
+                telem.CommandTakeoffArm();
 //            	if( hfc->fixedThrottleMode == THROTTLE_DEAD ) // check to make sure motors are off
 //            	{
 //            		Command_TakeoffArm(hfc);
@@ -1503,10 +1594,9 @@ static void Playlist_ProcessTop(T_HFC *hfc)
         if (item->data[0]==WAYPOINT_LANDING)
         {
             /* initialize it only for the first time */
-            if (hfc->waypoint_type != WAYPOINT_LANDING)
-            {
-                Command_LandingWP(hfc, item->value1.i/10000000.0f, item->value2.i/10000000.0f, 10);
-//                printf("%f %f\r\n", item->value1.i/10000000.0f, item->value2.i/10000000.0f);
+            if (hfc->waypoint_type != WAYPOINT_LANDING) {
+                telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, 10);
+//                serial.printf("%f %f\r\n", item->value1.i/10000000.0f, item->value2.i/10000000.0f);
             }
         }
     }
@@ -1545,13 +1635,13 @@ static void Playlist_ProcessTop(T_HFC *hfc)
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, item->value1.f, 0.1f, 10))
-                	hfc->config.VspeedMax = hfc->pid_CollAlt.COmax;
+                	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, item->value1.f, 0.1f, 100))
-                	hfc->config.VspeedAcc = hfc->pid_CollAlt.acceleration;
+                	hfc->rw_cfg.VspeedAcc = hfc->pid_CollAlt.acceleration;
             }
             else
 //            if (sub_param==TELEM_PARAM_WP_TYPE)
@@ -1562,25 +1652,25 @@ static void Playlist_ProcessTop(T_HFC *hfc)
             else
             if (sub_param==TELEM_PARAM_WP_YAWSPEEDRATE)
             {
-//                CheckRangeAndSetF(&hfc->config.yaw_rate_speed, item->value1.f, 10, 10000);
+//                CheckRangeAndSetF(&pConfig->yaw_rate_speed, item->value1.f, 10, 10000);
             }
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_RADIUS)
-                CheckRangeAndSetF(&hfc->config.GTWP_retire_radius, item->value1.f, 0, 20);
+                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_radius, item->value1.f, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_SPEED)
-                CheckRangeAndSetF(&hfc->config.GTWP_retire_speed, item->value1.f, 0, 20);
+                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_speed, item->value1.f, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_FTWP_SR_FACTOR)
-                CheckRangeAndSetF(&hfc->config.FTWP_retire_sr_factor, item->value1.f, 0, 10);
+                CheckRangeAndSetF(&hfc->rw_cfg.FTWP_retire_sr_factor, item->value1.f, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc->config.low_speed_limit, item->value1.f, 1, 30);
+                CheckRangeAndSetF(&hfc->rw_cfg.low_speed_limit, item->value1.f, 1, 30);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, item->value1.f, -10, -0.5))
-                	hfc->config.VspeedMin = hfc->pid_CollAlt.COmin;
+                	hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
             }
             else
             if (sub_param==TELEM_PARAM_WP_ALTITUDE_BASE)
@@ -1598,26 +1688,26 @@ static void Playlist_ProcessTop(T_HFC *hfc)
                 float value;
                 if (CheckRangeAndSetF(&value, item->value1.f, -180, 180))
                     // TODO::MRI: What is this being used for
-                    Heading_Update(hfc, value, 1);
+                    HeadingUpdate(value, 1);
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_HEADING_ABS)
                 CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], item->value1.f, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetB(&hfc->config.wind_compensation, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.wind_compensation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetB(&hfc->config.path_navigation, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.path_navigation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
-                CheckRangeAndSetF(&hfc->config.AngleCollMixing, item->value1.f, 0, 2);
+                CheckRangeAndSetF(&hfc->rw_cfg.AngleCollMixing, item->value1.f, 0, 2);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_LIMIT)
-                CheckRangeAndSetF(&hfc->config.cruise_speed_limit, item->value1.f, 0, 100);
+                CheckRangeAndSetF(&hfc->rw_cfg.cruise_speed_limit, item->value1.f, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetB(&hfc->config.nose_to_WP, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -1627,7 +1717,7 @@ static void Playlist_ProcessTop(T_HFC *hfc)
     }
 }
 
-static void Playlist_ProcessBottom(T_HFC *hfc, bool retire_waypoint)
+static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 {
     T_PlaylistItem *item;
     
@@ -1635,7 +1725,7 @@ static void Playlist_ProcessBottom(T_HFC *hfc, bool retire_waypoint)
     if ((hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D) && hfc->playlist_status==PLAYLIST_STOPPED)
     {
         if (retire_waypoint)
-            SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
+            telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         return;
     }
     
@@ -1704,13 +1794,14 @@ static void Playlist_ProcessBottom(T_HFC *hfc, bool retire_waypoint)
         /* stop playlist and waypoint mode */
         hfc->playlist_status = PLAYLIST_STOPPED;
         /* if in flight, put a waypoint at the current position, else do nothing */
-        if (hfc->throttle_armed)
-        	SetPositionHold(hfc);
+        if (hfc->throttle_armed) {
+        	telem.SetPositionHold();
+        }
     }
 }
 
 /* this function runs after the previous control modes are saved, thus PIDs will get aqutomatically re-initialized on mode change */
-static void ProcessFlightMode(T_HFC *hfc)
+static void ProcessFlightMode(FlightControlData *hfc)
 {
     GpsData gps_data = gps.GetGpsData();
 
@@ -1728,19 +1819,19 @@ static void ProcessFlightMode(T_HFC *hfc)
                 hfc->inhibitRCswitches = false;
     		    /* send message that takeoff has timed out */
         		if (hfc->message_timeout<=0)
-        			SendMsgToGround(hfc, MSG2GROUND_TAKEOFF_TIMEOUT);
+        			telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
 
-                SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
-            	Disarm(hfc);
+                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            	telem.Disarm();
                 hfc->waypoint_type  = WAYPOINT_NONE;
             	return;
         	}
 
         	/* switch to auto throttle and go to full throttle */
         	hfc->auto_throttle = true;
-        	hfc->throttle_value = hfc->config.Stick100range;
+        	hfc->throttle_value = pConfig->Stick100range;
 
-   	    	SendMsgToGround(hfc, MSG2GROUND_ALLOW_TAKEOFF);
+   	    	telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
 
     		hfc->message_from_ground = 0;	// reset it so we can wait for the message from ground
    			hfc->waypoint_stage  = FM_TAKEOFF_ARM;
@@ -1753,30 +1844,31 @@ static void ProcessFlightMode(T_HFC *hfc)
         	if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_ALLOWED || hfc->message_timeout<=0)
         	{
     		    /* send message that takeoff has timed out */
-        		if (hfc->message_timeout<=0)
-        			SendMsgToGround(hfc, MSG2GROUND_TAKEOFF_TIMEOUT);
+        		if (hfc->message_timeout <= 0) {
+        			telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+        		}
 
-//                SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
-            	Disarm(hfc);
+//                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            	telem.Disarm();
             	/* on takeoff abort, keep in 3D ctrl source with manual coll at the last value,
             	 * use final landing timeout to prevent RC radio from instantly changing collective */
-                SetCtrlMode(hfc, COLL,  CTRL_MODE_MANUAL);
-                hfc->ctrl_out[RAW][COLL] = hfc->config.CollZeroAngle;
+                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+                hfc->ctrl_out[RAW][COLL] = pConfig->CollZeroAngle;
                 hfc->waypoint_type  = WAYPOINT_LANDING;
                 hfc->waypoint_stage = FM_LANDING_TIMEOUT;
                 hfc->touchdown_time = hfc->time_ms;
             	return;
         	}
 
-            SelectCtrlSource(hfc, CTRL_SOURCE_AUTO3D);
-            SaveValuesForAbort(hfc);
+            telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            telem.SaveValuesForAbort();
             hfc->waypoint_type = WAYPOINT_TAKEOFF;
 
             /* set PRY controls to Angle mode, coll to manual */
-            SetCtrlMode(hfc, PITCH, CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, ROLL,  CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, YAW,   CTRL_MODE_ANGLE);
-    //        SetCtrlMode(hfc, COLL,  CTRL_MODE_SPEED);
+            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
+            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+    //        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
 
             /* initialize PRY angles to the current orientation */
             hfc->ctrl_out[ANGLE][PITCH] = hfc->IMUorient[PITCH]*R2D;
@@ -1785,22 +1877,22 @@ static void ProcessFlightMode(T_HFC *hfc)
             hfc->ctrl_angle_pitch_3d = hfc->ctrl_out[ANGLE][PITCH];
             hfc->ctrl_angle_roll_3d  = hfc->ctrl_out[ANGLE][ROLL];
             /* set home position */
-            SetHome(hfc);
+            telem.SetHome();
 
             /* set vspeed to the takeoff speed */
             hfc->ctrl_collective_3d  = hfc->pid_CollVspeed.COmax;   // set target collective to max value and wait for the heli to clear ground
             hfc->fixedThrottleMode = THROTTLE_FLY;					// rvw
             /* default PID values */
-        	ApplyDefaults(hfc);
+        	telem.ApplyDefaults();
         	/* slow max vspeed to make collective to move slowely */
-//        	hfc->pid_CollAlt.COmax = hfc->config.throttle_ctrl==PROP_VARIABLE_PITCH ? 0.1f : 0.5f;
+//        	hfc->pid_CollAlt.COmax = pConfig->throttle_ctrl==PROP_VARIABLE_PITCH ? 0.1f : 0.5f;
             hfc->waypoint_stage  = FM_TAKEOFF_START;
         }
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_START)
         {
-            float thr = ClipMinMax(hfc->config.CollThrAutoLevel, 0, 1);
-        	float limit = (1-thr)*hfc->config.CollZeroAngle + thr*hfc->pid_CollVspeed.COofs;
+            float thr = ClipMinMax(pConfig->CollThrAutoLevel, 0, 1);
+        	float limit = (1-thr)*pConfig->CollZeroAngle + thr*hfc->pid_CollVspeed.COofs;
             /* set pitch/roll angle to trim values once collective exceeds the set % of hover value */
             if ((hfc->ctrl_collective_raw>limit) || (hfc->IMUspeedGroundENU[2]>0.2f))
             {
@@ -1820,14 +1912,14 @@ static void ProcessFlightMode(T_HFC *hfc)
                 hfc->ctrl_out[RAW][COLL]  = hfc->ctrl_collective_raw;
                 hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[2];    // initialize to current vert speed
 
-                SetCtrlMode(hfc, COLL,  CTRL_MODE_POSITION);
+                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
                 hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + 10;
                 hfc->waypoint_pos[2] = hfc->ctrl_out[POS][COLL];    // needs to be initialized for further waypoint flying if altitude is not specified
 
 
                 /* enable horizontal speed control with zero speed */
-                SetCtrlMode(hfc, PITCH, CTRL_MODE_SPEED);
-                SetCtrlMode(hfc, ROLL,  CTRL_MODE_SPEED);
+                SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+                SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
                 hfc->ctrl_out[SPEED][PITCH] = 0;
                 hfc->ctrl_out[SPEED][ROLL]  = 0;
                 
@@ -1843,9 +1935,9 @@ static void ProcessFlightMode(T_HFC *hfc)
                 hfc->waypoint_pos[0] = hfc->home_pos[0];
                 hfc->waypoint_pos[1] = hfc->home_pos[1];
                 hfc->waypoint_retire    = 0;
-                SetCtrlMode(hfc, PITCH, CTRL_MODE_POSITION);
-                SetCtrlMode(hfc, ROLL,  CTRL_MODE_POSITION);
-//                SetCtrlMode(hfc, COLL,  CTRL_MODE_POSITION);
+                SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
+                SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
+//                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
 //                hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + 5;
                 hfc->waypoint_stage = FM_TAKEOFF_HOLD;
             }
@@ -1862,24 +1954,24 @@ static void ProcessFlightMode(T_HFC *hfc)
     {
         if (hfc->waypoint_stage == FM_LANDING_WAYPOINT)
         {
-            if (gps_data.HspeedC <= hfc->config.GTWP_retire_speed && hfc->gps_to_waypoint[0] <= hfc->config.GTWP_retire_radius)
+            if (gps_data.HspeedC <= hfc->rw_cfg.GTWP_retire_speed && hfc->gps_to_waypoint[0] <= hfc->rw_cfg.GTWP_retire_radius)
             {
                 /* send out message and setup timeout */
                 hfc->waypoint_stage = FM_LANDING_HOLD;
                 hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
                 hfc->message_timeout = 30000000;    // 30 seconds
-                SendMsgToGround(hfc, MSG2GROUND_ALLOW_LANDING);
+                telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
             }
         }
         else if (hfc->waypoint_stage == FM_LANDING_HOLD && (hfc->message_from_ground==CMD_MSG_LANDING_GO || hfc->message_timeout<=0))
         {
             /* check for incoming message or timeout */
-            Command_Landing(hfc, false, false);
+            telem.CommandLanding(false, false);
         }
         else if (hfc->waypoint_stage == FM_LANDING_HIGH_ALT)
         {
             if (hfc->altitude_lidar <= 3)
-                Command_Landing(hfc, true, false);
+                telem.CommandLanding(true, false);
         }
         else
         if (hfc->waypoint_stage == FM_LANDING_LOW_ALT)
@@ -1891,17 +1983,17 @@ static void ProcessFlightMode(T_HFC *hfc)
             if (hfc->altitude_lidar < 0.2f)
             {
                 /* set PRY controls to rate */
-                SetCtrlMode(hfc, PITCH, CTRL_MODE_RATE);
-                SetCtrlMode(hfc, ROLL,  CTRL_MODE_RATE);
-                SetCtrlMode(hfc, YAW,   CTRL_MODE_RATE);
+                SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
+                SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_RATE);
+                SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_RATE);
                 
                 hfc->ctrl_out[RATE][PITCH] = 0;
                 hfc->ctrl_out[RATE][ROLL]  = 0;
                 hfc->ctrl_out[RATE][YAW]   = 0;
                 /* double the vertical speed just before touchdown to reduce the jump
                  * and to reduce the time blades take to flatten */
-//                if (hfc->config.throttle_ctrl==PROP_VARIABLE_PITCH)
-                hfc->ctrl_vspeed_3d = -hfc->config.landing_vspeed*0.6f;
+//                if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
+                hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed*0.6f;
                 hfc->waypoint_stage = FM_LANDING_TOUCHDOWN;
             }
         }
@@ -1910,10 +2002,10 @@ static void ProcessFlightMode(T_HFC *hfc)
         {
             /* heli is on the ground in rate mode, wait till coll is at zero angle and then shut down */
             /* for fixed prop, kill throttle once close to the ground */
-            if (/*(hfc->config.throttle_ctrl==PROP_FIXED_PITCH && hfc->altitude_lidar < 0.15f)
-            || (hfc->config.throttle_ctrl==PROP_VARIABLE_PITCH &&*/ hfc->pid_CollVspeed.COlast <= hfc->config.CollZeroAngle)
+            if (/*(pConfig->throttle_ctrl==PROP_FIXED_PITCH && hfc->altitude_lidar < 0.15f)
+            || (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH &&*/ hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
             {
-                SetCtrlMode(hfc, COLL,  CTRL_MODE_MANUAL);
+                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
                 hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
                 hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
                 hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
@@ -1921,15 +2013,17 @@ static void ProcessFlightMode(T_HFC *hfc)
                 hfc->throttle_armed = 0;
                 hfc->waypoint_stage = FM_LANDING_TIMEOUT;
                 hfc->touchdown_time = hfc->time_ms;
-                Save_PIDvalues(hfc);
+
+                // TODO::SP: Error Handling on Flash write error??
+                SavePIDUpdates(hfc);
             }
         }
         else
         if (hfc->waypoint_stage == FM_LANDING_TIMEOUT)
         {
-            if ((hfc->time_ms-hfc->touchdown_time)>hfc->config.landing_timeout)
+            if ((hfc->time_ms-hfc->touchdown_time)>pConfig->landing_timeout)
             {
-                SelectCtrlSource(hfc, CTRL_SOURCE_RCRADIO);
+                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
                 hfc->waypoint_stage = FM_LANDING_LANDED;
                 hfc->playlist_status = PLAYLIST_STOPPED;
@@ -1946,12 +2040,16 @@ static void SetSpeedAcc(float *value, float speed, float acc, float dT)
     *value = v;
 }
 
-static float CalcMinAboveGroundAlt(T_Config *cfg, float speed)
+static float CalcMinAboveGroundAlt(float speed)
 {
-    float alt = ClipMinMax((speed-cfg->LidarHVcurve[0])*cfg->LidarHVcurve[1] + cfg->LidarHVcurve[2], cfg->LidarHVcurve[2], cfg->LidarHVcurve[3]);
+    float alt = ClipMinMax((speed - pConfig->LidarHVcurve[0]) * pConfig->LidarHVcurve[1] + pConfig->LidarHVcurve[2],
+                               pConfig->LidarHVcurve[2], pConfig->LidarHVcurve[3]);
+
     /* clip not to exceed the sensor operating range otherwise it would keep pushing the heli up */
-    if (cfg->ground_sensor==GROUND_SENSOR_SONAR)
+    if (pConfig->ground_sensor == GROUND_SENSOR_SONAR) {
         alt = min(alt, 7);
+    }
+
     return alt;
 }
 
@@ -1961,7 +2059,7 @@ static void ServoUpdateRAW(float dT)
     char xbus_new_values = xbus.NewValues(dT);
 #ifdef PR_DEBUG
     if ((hfc.print_counter&0xff)==2) {
-        printf("xbus_new_values=%d\r\n", xbus_new_values);
+        serial.printf("xbus_new_values=%d\r\n", xbus_new_values);
     }
 #endif
 
@@ -1973,7 +2071,7 @@ static void ServoUpdateRAW(float dT)
         hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
     }
     else if (!hfc.throttle_armed) {
-        hfc.throttle_value = -hfc.config.Stick100range;
+        hfc.throttle_value = -pConfig->Stick100range;
     }
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
@@ -1995,9 +2093,9 @@ static void ServoUpdateRAW(float dT)
 
     if (xbus_new_values) {
         if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
-            SaveValuesForAbort(&hfc);
+            telem.SaveValuesForAbort();
         }
-        SetControlMode(&hfc);
+        SetControlMode();
     }
 
     ProcessStickInputs(&hfc, dT);
@@ -2015,15 +2113,15 @@ static void ServoUpdateRAW(float dT)
 
 #ifdef PR_DEBUG
     if ((hfc.print_counter&0xff)==2) {
-        printf("hfc.mixer_in[P:%f, R:%f, Y:%f, C:%f, T:%f\r\n",
+        serial.printf("hfc.mixer_in[P:%f, R:%f, Y:%f, C:%f, T:%f\r\n",
                 hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[YAW], hfc.mixer_in[COLL], hfc.mixer_in[THRO]);
     }
 #endif
 
     ServoMixer();
 
-    if (hfc.config.ccpm_type == MIXERTANDEM) {
-        WriteToServoNodes(hfc.config.num_servo_nodes);
+    if (pConfig->ccpm_type == MIXERTANDEM) {
+        WriteToServoNodes(pConfig->num_servo_nodes);
     }
     else {
         WriteToServos();
@@ -2040,8 +2138,8 @@ static void ServoUpdate(float dT)
 //    float throttle_prev = hfc.ctrl_out[RAW][THRO];
 
     hfc.altitude_lidar = hfc.altitude_lidar_raw * AngleCompensation;
-//    printf("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
-//    printf("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
+//    serial.printf("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
+//    serial.printf("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
     if (!hfc.full_auto && !hfc.throttle_armed)
     	hfc.auto_throttle = false;
@@ -2049,11 +2147,11 @@ static void ServoUpdate(float dT)
     if (!hfc.auto_throttle)
     	hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
     else if (!hfc.throttle_armed)
-    	hfc.throttle_value = -hfc.config.Stick100range;
+    	hfc.throttle_value = -pConfig->Stick100range;
 
 
 //    if (!(hfc.print_counter&0x3f))
-//    	printf("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
+//    	serial.printf("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
 //    if (!hfc.full_auto)
@@ -2086,7 +2184,7 @@ static void ServoUpdate(float dT)
 
     if (!hfc.full_auto && !hfc.auto_throttle)
     {
-        if (hfc.config.throttle_ctrl==PROP_FIXED_PITCH && hfc.config.SbusEnable == 1)
+        if (pConfig->throttle_ctrl==PROP_FIXED_PITCH && pConfig->SbusEnable == 1)
         {
         	// throttle follows xbus stick position
         	if(hfc.fixedThrottleMode == THROTTLE_FLY)
@@ -2098,7 +2196,7 @@ static void ServoUpdate(float dT)
             		if(hfc.fixedThrottleMult == 3000)
             		{
             		hfc.fixedThrottleMode = THROTTLE_IDLE;
-            		Disarm(&hfc);
+            		telem.Disarm();
             		}
             		hfc.fixedThrottleMult += 1;
             	}
@@ -2113,10 +2211,10 @@ static void ServoUpdate(float dT)
             		hfc.fixedThrottleMode = THROTTLE_FLY;
             	}
             	hfc.fixedThrottleMult += 0.0003f;
-            	hfc.collective_value = hfc.fixedThrottleCap - ((1 - hfc.fixedThrottleMult) * 0.571f * (-1.0f * hfc.config.throttle_multi_min ));  // rvw
+            	hfc.collective_value = hfc.fixedThrottleCap - ((1 - hfc.fixedThrottleMult) * 0.571f * (-1.0f * pConfig->throttle_multi_min ));  // rvw
             	if(hfc.fixedThrottleMult < 0.8)
             	{
-                Reset_Iterms(&hfc);
+                ResetIterms();
                 hfc.ctrl_out[RAW][PITCH] = 0;
                 hfc.ctrl_out[RAW][ROLL]  = 0;
                 hfc.ctrl_out[RAW][YAW]   = 0;
@@ -2131,7 +2229,7 @@ static void ServoUpdate(float dT)
 					hfc.collective_value = -0.571;
 					hfc.fixedThrottleMode = THROTTLE_RAMP;
 				}
-                Reset_Iterms(&hfc);
+                ResetIterms();
         	}
         	// check if lever is raised to top to start machine
         	if(hfc.fixedThrottleMode == THROTTLE_IDLE && hfc.throttle_value > 0.5)
@@ -2160,28 +2258,30 @@ static void ServoUpdate(float dT)
     control_mode_prev[COLL]  = hfc.control_mode[COLL];
     
     /* process command queue here */
-    ProcessCommands(&hfc);
+    telem.ProcessCommands();
 
     Playlist_ProcessTop(&hfc);
     
     /* check for a new control mode */
     if (xbus_new_values)
     {
-    	if (xbus_new_values==XBUS_NEW_VALUES_1ST)
-    		SaveValuesForAbort(&hfc);
-        SetControlMode(&hfc);
-//        printf("Full auto %d Auto Throttle %d\r\n", hfc.full_auto, hfc.auto_throttle);
+    	if (xbus_new_values==XBUS_NEW_VALUES_1ST) {
+    		telem.SaveValuesForAbort();
+    	}
+
+        SetControlMode();
+//        serial.printf("Full auto %d Auto Throttle %d\r\n", hfc.full_auto, hfc.auto_throttle);
     }
 
     /* 11us low pass stick input to soften the response */
     ProcessStickInputs(&hfc, dT);
 
     /* throttle control */
-    if (hfc.config.throttle_ctrl==PROP_VARIABLE_PITCH)
-      hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+hfc.config.Stick100range)*hfc.config.throttle_values[1]+hfc.config.throttle_values[0];     // set by channel 6
+    if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
+      hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)*pConfig->throttle_values[1]+pConfig->throttle_values[0];     // set by channel 6
 
     /* performs logging and automatic profiling control */
-    Profiling_Process(&hfc);
+    Profiling_Process(&hfc, pConfig);
 
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK)
     {
@@ -2189,26 +2289,26 @@ static void ServoUpdate(float dT)
         {
           if (hfc.joy_PRmode)
           {
-              SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.config.StickHaccel, dT);
-              SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.config.StickHaccel, dT);
+              SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.rw_cfg.StickHaccel, dT);
+              SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.rw_cfg.StickHaccel, dT);
           }
           else
           {
-            hfc.ctrl_out[SPEED][PITCH] += hfc.joy_values[THRO]*hfc.config.StickHaccel*dT;
+            hfc.ctrl_out[SPEED][PITCH] += hfc.joy_values[THRO]*hfc.rw_cfg.StickHaccel*dT;
 
-            if (hfc.ctrl_out[SPEED][PITCH] > hfc.config.joystick_max_speed)
-              hfc.ctrl_out[SPEED][PITCH] = hfc.config.joystick_max_speed;
+            if (hfc.ctrl_out[SPEED][PITCH] > pConfig->joystick_max_speed)
+              hfc.ctrl_out[SPEED][PITCH] = pConfig->joystick_max_speed;
 
             if (hfc.joy_values[THRO]<0 && hfc.ctrl_out[SPEED][PITCH]<0)
               hfc.ctrl_out[SPEED][PITCH] = 0;
 
-            SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   0,  hfc.config.StickHaccel, dT);
+            SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   0,  hfc.rw_cfg.StickHaccel, dT);
           }
         }
         else
         {
-          SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.config.StickHaccel, dT);
-          SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.config.StickHaccel, dT);
+          SetSpeedAcc(&hfc.ctrl_out[SPEED][PITCH], -hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed, hfc.rw_cfg.StickHaccel, dT);
+          SetSpeedAcc(&hfc.ctrl_out[SPEED][ROLL],   hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed,  hfc.rw_cfg.StickHaccel, dT);
         }
 
         hfc.ctrl_out[RATE][PITCH]  = hfc.ctrl_out[RAW][PITCH]*hfc.PRstick_rate  + hfc.pid_PitchAngle.COofs;
@@ -2220,7 +2320,7 @@ static void ServoUpdate(float dT)
 #ifdef PR_DEBUG
         if ((hfc.print_counter&0xff)==2) {
             for (int i=0; i < 2; i++) {
-                printf("New Values[mode %d]: P[%f], R[%f]\r\n", i, hfc.ctrl_out[i][PITCH], hfc.ctrl_out[i][ROLL]);
+                serial.printf("New Values[mode %d]: P[%f], R[%f]\r\n", i, hfc.ctrl_out[i][PITCH], hfc.ctrl_out[i][ROLL]);
             }
         }
 #endif
@@ -2236,32 +2336,34 @@ static void ServoUpdate(float dT)
     {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
-        if (hfc.config.ManualLidarAltitude)
+
+        if (hfc.rw_cfg.ManualLidarAltitude) {
             hfc.ctrl_out[POS][COLL] = 2 + 2*hfc.ctrl_out[RAW][COLL];
+        }
 
         yaw_rate_ctrl = ClipMinMax(yaw_rate_ctrl, hfc.pid_YawAngle.COmin, hfc.pid_YawAngle.COmax);
 
         // TODO::MRI: What are these used for?
-        Heading_Update(&hfc, yaw_rate_ctrl, dT);
-        Altitude_Update(&hfc, hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed, dT);
+        HeadingUpdate(yaw_rate_ctrl, dT);
+        AltitudeUpdate(hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed, dT);
         
         hfc.ctrl_out[RATE][YAW]  = yaw_rate_ctrl;
         hfc.ctrl_out[RAW][YAW]  += hfc.pid_YawRate.COofs;
 
 #ifdef PR_DEBUG
         if ((hfc.print_counter&0xff)==2) {
-            printf("New Values: RateY[%f], RawY[%f]\r\n", hfc.ctrl_out[RATE][YAW], hfc.ctrl_out[RAW][YAW]);
+            serial.printf("New Values: RateY[%f], RawY[%f]\r\n", hfc.ctrl_out[RATE][YAW], hfc.ctrl_out[RAW][YAW]);
         }
 #endif
     
         /* do not add offsets to RAW above, apply gain to RAW, added offset to RAW,
         ** clip RAW using rate PID limits */
-        hfc.ctrl_out[RAW][COLL]  = hfc.ctrl_out[RAW][COLL] * hfc.config.control_gains[COLL];
+        hfc.ctrl_out[RAW][COLL]  = hfc.ctrl_out[RAW][COLL] * pConfig->control_gains[COLL];
         hfc.ctrl_out[RAW][COLL] += hfc.pid_CollVspeed.COofs;
     }
 
 //    if (!(hfc.print_counter&0x1f))
-//        printf("%+5.3f %+5.3f %4.2f\n", xbus.valuesf[XBUS_THRO], hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL]);
+//        serial.printf("%+5.3f %+5.3f %4.2f\n", xbus.valuesf[XBUS_THRO], hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL]);
 
     /* processes staged waypoints - takeoff, landing, ... */
     ProcessFlightMode(&hfc);
@@ -2280,7 +2382,7 @@ static void ServoUpdate(float dT)
         float PathSpeedR;
 
         distance_to_ref = DistanceCourse(hfc.positionLatLon[0], hfc.positionLatLon[1], hfc.waypoint_pos[0], hfc.waypoint_pos[1], &course_to_ref);
-//        printf("dist %4.1f \r\n", distance_to_ref);
+//        serial.printf("dist %4.1f \r\n", distance_to_ref);
         /* error handling: do nothing if distance over 100k */
         if (distance_to_ref>100000)
           distance_to_ref = 0;
@@ -2298,8 +2400,10 @@ static void ServoUpdate(float dT)
         if (control_mode_prev[PITCH]<CTRL_MODE_POSITION)
         {
           /* not sure if this needed any more since RC radio cannot set WP any more */
-          if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
-              Telemetry_SetWaypoint(&hfc, hfc.positionLatLon[0], hfc.positionLatLon[1], -9999, WAYPOINT_GOTO, 0);
+          if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO) {
+              telem.SetWaypoint(hfc.positionLatLon[0], hfc.positionLatLon[1], -9999, WAYPOINT_GOTO, 0);
+          }
+
           PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
           PID_SetForEnable(&hfc.pid_Dist2P, 0, 0, 0);
           hfc.speedCtrlPrevEN[0] = 0;
@@ -2310,7 +2414,7 @@ static void ServoUpdate(float dT)
 
         /* do path navigation only once far enough from the target
         ** since otherwise trust vectoring will take care of the final approach */
-        if (hfc.config.path_navigation && distance_to_ref>2)
+        if (hfc.rw_cfg.path_navigation && distance_to_ref>2)
         {
             /* add a side vector to the main speed vector to the target waypoint.
             ** The side vector is proportional to the current distance from the path
@@ -2373,10 +2477,10 @@ static void ServoUpdate(float dT)
       /* for high speeds, make the nose to point towards the target,
       * or to follow the ground speed vector. For low speeds, do not change it */
       if (distance_to_ref>5)
-          hfc.ctrl_out[ANGLE][YAW]   = hfc.config.nose_to_WP ? course_to_ref : hfc.waypoint_STcourse;
+          hfc.ctrl_out[ANGLE][YAW] = hfc.rw_cfg.nose_to_WP ? course_to_ref : hfc.waypoint_STcourse;
 
 #ifndef THRUST_VECTORING
-      if (/*speed>hfc.config.low_speed_limit &&*/ distance_to_ref>5 || hfc.waypoint_type==WAYPOINT_FLYTHROUGH)
+      if (/*speed>pConfig->low_speed_limit &&*/ distance_to_ref>5 || hfc.waypoint_type==WAYPOINT_FLYTHROUGH)
       {
           hfc.ctrl_out[SPEED][PITCH] = speed;
           hfc.ctrl_out[SPEED][ROLL]  = 0;
@@ -2403,7 +2507,7 @@ static void ServoUpdate(float dT)
             float altitude = hfc.waypoint_pos_prev[2] * a + hfc.waypoint_pos[2] * (1-a);
             hfc.ctrl_out[POS][COLL] = altitude;
 //            if (!(hfc.print_counter&0x3f))
-//                printf("D2T %4.1f SDdist %4.1f old %5.1f new %5.1f a %4.2f curr %5.1f\r\n", distance_to_ref, hfc.waypoint_STdist, hfc.waypoint_pos_prev[2], hfc.waypoint_pos[2], a, altitude);
+//                serial.printf("D2T %4.1f SDdist %4.1f old %5.1f new %5.1f a %4.2f curr %5.1f\r\n", distance_to_ref, hfc.waypoint_STdist, hfc.waypoint_pos_prev[2], hfc.waypoint_pos[2], a, altitude);
         }
         else
             hfc.ctrl_out[POS][COLL] = hfc.waypoint_pos[2];
@@ -2414,7 +2518,7 @@ static void ServoUpdate(float dT)
       {
           if (hfc.waypoint_type==WAYPOINT_FLYTHROUGH)
           {
-              float limit = CalcFTWPlimit(&hfc, true);
+              float limit = telem.CalcFTWPlimit(true);
               /* once it gets close enough considering the current speed */
               if (hfc.gps_to_waypoint[0] < max(1, limit))
                 retire_waypoint = true;
@@ -2423,14 +2527,14 @@ static void ServoUpdate(float dT)
           {
               /* once it gets close enough at low enough speed, also wait for altitude to match the target !!!!!!!!! */
               GpsData gps_data = gps.GetGpsData();
-              if (gps_data.HspeedC <= hfc.config.GTWP_retire_speed && distance_to_ref <= hfc.config.GTWP_retire_radius)
+              if (gps_data.HspeedC <= hfc.rw_cfg.GTWP_retire_speed && distance_to_ref <= hfc.rw_cfg.GTWP_retire_radius)
                 retire_waypoint = true;
           }
       }
     }
 
     /* dynamic yaw rate - limits yaw rate to prevent airframe overloading during turns */
-    Calc_DynYawRate(&hfc);
+    telem.CalcDynYawRate();
     hfc.pid_YawAngle.COmax =  hfc.dyn_yaw_rate;
     hfc.pid_YawAngle.COmin = -hfc.dyn_yaw_rate;
 
@@ -2445,20 +2549,20 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[PITCH]>=CTRL_MODE_SPEED || hfc.control_mode[ROLL]>=CTRL_MODE_SPEED)
     {
 //      if (!(hfc.print_counter&0x1f))
-//        printf("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
+//        serial.printf("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
       /* rotate E/N speed PID I-terms into current R/F */
-      if (hfc.config.wind_compensation)
+      if (hfc.rw_cfg.wind_compensation)
       {
           Rotate(hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.IMUorient[YAW], &hfc.pid_RollSpeed.Ie, &hfc.pid_PitchSpeed.Ie);
 //          if (!(hfc.print_counter&0x1f))
-//             printf("1 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
+//             serial.printf("1 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
       }
 
 //      if (!(hfc.print_counter&0x1f))
-//        printf("%4.1f %4.1f   ", hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
+//        serial.printf("%4.1f %4.1f   ", hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
       
       /* if previous mode was below SPEED, reset PIDs to be bumpless */
-      if ((control_mode_prev[PITCH]<CTRL_MODE_SPEED && !hfc.config.ctrl_mode_inhibit[PITCH]) || (control_mode_prev[ROLL]<CTRL_MODE_SPEED && !hfc.config.ctrl_mode_inhibit[ROLL]))
+      if ((control_mode_prev[PITCH]<CTRL_MODE_SPEED && !pConfig->ctrl_mode_inhibit[PITCH]) || (control_mode_prev[ROLL]<CTRL_MODE_SPEED && !pConfig->ctrl_mode_inhibit[ROLL]))
       {
           hfc.ctrl_out[SPEED][PITCH] = hfc.speedHeliRFU[1];
           hfc.ctrl_out[SPEED][ROLL]  = hfc.speedHeliRFU[0];
@@ -2469,7 +2573,7 @@ static void ServoUpdate(float dT)
 
       if (!hfc.cruise_mode)
       {
-          if (ABS(hfc.ctrl_out[SPEED][PITCH]) >= hfc.config.cruise_speed_limit)
+          if (ABS(hfc.ctrl_out[SPEED][PITCH]) >= hfc.rw_cfg.cruise_speed_limit)
           {
               hfc.cruise_mode = true;
               /* smoothly engage cruise mode by keeping the current angle */
@@ -2478,7 +2582,7 @@ static void ServoUpdate(float dT)
       }
       else
       {
-          if (ABS(hfc.ctrl_out[SPEED][PITCH]) < 0.8f*hfc.config.cruise_speed_limit)
+          if (ABS(hfc.ctrl_out[SPEED][PITCH]) < 0.8f*hfc.rw_cfg.cruise_speed_limit)
           {
               hfc.cruise_mode = false;
               /* smoothly engage normal speed mode */
@@ -2488,31 +2592,31 @@ static void ServoUpdate(float dT)
       if (hfc.cruise_mode)
       {
           /* set trip to an angle, which corresponds to the target speed */
-          float angle = hfc.config.Speed2AngleLUT[min((int)(ABS(hfc.ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
+          float angle = hfc.rw_cfg.Speed2AngleLUT[min((int)(ABS(hfc.ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
           if (hfc.ctrl_out[SPEED][PITCH]<0)
               angle = -angle;
           hfc.pid_PitchCruise.COofs = angle;
           hfc.ctrl_out[ANGLE][PITCH] = -PID_P_Acc(&hfc.pid_PitchCruise, hfc.ctrl_out[SPEED][PITCH], hfc.speedHeliRFU[1], dT, false, false); // speed forward
 //          if (!(hfc.print_counter&0x3f))
-//              printf("S %f A %f out %f\n", hfc.ctrl_out[SPEED][PITCH], angle, hfc.ctrl_out[ANGLE][PITCH]);
+//              serial.printf("S %f A %f out %f\n", hfc.ctrl_out[SPEED][PITCH], angle, hfc.ctrl_out[ANGLE][PITCH]);
       }
       else
           hfc.ctrl_out[ANGLE][PITCH] = -PID(&hfc.pid_PitchSpeed, hfc.ctrl_out[SPEED][PITCH], hfc.speedHeliRFU[1], dT); // speed forward
 
       hfc.ctrl_out[ANGLE][ROLL]  =  PID(&hfc.pid_RollSpeed,  hfc.ctrl_out[SPEED][ROLL],  hfc.speedHeliRFU[0], dT); // speed right
 //      if (!(hfc.print_counter&0x1f))
-//          printf("cS %5.3f mS %5.3f a %5.2f i %f\n", hfc.ctrl_out[SPEED][ROLL], hfc.speedHeliRFU[0], hfc.ctrl_out[ANGLE][ROLL], hfc.pid_RollSpeed.Ie);
+//          serial.printf("cS %5.3f mS %5.3f a %5.2f i %f\n", hfc.ctrl_out[SPEED][ROLL], hfc.speedHeliRFU[0], hfc.ctrl_out[ANGLE][ROLL], hfc.pid_RollSpeed.Ie);
 
       /* rotate back R/F I-terms to E/N */
-      if (hfc.config.wind_compensation)
+      if (hfc.rw_cfg.wind_compensation)
       {
           Rotate(hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie, -hfc.IMUorient[YAW], &hfc.speed_Iterm_E, &hfc.speed_Iterm_N);
 //          if (!(hfc.print_counter&0x1f))
-//             printf("2 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
+//             serial.printf("2 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
           hfc.speed_Iterm_E_lp = (hfc.speed_Iterm_E + hfc.speed_Iterm_E_lp*4095)/4096;
           hfc.speed_Iterm_N_lp = (hfc.speed_Iterm_N + hfc.speed_Iterm_N_lp*4095)/4096;
 //          if (!(hfc.print_counter&0x3f))
-//              printf("%f %f %f %f\n", hfc.speed_Iterm_E_lp, hfc.speed_Iterm_E, hfc.speed_Iterm_N_lp, hfc.speed_Iterm_N);
+//              serial.printf("%f %f %f %f\n", hfc.speed_Iterm_E_lp, hfc.speed_Iterm_E, hfc.speed_Iterm_N_lp, hfc.speed_Iterm_N);
       }
       
       /* pitch-roll mixing to prevent side slip */
@@ -2549,7 +2653,7 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[PITCH]>=CTRL_MODE_ANGLE)
     {
       if (hfc.control_mode[PITCH]==CTRL_MODE_ANGLE && hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-      	  SetSpeedAcc(&hfc.ctrl_out[ANGLE][PITCH], hfc.ctrl_angle_pitch_3d, hfc.config.takeoff_angle_rate, dT);
+      	  SetSpeedAcc(&hfc.ctrl_out[ANGLE][PITCH], hfc.ctrl_angle_pitch_3d, pConfig->takeoff_angle_rate, dT);
       /* if previous mode was below ANGLE, reset PIDs to be bumpless */
       if (control_mode_prev[PITCH]<CTRL_MODE_ANGLE)
                      PID_SetForEnable(&hfc.pid_PitchAngle, hfc.ctrl_out[ANGLE][PITCH], hfc.IMUorient[PITCH]*R2D, hfc.ctrl_out[RATE][PITCH]);
@@ -2559,14 +2663,14 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[ROLL]>=CTRL_MODE_ANGLE)
     {
       if (hfc.control_mode[ROLL]==CTRL_MODE_ANGLE && hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-        	  SetSpeedAcc(&hfc.ctrl_out[ANGLE][ROLL], hfc.ctrl_angle_roll_3d, hfc.config.takeoff_angle_rate, dT);
+        	  SetSpeedAcc(&hfc.ctrl_out[ANGLE][ROLL], hfc.ctrl_angle_roll_3d, pConfig->takeoff_angle_rate, dT);
       /* if previous mode was below ANGLE, reset PIDs to be bumpless */
       if (control_mode_prev[ROLL]<CTRL_MODE_ANGLE)
                      PID_SetForEnable(&hfc.pid_RollAngle,  hfc.ctrl_out[ANGLE][ROLL],  hfc.IMUorient[ROLL]*R2D,  hfc.ctrl_out[RATE][ROLL]);
       hfc.ctrl_out[RATE][ROLL]  = PID(&hfc.pid_RollAngle,  hfc.ctrl_out[ANGLE][ROLL],  hfc.IMUorient[ROLL]*R2D,  dT);
     }
 
-//    printf("%d %5.1f %5.1f\r\n", pr_control_mode, roll_angle, roll_rate);
+//    serial.printf("%d %5.1f %5.1f\r\n", pr_control_mode, roll_angle, roll_rate);
 
     if (hfc.control_mode[PITCH]>=CTRL_MODE_RATE)
     {    
@@ -2576,7 +2680,7 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], dT);
 #ifdef PR_DEBUG
       if ((hfc.print_counter&0xff)==2) {
-          printf("New Values1: RawPitch[%f]\r\n", hfc.ctrl_out[RAW][PITCH]);
+          serial.printf("New Values1: RawPitch[%f]\r\n", hfc.ctrl_out[RAW][PITCH]);
       }
 #endif
     }
@@ -2591,7 +2695,7 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[RAW][ROLL] = PID(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  dT);
 #ifdef PR_DEBUG
       if ((hfc.print_counter&0xff)==2) {
-          printf("New Values1: RawRoll[%f]\r\n", hfc.ctrl_out[RAW][ROLL]);
+          serial.printf("New Values1: RawRoll[%f]\r\n", hfc.ctrl_out[RAW][ROLL]);
       }
 #endif
     }
@@ -2617,7 +2721,7 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[RAW][YAW] = PID(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], dT);
 #ifdef PR_DEBUG
       if ((hfc.print_counter&0xff)==2) {
-          printf("New Values1: RawYaw[%f]\r\n", hfc.ctrl_out[RAW][YAW]);
+          serial.printf("New Values1: RawYaw[%f]\r\n", hfc.ctrl_out[RAW][YAW]);
       }
 #endif
     }
@@ -2636,7 +2740,7 @@ static void ServoUpdate(float dT)
         bool double_acc = (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) ? true : false;
 
         /* set minimum above ground altitude as a function of speed */
-        LidarMinAlt = CalcMinAboveGroundAlt(&hfc.config, hfc.gps_speed);
+        LidarMinAlt = CalcMinAboveGroundAlt(hfc.gps_speed);
         
         /* switch between regular (IMU) and lidar based altitude control mode */
         if (!hfc.LidarCtrlMode)
@@ -2655,19 +2759,20 @@ static void ServoUpdate(float dT)
         }
 
         /* never use lidar ctrl mode in manual lidar ctrl mode */
-        if (hfc.config.ManualLidarAltitude)
-            hfc.LidarCtrlMode = false;            
+        if (hfc.rw_cfg.ManualLidarAltitude) {
+            hfc.LidarCtrlMode = false;
+        }
 
         /* select regular or lidar based altitude values */
-        CurrAltitude = hfc.config.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
+        CurrAltitude = hfc.rw_cfg.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
         CtrlAltitude = hfc.LidarCtrlMode ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
 
         /* increase vertical down speed limit with an increased horizontal speed */
-        vspeedmin = max(hfc.config.VspeedDownCurve[1], hfc.config.VspeedMin+hfc.config.VspeedDownCurve[0]*hfc.gps_speed);
+        vspeedmin = max(pConfig->VspeedDownCurve[1], hfc.rw_cfg.VspeedMin+pConfig->VspeedDownCurve[0]*hfc.gps_speed);
 		hfc.pid_CollAlt.COmin = vspeedmin;
 
 //        if (!(hfc.print_counter&0x3f))
-//            printf("Mode %s currA %4.1f  ctrlA %4.1f alt %4.1f ctrlalt %4.1f\r\n", hfc.LidarCtrlMode ? "Lidar" : "baro ", CurrAltitude, CtrlAltitude, hfc.altitude, hfc.ctrl_out[POS][COLL]);
+//            serial.printf("Mode %s currA %4.1f  ctrlA %4.1f alt %4.1f ctrlalt %4.1f\r\n", hfc.LidarCtrlMode ? "Lidar" : "baro ", CurrAltitude, CtrlAltitude, hfc.altitude, hfc.ctrl_out[POS][COLL]);
 
         if (control_mode_prev[COLL]<CTRL_MODE_POSITION)
         {
@@ -2685,14 +2790,14 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[COLL]>=CTRL_MODE_SPEED)
     {
       if (hfc.control_mode[COLL]==CTRL_MODE_SPEED && hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-    	  SetSpeedAcc(&hfc.ctrl_out[SPEED][COLL], hfc.ctrl_vspeed_3d, hfc.config.landing_vspeed_acc, dT);
+    	  SetSpeedAcc(&hfc.ctrl_out[SPEED][COLL], hfc.ctrl_vspeed_3d, pConfig->landing_vspeed_acc, dT);
       if (control_mode_prev[COLL]<CTRL_MODE_SPEED)
       {
-//                       printf("vspeed = %f   GPS = %f  manual = %f\r\n", hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
+//                       serial.printf("vspeed = %f   GPS = %f  manual = %f\r\n", hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
                    PID_SetForEnable(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
       }
       hfc.ctrl_out[RAW][COLL] = PID(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], dT);
-//          printf("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
+//          serial.printf("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
     }
     else
     {
@@ -2701,8 +2806,8 @@ static void ServoUpdate(float dT)
       float ctrl = hfc.ctrl_out[RAW][COLL];
       if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
       {
-//        ctrl = hfc.config.CollZeroAngle;
-          SetSpeedAcc(&hfc.ctrl_collective_raw, hfc.ctrl_collective_3d, hfc.config.collective_man_speed, dT);
+//        ctrl = pConfig->CollZeroAngle;
+          SetSpeedAcc(&hfc.ctrl_collective_raw, hfc.ctrl_collective_3d, pConfig->collective_man_speed, dT);
           ctrl = hfc.ctrl_collective_raw;
       }
       hfc.ctrl_out[RAW][COLL] = ClipMinMax(ctrl, hfc.pid_CollVspeed.COmin, hfc.pid_CollVspeed.COmax);
@@ -2711,27 +2816,29 @@ static void ServoUpdate(float dT)
     hfc.collective_raw_curr = hfc.ctrl_out[RAW][COLL];
 
     /* for fixed pitch prop, collective drives the throttle, throttle lever gates it */
-    if (hfc.config.throttle_ctrl==PROP_FIXED_PITCH)
+    if (pConfig->throttle_ctrl==PROP_FIXED_PITCH)
     {
-        if (hfc.config.AngleCollMixing)
-            hfc.ctrl_out[RAW][COLL] += hfc.config.AngleCollMixing*(1/AngleCompensation-1);
+        if (hfc.rw_cfg.AngleCollMixing) {
+            hfc.ctrl_out[RAW][COLL] += hfc.rw_cfg.AngleCollMixing*(1/AngleCompensation-1);
+        }
+
         hfc.ctrl_out[RAW][THRO] = hfc.ctrl_out[RAW][COLL];
         /* if lever is low, set throttle to minimum and everything else to 0 to prevent any prop from accidental spinning because of PIDs */
         if (hfc.throttle_value<-0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL]<CTRL_MODE_SPEED && hfc.collective_value<-0.50f)
           || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)))
         {
-            float throttle = hfc.config.throttle_values[0];
+            float throttle = pConfig->throttle_values[0];
             if (hfc.throttle_armed && hfc.throttle_value>-0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))
           	throttle = -0.5;
 
-            Reset_Iterms(&hfc);
+            ResetIterms();
             hfc.ctrl_out[RAW][THRO] = throttle;
             hfc.ctrl_out[RAW][PITCH] = 0;
             hfc.ctrl_out[RAW][ROLL]  = 0;
             hfc.ctrl_out[RAW][YAW]   = 0;
 #ifdef PR_DEBUG
       if ((hfc.print_counter&0xff)==2) {
-          printf("SETTING to 0\r\n");
+          serial.printf("SETTING to 0\r\n");
       }
 #endif
         }
@@ -2741,36 +2848,36 @@ static void ServoUpdate(float dT)
     hfc.ctrl_out[RAW][THRO] += hfc.throttle_offset;
 
     /* 1us inhibit individual channels */
-    if (hfc.config.ctrl_mode_inhibit[THRO] || !hfc.throttle_armed)
-        hfc.ctrl_out[RAW][THRO] = hfc.config.throttle_values[0];
-    if (hfc.config.ctrl_mode_inhibit[PITCH])
+    if (pConfig->ctrl_mode_inhibit[THRO] || !hfc.throttle_armed)
+        hfc.ctrl_out[RAW][THRO] = pConfig->throttle_values[0];
+    if (pConfig->ctrl_mode_inhibit[PITCH])
         hfc.ctrl_out[RAW][PITCH] = hfc.pid_PitchRate.COofs;
-    if (hfc.config.ctrl_mode_inhibit[ROLL])
+    if (pConfig->ctrl_mode_inhibit[ROLL])
         hfc.ctrl_out[RAW][ROLL] = hfc.pid_RollRate.COofs;
-    if (hfc.config.ctrl_mode_inhibit[YAW])
+    if (pConfig->ctrl_mode_inhibit[YAW])
         hfc.ctrl_out[RAW][YAW] = hfc.pid_YawRate.COofs;
-    if (hfc.config.ctrl_mode_inhibit[COLL])
+    if (pConfig->ctrl_mode_inhibit[COLL])
         hfc.ctrl_out[RAW][COLL] = hfc.pid_CollVspeed.COofs;
 
-    SetSpeedAcc(&hfc.mixer_in[PITCH], hfc.ctrl_out[RAW][PITCH]* hfc.config.control_gains[PITCH], hfc.config.servo_speed[PITCH], dT);
-    SetSpeedAcc(&hfc.mixer_in[ROLL],  hfc.ctrl_out[RAW][ROLL] * hfc.config.control_gains[ROLL],  hfc.config.servo_speed[ROLL], dT);
-    hfc.mixer_in[YAW]   = hfc.ctrl_out[RAW][YAW]  * hfc.config.control_gains[YAW];
+    SetSpeedAcc(&hfc.mixer_in[PITCH], hfc.ctrl_out[RAW][PITCH]* pConfig->control_gains[PITCH], pConfig->servo_speed[PITCH], dT);
+    SetSpeedAcc(&hfc.mixer_in[ROLL],  hfc.ctrl_out[RAW][ROLL] * pConfig->control_gains[ROLL],  pConfig->servo_speed[ROLL], dT);
+    hfc.mixer_in[YAW]   = hfc.ctrl_out[RAW][YAW]  * pConfig->control_gains[YAW];
     hfc.mixer_in[COLL]	= hfc.ctrl_out[RAW][COLL];
     hfc.mixer_in[THRO]	= hfc.ctrl_out[RAW][THRO];
 
-//    Rotate2D(&hfc.mixer_in[ROLL], &hfc.mixer_in[PITCH], hfc.config.RollPitchAngle); // this would interfeer with SetSpeedAcc() just above
+//    Rotate2D(&hfc.mixer_in[ROLL], &hfc.mixer_in[PITCH], pConfig->RollPitchAngle); // this would interfeer with SetSpeedAcc() just above
 
 #ifdef PR_DEBUG
     if ((hfc.print_counter&0xff)==2) {
-        printf("hfc.mixer_in[P:%f, R:%f, Y:%f, C:%f, T:%f\r\n",
+        serial.printf("hfc.mixer_in[P:%f, R:%f, Y:%f, C:%f, T:%f\r\n",
                 hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[YAW], hfc.mixer_in[COLL], hfc.mixer_in[THRO]);
     }
 #endif
 
     ServoMixer();
 
-    if (hfc.config.ccpm_type == MIXERTANDEM) {
-        WriteToServoNodes(hfc.config.num_servo_nodes);
+    if (pConfig->ccpm_type == MIXERTANDEM) {
+        WriteToServoNodes(pConfig->num_servo_nodes);
     }
     else {
         WriteToServos();
@@ -2780,48 +2887,45 @@ static void ServoUpdate(float dT)
 }
 
 /* re-orients sensors within FCM, applies gains and offsets and the re-orients FCM */
-static void SensorsRescale(T_HFC *hfc, float accRaw[3], float gyroRaw[3])
+static void SensorsRescale(float accRaw[3], float gyroRaw[3])
 {
-    T_Config *c = &hfc->config;
     int i;
     float acc1[3];
     float gyro1[3];
     float tmp[3] = {0}; // temporary variable, used for calibration
 
     /* recalculate gyro drifts based on temperature data*/
-    if (!c->gyro_fixed_offsets && (hfc->print_counter&0x3ff)==3)
-    {
-      float t = hfc->gyro_temp_lp;
-      for (i=0; i<3; i++)
-      {
-          c->gyro_ofs[i] = t*( t*c->gyro_drift_coeffs[i][0]
-                              +  c->gyro_drift_coeffs[i][1] )
-                              +  c->gyro_drift_coeffs[i][2];
-      }
+    if (!pConfig->gyro_fixed_offsets && (hfc.print_counter&0x3ff)==3)  {
+        float t = hfc.gyro_temp_lp;
+
+        for (i=0; i<3; i++) {
+            hfc.rw_cfg.gyro_ofs[i] = t*( t*pConfig->gyro_drift_coeffs[i][0]
+                                             + pConfig->gyro_drift_coeffs[i][1] )
+                                             + pConfig->gyro_drift_coeffs[i][2];
+        }
     }
   
     /* remove gyro drift */
-    for (i=0; i<3; i++)
-    {
-        gyroRaw[i] -= c->gyro_ofs[i];
+    for (i=0; i<3; i++) {
+        gyroRaw[i] -= hfc.rw_cfg.gyro_ofs[i];
     }
 
     /* mmri: apply gain to gyro
      * if gyro_gains = 0, then use gyro calib matrix*/
-    if( c->gyro_gains[0] == 0 )
+    if( pConfig->gyro_gains[0] == 0 )
     {
         for (i=0; i<3; i++)
         {
-            gyro1[i] = c->gyro_calib_matrix[i][0]*gyroRaw[0]
-                     + c->gyro_calib_matrix[i][1]*gyroRaw[1]
-                     + c->gyro_calib_matrix[i][2]*gyroRaw[2];
+            gyro1[i] = pConfig->gyro_calib_matrix[i][0]*gyroRaw[0]
+                     + pConfig->gyro_calib_matrix[i][1]*gyroRaw[1]
+                     + pConfig->gyro_calib_matrix[i][2]*gyroRaw[2];
         }
     }
     else
     {
         for (i=0; i<3; i++)
         {
-            gyro1[i] = c->gyro_gains[i]*gyroRaw[i];
+            gyro1[i] = pConfig->gyro_gains[i]*gyroRaw[i];
         }
     }
 
@@ -2831,27 +2935,27 @@ static void SensorsRescale(T_HFC *hfc, float accRaw[3], float gyroRaw[3])
     /* re-orient gyro, negative value flips the sign */
     for (i=0; i<3; i++)
     {
-        gyro1[i] = tmp[c->gyro_orient[i]];
-        if (c->gyro_orient[i+3])
+        gyro1[i] = tmp[pConfig->gyro_orient[i]];
+        if (pConfig->gyro_orient[i+3])
             gyro1[i] = -gyro1[i];
     }
 
     /* mmri: apply gain and offset to acc
     * if acc_gains = 0, then use acc calib matrix*/
-    if( c->acc_gains[0] == 0 )
+    if( pConfig->acc_gains[0] == 0 )
     {
         for (i=0; i<3; i++)
         {
-            acc1[i] = c->acc_calib_matrix[i][0]*( accRaw[0] - c->acc_ofs[0] )
-                    + c->acc_calib_matrix[i][1]*( accRaw[1] - c->acc_ofs[1] )
-                    + c->acc_calib_matrix[i][2]*( accRaw[2] - c->acc_ofs[2] );
+            acc1[i] = pConfig->acc_calib_matrix[i][0]*( accRaw[0] - pConfig->acc_ofs[0] )
+                    + pConfig->acc_calib_matrix[i][1]*( accRaw[1] - pConfig->acc_ofs[1] )
+                    + pConfig->acc_calib_matrix[i][2]*( accRaw[2] - pConfig->acc_ofs[2] );
         }
     }
     else
     {
         for (i=0; i<3; i++)
         {
-            acc1[i] = c->acc_gains[i]*(accRaw[i]-c->acc_ofs[i]);
+            acc1[i] = pConfig->acc_gains[i]*(accRaw[i]-pConfig->acc_ofs[i]);
         }
     }
     
@@ -2861,8 +2965,8 @@ static void SensorsRescale(T_HFC *hfc, float accRaw[3], float gyroRaw[3])
     /* re-orient accelerometer, negative value flips sign */
     for (i=0; i<3; i++)
     {
-        acc1[i] = tmp[c->acc_orient[i]];
-        if (c->acc_orient[i+3])
+        acc1[i] = tmp[pConfig->acc_orient[i]];
+        if (pConfig->acc_orient[i+3])
             acc1[i] = -acc1[i];
     }
 
@@ -2870,30 +2974,30 @@ static void SensorsRescale(T_HFC *hfc, float accRaw[3], float gyroRaw[3])
     /* re-orient the entire flight controller, negative value flips the sign */
     for (i=0; i<3; i++)
     {
-        int index = c->fcm_orient[i];
-        hfc->acc[i]  = acc1[index];
-        hfc->gyro[i] = gyro1[index];
-        if (c->fcm_orient[i+3])
+        int index = pConfig->fcm_orient[i];
+        hfc.acc[i]  = acc1[index];
+        hfc.gyro[i] = gyro1[index];
+        if (pConfig->fcm_orient[i+3])
         {
-            hfc->acc[i]  = -hfc->acc[i];
-            hfc->gyro[i] = -hfc->gyro[i];
+            hfc.acc[i]  = -hfc.acc[i];
+            hfc.gyro[i] = -hfc.gyro[i];
         }
     }
 
     /* secondary gyro offset for fine drift removal */
     for (i=0; i<3; i++)
     {
-        hfc->gyro[i] -= hfc->gyroOfs[i];
+        hfc.gyro[i] -= hfc.gyroOfs[i];
     }
 
     /* low passed gyro averaged value for dynamic gyro calibration */
     for (i=0; i<3; i++)
     {
-        hfc->gyro_lp_disp[i] = (hfc->gyroFilt[i] + hfc->gyro_lp_disp[i]*4095)/4096;
+        hfc.gyro_lp_disp[i] = (hfc.gyroFilt[i] + hfc.gyro_lp_disp[i]*4095)/4096;
     }
 }
 
-static float UnloadedBatteryLevel(float voltage, float V2Energy[V2ENERGY_SIZE])
+static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_SIZE])
 {
   int index1 = ClipMinMax((int)((voltage-3.5f)*50), 0, V2ENERGY_SIZE-1);
   int index2 = Min(index1+1, V2ENERGY_SIZE-1);
@@ -2935,9 +3039,9 @@ static void UpdateBatteryStatus(float dT)
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
     /* when current is below 0.2C, battery is considered unloaded */
-    if (I < (0.0002f * hfc.config.battery_capacity)) {
+    if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
 
-        float level = UnloadedBatteryLevel(p->Vmain / Max(1, hfc.config.battery_cells), hfc.config.V2Energy);
+        float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
 
         if (!p->initialized) {
@@ -2952,7 +3056,7 @@ static void UpdateBatteryStatus(float dT)
             p->energy_curr = LP_RC(Ecurr, p->energy_curr, 0.05f, dT);
         }
 
-        power = hfc.config.power_typical;  // use typical power consumed to est flight time
+        power = pConfig->power_typical;  // use typical power consumed to est flight time
     }
     else {
         p->energy_curr -= dE;
@@ -2964,7 +3068,7 @@ static void UpdateBatteryStatus(float dT)
 
     /* low-pass power used */
     if (!p->initialized) {
-        p->power_curr = hfc.config.power_typical;
+        p->power_curr = pConfig->power_typical;
     }
 
     p->power_curr = LP_RC(power, p->power_curr, 0.05f, dT);
@@ -2981,7 +3085,7 @@ static void UpdateBatteryStatus(float dT)
     p->initialized = true;
 }
 
-void UpdateBoardInfo(int node_id, int board_type, unsigned char *pdata)
+static void UpdateBoardInfo(int node_id, int board_type, unsigned char *pdata)
 {
     if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
         board_info[board_type][node_id].major_version = pdata[1];
@@ -3001,10 +3105,10 @@ void UpdateBoardInfo(int node_id, int board_type, unsigned char *pdata)
         board_info_avail |= (1 << 2);
     }
 
-    //printf("board_info_avail 0x%08x\r\n", board_info_avail);
+    //serial.printf("board_info_avail 0x%08x\r\n", board_info_avail);
 }
 
-void UpdateLidar(int node_id, unsigned char *pdata)
+static void UpdateLidar(int node_id, unsigned char *pdata)
 {
     float alt;
 
@@ -3014,12 +3118,12 @@ void UpdateLidar(int node_id, unsigned char *pdata)
     }
 
     lidarPayload[node_id].lidarCount = *(uint32_t *)pdata;
-    unsigned int pulse = min(MAX_LIDAR_PULSE, max(0, (lidarPayload[node_id].lidarCount - hfc.config.lidar_offset)));
+    unsigned int pulse = min(MAX_LIDAR_PULSE, max(0, (lidarPayload[node_id].lidarCount - pConfig->lidar_offset)));
     alt = pulse * 0.001f;
     hfc.altitude_lidar_raw = (alt + 3*hfc.altitude_lidar_raw)*0.25f;
 }
 
-void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
+static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
 {
     float *data= (float *)pdata;
     static int update = 0;
@@ -3063,8 +3167,8 @@ void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
         hfc.power.Vservo = castle_link_live[node_id].bec_voltage;
         hfc.power.Vaux   = castle_link_live[node_id].bec_voltage;
 
-        if (!hfc.config.rpm_sensor) {
-            hfc.RPM = (castle_link_live[node_id].rpm / hfc.config.gear_ratio / hfc.config.motor_poles);
+        if (!pConfig->rpm_sensor) {
+            hfc.RPM = (castle_link_live[node_id].rpm / pConfig->gear_ratio / pConfig->motor_poles);
         }
 
         hfc.esc_temp = castle_link_live[node_id].temperature;
@@ -3072,7 +3176,7 @@ void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
     }
 }
 
-void UpdateCompassData(int node_id, unsigned char *pdata)
+static void UpdateCompassData(int node_id, unsigned char *pdata)
 {
     signed short raw_x;
     signed short raw_y;
@@ -3092,13 +3196,13 @@ void UpdateCompassData(int node_id, unsigned char *pdata)
 }
 
 //
-static void can_handler()
+static void can_handler(void)
 {
-    LPC_CAN_TypeDef *c = can._can.dev;
+    //LPC_CAN_TypeDef *c = can._can.dev;
 
-    if (c->GSR & 2) {
-        c->GSR &=~2;
-    }
+    //if (c->GSR & 2) {
+    //    c->GSR &=~2;
+   // }
 
 #ifdef USE_AVI_CAN
 
@@ -3157,10 +3261,10 @@ static void can_handler()
     {
 /*    	{
     		int i;
-    		printf("CAN id %d len %d: ", msgi.id, msgi.len);
+    		serial.printf("CAN id %d len %d: ", msgi.id, msgi.len);
 //    		for (i=0; i<msgi.len; i++)
-//    			printf("%02x ", msgi.data[i]);
-    		printf("\r\n");
+//    			serial.printf("%02x ", msgi.data[i]);
+    		serial.printf("\r\n");
     	}*/
 /*    	if (msgi.id==AVICAN_SERVO_GPS_ID)
     		CANGPS_ProcMessage(0, msgi.data, msgi.len);
@@ -3179,12 +3283,12 @@ static void can_handler()
     			GpsAviCanMsg0 *msg0 = (GpsAviCanMsg0*)msgi.data;
     			static int last_time;
     			int time = hfc.time_ms;
-    			printf("GPS good %d errors %d crc %d dT %d\r\n", msg0->good_sentences, msg0->sentence_errors, msg0->failed_checksum, time-last_time);
+    			serial.printf("GPS good %d errors %d crc %d dT %d\r\n", msg0->good_sentences, msg0->sentence_errors, msg0->failed_checksum, time-last_time);
     			last_time = time;
     		}*/
     	}
 
-    	if (msgi.id == AVICAN_SERVO_LIDAR && hfc.config.LidarFromServo==1)
+    	if (msgi.id == AVICAN_SERVO_LIDAR && pConfig->LidarFromServo==1)
     	{
     		for (int i=0; i< (msgi.len-4); i++)
     		{
@@ -3199,9 +3303,9 @@ static void can_handler()
         if (msgi.id>=AVICAN_POWER_GPS && msgi.id<=(AVICAN_POWER_GPS+3))
         {
             gps.AddData(1, msgi.id-AVICAN_POWER_GPS, (char*)msgi.data);
-//            printf("GPS %d ", msgi.id);
+//            serial.printf("GPS %d ", msgi.id);
 //            if (msgi.id==AVICAN_POWER_GPS)
-//                printf("%d\n", hfc.time_ms);
+//                serial.printf("%d\n", hfc.time_ms);
         }
 
     	/* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
@@ -3210,7 +3314,7 @@ static void can_handler()
     	if (msgi.id==AVICAN_POWER_VALUES1)
     	{
     		T_PowerValues1 *pwr = (T_PowerValues1*)&msgi.data;
-    		float *coeffs = hfc.config.power_coeffs;
+    		float *coeffs = pConfig->power_coeffs;
     		hfc.power.Iaux  = pwr->iAuxSrv/65536.0f*coeffs[0];
     		hfc.power.Iesc  = pwr->iESC/65536.0f*coeffs[1];
     		hfc.power.Vesc  = pwr->vESC/65536.0f*coeffs[2];
@@ -3219,15 +3323,15 @@ static void can_handler()
     	else if (msgi.id==AVICAN_POWER_VALUES2)
     	{
     		T_PowerValues2 *pwr = (T_PowerValues2*)&msgi.data;
-    		float *coeffs = hfc.config.power_coeffs;
+    		float *coeffs = pConfig->power_coeffs;
     		hfc.power.Vservo = pwr->vServo/65536.0f*coeffs[4];
     		hfc.power.Vaux   = pwr->vAux12V/65536.0f*coeffs[5];
     		UpdateBatteryStatus(pwr->dT100us_adc * 0.0001f);
     	}
 //    	else
-//    		printf("*");
-//    		printf("%d ", msgi.id);
-//    		printf("CAN msg id=%d\r\n", msgi.id);
+//    		serial.printf("*");
+//    		serial.printf("%d ", msgi.id);
+//    		serial.printf("CAN msg id=%d\r\n", msgi.id);
 
     }
 #endif
@@ -3253,7 +3357,7 @@ static void SendPowerCtrl(void)
 
 		if (!can.write(msgo)) {
 		    hfc.stats.can_power_tx_failed = true;
-//			printf("Failed to send CAN AVICAN_POWER_SWITCHES msg\r\n");
+//			serial.printf("Failed to send CAN AVICAN_POWER_SWITCHES msg\r\n");
 		}
     }
 }
@@ -3264,21 +3368,21 @@ static void ProcessStats(void)
     {
         if (hfc.stats.can_power_tx_failed)
         {
-            printf("Failed to send AVICAN_POWER_SWITCHES msg\r\n");
+            serial.printf("Failed to send AVICAN_POWER_SWITCHES msg\r\n");
             hfc.stats.can_power_tx_errors++;
             hfc.stats.can_power_tx_failed = false;
         }
 
         if (write_canbus_error > 0) {
 #if defined(DEBUG)
-            printf("CAN write failed messages[%d]\r\n", write_canbus_error);
+           // serial.printf("CAN write failed messages[%d]\r\n", write_canbus_error);
 #endif
             hfc.stats.can_servo_tx_errors = write_canbus_error;
         }
     }
 }
 
-static void Lidar_Process(T_HFC *hfc)
+static void Lidar_Process(FlightControlData *hfc)
 {
     if (!hfc->lidar_pulse)
         return;
@@ -3286,8 +3390,8 @@ static void Lidar_Process(T_HFC *hfc)
     /* 1us/mm */
     unsigned int time = hfc->lidar_fall;
     unsigned int d = time - hfc->lidar_rise;
-//    printf("fall %d %d\r\n", time, d);
-    if (hfc->config.ground_sensor==GROUND_SENSOR_LIDAR)
+//    serial.printf("fall %d %d\r\n", time, d);
+    if (pConfig->ground_sensor==GROUND_SENSOR_LIDAR)
     {
         if (d>100000)
             hfc->lidar_counter=0;
@@ -3297,18 +3401,18 @@ static void Lidar_Process(T_HFC *hfc)
         if (d<=100000 && hfc->lidar_counter>=10)
         {
             float alt;
-            d = min(40000, max(0, d-hfc->config.lidar_offset));
+            d = min(40000, max(0, d-pConfig->lidar_offset));
             alt = d*0.001f;
             hfc->altitude_lidar_raw = (alt + 3*hfc->altitude_lidar_raw)*0.25f;
-    //        printf("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
+    //        serial.printf("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
         }
         else
             hfc->altitude_lidar_raw = 40;
     }
-    else if (hfc->config.ground_sensor==GROUND_SENSOR_SONAR)
+    else if (pConfig->ground_sensor==GROUND_SENSOR_SONAR)
     {
-        hfc->altitude_lidar_raw = d * 0.0001724137931f - hfc->config.lidar_offset*0.001f; // 5.8us/mm
-//        printf("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
+        hfc->altitude_lidar_raw = d * 0.0001724137931f - pConfig->lidar_offset*0.001f; // 5.8us/mm
+//        serial.printf("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
     }
     hfc->lidar_pulse = false;
 }
@@ -3316,7 +3420,7 @@ static void Lidar_Process(T_HFC *hfc)
 static void RPM_Process(void)
 {
     /* RPM math */
-    if (hfc.config.rpm_sensor) {
+    if (pConfig->rpm_sensor) {
         if (hfc.rpm_pulse) {
 
             int dms = hfc.rpm_time_ms - hfc.rpm_time_ms_last;
@@ -3346,15 +3450,6 @@ static void RPM_Process(void)
             if (dur_ms>=1000)
             hfc.RPM = 0;
         }
-    }
-}
-
-static void Telem_ProcessInputBytes()
-{
-    while (telemetry.readable())
-    {
-        telem.AddInputByte(telemetry.getc(), &hfc);
-        //    if (c==0xd) printf("\r"); else printf("%c", c);
     }
 }
 
@@ -3393,8 +3488,8 @@ static void Telem_ProcessInputBytes()
  *                 Reset to ZEROS when new calibration is Initiated.
  *
  * Outputs:
- * 1. hfc.config.comp_ofs[3] = (hfc.compassMin[i]+hfc.compassMax[i]+1)/2;
- * 2. hfc.config.comp_gains[3] = 500.0f/((hfc.compassMax[i]-hfc.compassMin[i])/2.0f);*
+ * 1. pConfig->comp_ofs[3] = (hfc.compassMin[i]+hfc.compassMax[i]+1)/2;
+ * 2. pConfig->comp_gains[3] = 500.0f/((hfc.compassMax[i]-hfc.compassMin[i])/2.0f);*
  *
  * NOTES:
  * Earth's magnetic field intensity ranges between is 250 and 650 Gauss
@@ -3403,7 +3498,7 @@ static void Telem_ProcessInputBytes()
  * measured would be 250*0.90 and maximum would be 650*1.10, therefore:
  * 2*(250*0.90) < compassMax[i] - compassMin[i] < 2*(650*1.10)
  *          450 < compassMax[i] - compassMin[i] < 1430              */
-static void CompassCalibration()
+static void CompassCalibration(void)
 {
     int i;
     int i_pitch = 0;        //index used for comp_pitch[] flags array
@@ -3423,17 +3518,17 @@ static void CompassCalibration()
      * - If not calibrating, only update max and min if limits are not exceeded*/
     for (i=0; i<3; i++)
     {
-        hfc.compassMin[i] = min(hfc.compassMin[i], compass.dataXYZ[i]);
-        hfc.compassMax[i] = max(hfc.compassMax[i], compass.dataXYZ[i]);
-        mag_range[i] = hfc.compassMax[i] - hfc.compassMin[i];
+        hfc.compass_cal.compassMin[i] = min(hfc.compass_cal.compassMin[i], compass.dataXYZ[i]);
+        hfc.compass_cal.compassMax[i] = max(hfc.compass_cal.compassMax[i], compass.dataXYZ[i]);
+        mag_range[i] = hfc.compass_cal.compassMax[i] - hfc.compass_cal.compassMin[i];
     }
 
     for(i = 0; i<3; i++)
     {
         if( mag_range[i] > max_range )
         {
-            hfc.compassMax[i] = 0;
-            hfc.compassMin[i] = 0;
+            hfc.compass_cal.compassMax[i] = 0;
+            hfc.compass_cal.compassMin[i] = 0;
         }
     }
 
@@ -3512,35 +3607,43 @@ static void CompassCalibration()
     {
         for (i=0; i<3; i++)
         {
-            hfc.config.comp_ofs[i] = (hfc.compassMin[i]+hfc.compassMax[i]+1)/2;
-            hfc.config.comp_gains[i] = 500.0f/((hfc.compassMax[i]-hfc.compassMin[i])/2.0f);
+            hfc.compass_cal.comp_ofs[i] = (hfc.compass_cal.compassMin[i]+hfc.compass_cal.compassMax[i]+1)/2;
+            hfc.compass_cal.comp_gains[i] = 500.0f/((hfc.compass_cal.compassMax[i]-hfc.compass_cal.compassMin[i])/2.0f);
         }
 
+        hfc.compass_cal.valid = 1;
+
+        // TODO::SP: Error handling...?
+        SaveCompassCalibration(&hfc.compass_cal);
+        hfc.comp_calibrate = NO_COMP_CALIBRATE;
+
+#if 0
         FILE *fh;
 
         fh = fopen("/local/compass.txt", "w");
         if (fh)
         {
 #if defined(DEBUG)
-            printf("max[x] = %3d \t min[x] = %3d \t range[x] = %3d \r\n",hfc.compassMax[0], hfc.compassMin[0],mag_range[0]);
-            printf("max[y] = %3d \t min[y] = %3d \t range[y] = %3d \r\n",hfc.compassMax[1], hfc.compassMin[1],mag_range[1]);
-            printf("max[z] = %3d \t min[z] = %3d \t range[z] = %3d \r\n",hfc.compassMax[2], hfc.compassMin[2],mag_range[2]);
+            serial.printf("max[x] = %3d \t min[x] = %3d \t range[x] = %3d \r\n",hfc.compassMax[0], hfc.compassMin[0],mag_range[0]);
+            serial.printf("max[y] = %3d \t min[y] = %3d \t range[y] = %3d \r\n",hfc.compassMax[1], hfc.compassMin[1],mag_range[1]);
+            serial.printf("max[z] = %3d \t min[z] = %3d \t range[z] = %3d \r\n",hfc.compassMax[2], hfc.compassMin[2],mag_range[2]);
 #endif
-            fprintf(fh, "ofs \t %f \t %f \t %f \r\n", hfc.config.comp_ofs[0], hfc.config.comp_ofs[1], hfc.config.comp_ofs[2]);
-            printf     ("ofs \t %f \t %f \t %f \r\n", hfc.config.comp_ofs[0], hfc.config.comp_ofs[1], hfc.config.comp_ofs[2]);
-            fprintf(fh, "gains \t %f \t %f \t %f \r\n", hfc.config.comp_gains[0], hfc.config.comp_gains[1], hfc.config.comp_gains[2]);
-            printf     ("gains \t %f \t %f \t %f \r\n", hfc.config.comp_gains[0], hfc.config.comp_gains[1], hfc.config.comp_gains[2]);
-            fprintf(fh, "max \t %d \t %d \t %d \r\n", hfc.compassMax[0], hfc.compassMax[1], hfc.compassMax[2]);
-            printf     ("max \t %d \t %d \t %d \r\n", hfc.compassMax[0], hfc.compassMax[1], hfc.compassMax[2]);
-            fprintf(fh, "min \t %d \t %d \t %d \r\n", hfc.compassMin[0], hfc.compassMin[1], hfc.compassMin[2]);
-            printf     ("min \t %d \t %d \t %d \r\n", hfc.compassMin[0], hfc.compassMin[1], hfc.compassMin[2]);
+            fserial.printf(fh, "ofs \t %f \t %f \t %f \r\n", pConfig->comp_ofs[0], pConfig->comp_ofs[1], pConfig->comp_ofs[2]);
+            serial.printf     ("ofs \t %f \t %f \t %f \r\n", pConfig->comp_ofs[0], pConfig->comp_ofs[1], pConfig->comp_ofs[2]);
+            fserial.printf(fh, "gains \t %f \t %f \t %f \r\n", pConfig->comp_gains[0], pConfig->comp_gains[1], pConfig->comp_gains[2]);
+            serial.printf     ("gains \t %f \t %f \t %f \r\n", pConfig->comp_gains[0], pConfig->comp_gains[1], pConfig->comp_gains[2]);
+            fserial.printf(fh, "max \t %d \t %d \t %d \r\n", hfc.compassMax[0], hfc.compassMax[1], hfc.compassMax[2]);
+            serial.printf     ("max \t %d \t %d \t %d \r\n", hfc.compassMax[0], hfc.compassMax[1], hfc.compassMax[2]);
+            fserial.printf(fh, "min \t %d \t %d \t %d \r\n", hfc.compassMin[0], hfc.compassMin[1], hfc.compassMin[2]);
+            serial.printf     ("min \t %d \t %d \t %d \r\n", hfc.compassMin[0], hfc.compassMin[1], hfc.compassMin[2]);
             fclose(fh);
             wait_ms(1000);
         }
 
 
         hfc.comp_calibrate = NO_COMP_CALIBRATE;
-        printf("Done Calibration\r\n");
+        serial.printf("Done Calibration\r\n");
+#endif
     }
 
 }
@@ -3560,7 +3663,7 @@ void do_control()
     Buttons();
 
     if (!mpu.readMotion7f_finish(accRaw, gyroRaw, &hfc.gyro_temperature)) {
-        //printf("MPU timeout\n");
+        //serial.printf("MPU timeout\n");
     }
 
     ticks = Ticks_us_minT(LOOP_PERIOD, &utilization);   // defines loop time in uS
@@ -3584,20 +3687,19 @@ void do_control()
     }
 
     if (!(hfc.print_counter&0x3f)) {
-         // printf("util %4.1f%\r\n", hfc.cpu_utilization_lp);
+         // serial.printf("util %4.1f%\r\n", hfc.cpu_utilization_lp);
     }
 
     /* copy and clear the new data flag set by GPS to a new variable to avoid a race */
     gps_data = gps.GpsUpdate(ticks, &hfc.gps_new_data);
 
-    if (hfc.config.sensor_mode == FLY_ALL_SENSORS) {
+    if (pConfig->sensor_mode == FLY_ALL_SENSORS) {
 
-        int new_values = (hfc.config.num_gps_nodes == 0) ? compass.getRawValues(dT): compass.HaveNewData();
+        int new_values = (pConfig->num_gps_nodes == 0) ? compass.getRawValues(dT): compass.HaveNewData();
 
         if (new_values) {
-            hfc.compass_heading = compass.GetHeadingDeg(hfc.config.comp_orient, hfc.config.comp_ofs, hfc.config.comp_gains,
-                                                            hfc.config.fcm_orient, hfc.config.comp_declination_offset,
-                                                            /*hfc.SmoothAcc[PITCH], hfc.SmoothAcc[ROLL]);*/
+            hfc.compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, hfc.compass_cal.comp_ofs, hfc.compass_cal.comp_gains,
+                                                            pConfig->fcm_orient, pConfig->comp_declination_offset,
                                                             hfc.IMUorient[PITCH], hfc.IMUorient[ROLL]);
 
             if (hfc.compass_heading_lp == 0) {
@@ -3605,10 +3707,10 @@ void do_control()
             }
             else {
                 /*hfc.compass_heading_lp = LP_16_Wrap180(hfc.compass_heading, hfc.compass_heading_lp); */
-                hfc.compass_heading_lp = LP_Wrap180(hfc.compass_heading, hfc.compass_heading_lp, hfc.config.heading_avgs);
+                hfc.compass_heading_lp = LP_Wrap180(hfc.compass_heading, hfc.compass_heading_lp, pConfig->heading_avgs);
             }
 
-            /* printf("Comp: %+5.1f %+5.1f\r\n", hfc.compass_heading, hfc.compass_heading_lp); */
+            /* serial.printf("Comp: %+5.1f %+5.1f\r\n", hfc.compass_heading, hfc.compass_heading_lp); */
             CompassCalibration();
         }
     }
@@ -3629,14 +3731,14 @@ void do_control()
 
         //    hfc.baro_altitude_raw_lp = (hfc.baro_altitude_raw + 7*hfc.baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
         //    hfc.baro_vspeed          = (hfc.baro_altitude_raw_lp - baro_altitude_raw_prev)/hfc.baro_dT;
-        //    printf("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", hfc.baro_temperature, hfc.baro_pressure, hfc.baro_altitude_raw, hfc.baro_altitude_raw_lp, hfc.baro_vspeed, hfc.baro_dT);
-        //    printf("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", hfc.IMUspeedGroundENU[2], hfc.altitude, hfc.baro_altitude_rawLP4, hfc.baro_altitude_raw_lp);
+        //    serial.printf("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", hfc.baro_temperature, hfc.baro_pressure, hfc.baro_altitude_raw, hfc.baro_altitude_raw_lp, hfc.baro_vspeed, hfc.baro_dT);
+        //    serial.printf("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", hfc.IMUspeedGroundENU[2], hfc.altitude, hfc.baro_altitude_rawLP4, hfc.baro_altitude_raw_lp);
 
         hfc.baro_dT = 0;
     }
 
     /* remap ACC axes into my XYZ (RFU) */
-    SensorsRescale(&hfc, accRaw, gyroRaw);
+    SensorsRescale(accRaw, gyroRaw);
 
     /* low-pass sensors */
     /* gyro +/-500 deg/s, acc +/-4G */
@@ -3653,7 +3755,7 @@ void do_control()
     }
 
     Get_Orientation(hfc.SmoothAcc, hfc.accFilt, dT);
-    //printf("%+5.2f %+5.2f %+5.2f   %+5.2f %+5.2f %+5.2f\n", gyroRaw[PITCH], gyroRaw[ROLL], gyroRaw[YAW], hfc.gyroFilt[PITCH], hfc.gyroFilt[ROLL], hfc.gyroFilt[YAW]);
+    //serial.printf("%+5.2f %+5.2f %+5.2f   %+5.2f %+5.2f %+5.2f\n", gyroRaw[PITCH], gyroRaw[ROLL], gyroRaw[YAW], hfc.gyroFilt[PITCH], hfc.gyroFilt[ROLL], hfc.gyroFilt[YAW]);
 
     MadgwickAHRSupdateIMU(dT, (hfc.gyro[ROLL])*D2R, (hfc.gyro[YAW])*D2R, (hfc.gyro[PITCH])*D2R, 0,0,0);
 
@@ -3664,16 +3766,16 @@ void do_control()
         hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.compass_heading_lp,                hfc.IMUorient[YAW]*R2D,   dT);
         /*
         if (!(hfc.print_counter & 0x3ff)) {
-            printf("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
+            serial.printf("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
             hfc.gyroOfs[PITCH],   hfc.gyroOfs[ROLL], hfc.gyroOfs[YAW],
             hfc.IMUorient[PITCH], hfc.IMUorient[ROLL], hfc.IMUorient[YAW],
             hfc.SmoothAcc[PITCH]*R2D - hfc.IMUorient[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D - hfc.IMUorient[ROLL]*R2D, hfc.compass_heading_lp - hfc.IMUorient[YAW]*R2D);
-            printf("Ofs %+6.3f %+6.3f %+6.3f  Gyro %+6.3f %+6.3f %+6.3f Err %+6.3f %+6.3f %+6.3f\r\n", hfc.gyroOfs[0], hfc.gyroOfs[1],
+            serial.printf("Ofs %+6.3f %+6.3f %+6.3f  Gyro %+6.3f %+6.3f %+6.3f Err %+6.3f %+6.3f %+6.3f\r\n", hfc.gyroOfs[0], hfc.gyroOfs[1],
                               hfc.gyroOfs[2], hfc.gyro_lp_disp[0], hfc.gyro_lp_disp[1], hfc.gyro_lp_disp[2], hfc.SmoothAcc[PITCH]*R2D - hfc.IMUorient[PITCH]*R2D,
                               hfc.SmoothAcc[ROLL]*R2D - hfc.IMUorient[ROLL]*R2D, hfc.compass_heading_lp - hfc.IMUorient[YAW]*R2D);
-            printf("IMU %+6.3f %+6.3f %+6.3f SmAcc %+6.3f %+6.3f %+6.3f Com %+6.3f %+6.3f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D,
+            serial.printf("IMU %+6.3f %+6.3f %+6.3f SmAcc %+6.3f %+6.3f %+6.3f Com %+6.3f %+6.3f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D,
                           hfc.IMUorient[YAW]*R2D, hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D, hfc.SmoothAcc[YAW]*R2D, hfc.compass_heading_lp, hfc.compass_heading);
-            printf("%+8.5f %+5.1f %+5.1f %f %f\r\n", hfc.gyroOfs[0], hfc.SmoothAcc[PITCH]*R2D, hfc.IMUorient[PITCH]*R2D, hfc.pid_IMU[PITCH].Kp, hfc.pid_IMU[PITCH].Ki);
+            serial.printf("%+8.5f %+5.1f %+5.1f %f %f\r\n", hfc.gyroOfs[0], hfc.SmoothAcc[PITCH]*R2D, hfc.IMUorient[PITCH]*R2D, hfc.pid_IMU[PITCH].Kp, hfc.pid_IMU[PITCH].Ki);
         }
         */
         OrientResetCounter();
@@ -3690,57 +3792,57 @@ void do_control()
     for (i=0; i<3; i++) {
         hfc.accGroundENUhp[i] = 0.99993896484375f*(accGroundENU[i]-hfc.accGroundENU_prev[i]+hfc.accGroundENUhp[i]);   // T=16384 ~ 14sec 0.99993896484375 T=4096 ~3.4s
         hfc.accGroundENU_prev[i] = accGroundENU[i];
-        hfc.IMUspeedGroundENU[i] += hfc.config.AccIntegGains[i] * hfc.accGroundENUhp[i]*9.81f*dT;
+        hfc.IMUspeedGroundENU[i] += pConfig->AccIntegGains[i] * hfc.accGroundENUhp[i]*9.81f*dT;
 
         // always mix in GPS for X and Y speed
         if (i<2) {
             hfc.IMUspeedGroundENU[i] += 1.0f*dT*(hfc.GPSspeedGroundENU[i] - hfc.IMUspeedGroundENU[i]);    // blend in GPS speed, it drifts if 0.25
         }
         // blend in GPS vertical speed with IMU vertical speed
-        else if (hfc.config.gps_vspeed == 1 ) {
-            hfc.IMUspeedGroundENU[2] += hfc.config.GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
+        else if (pConfig->gps_vspeed == 1 ) {
+            hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
         }
         // blend in Baro vertical speed with IMU vertical speed
-        else if (hfc.config.gps_vspeed == 2 ) {
-            hfc.IMUspeedGroundENU[2] += hfc.config.BaroVspeedWeight*dT*(hfc.baro_vspeed_lp - hfc.IMUspeedGroundENU[2]);    // blend in baro vspeed
+        else if (pConfig->gps_vspeed == 2 ) {
+            hfc.IMUspeedGroundENU[2] += pConfig->BaroVspeedWeight*dT*(hfc.baro_vspeed_lp - hfc.IMUspeedGroundENU[2]);    // blend in baro vspeed
         }
         // blend in GPS and Baro vertical speed with IMU vertical speed
-        else if (hfc.config.gps_vspeed == 3 ) {
-            hfc.IMUspeedGroundENU[2] += hfc.config.GPSVspeedWeight *dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2])
-                            + hfc.config.BaroVspeedWeight*dT*(hfc.baro_vspeed_lp       - hfc.IMUspeedGroundENU[2]);    // blend in GPS and baro vspeed
+        else if (pConfig->gps_vspeed == 3 ) {
+            hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight *dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2])
+                            + pConfig->BaroVspeedWeight*dT*(hfc.baro_vspeed_lp       - hfc.IMUspeedGroundENU[2]);    // blend in GPS and baro vspeed
         }
         // use only GPS for vertical speed
-        else if (hfc.config.gps_vspeed == 4 ) {
+        else if (pConfig->gps_vspeed == 4 ) {
             hfc.IMUspeedGroundENU[2] = hfc.GPSspeedGroundENU[2];
         }
         // use only Baro for vertical speed
-        else if (hfc.config.gps_vspeed == 5 ) {
+        else if (pConfig->gps_vspeed == 5 ) {
             hfc.IMUspeedGroundENU[2] = hfc.baro_vspeed_lp;
         }
     }
 
     /*
     if (!(hfc.print_counter & 0x3f)) {
-        printf("Z %+5.3f UR %+5.3f Uhp %+5.3f speed %+5.3f\r\n", hfc.accHeliRFU[2], accGroundU, hfc.accGroundUhp, hfc.speedGroundU);
+        serial.printf("Z %+5.3f UR %+5.3f Uhp %+5.3f speed %+5.3f\r\n", hfc.accHeliRFU[2], accGroundU, hfc.accGroundUhp, hfc.speedGroundU);
     }
     if (!(hfc.print_counter & 0x3f)) {
-        printf("E %+5.2f N %+5.2f U %+5.2f\n", hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
+        serial.printf("E %+5.2f N %+5.2f U %+5.2f\n", hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
     }
     if (!(hfc.print_counter & 0x3f)) {
-        printf("E %+5.3f N %+5.3f U %+5.3f  E %+5.3f N %+5.3f U %+5.3f\n", hfc.accGroundENUhp[0], hfc.accGroundENUhp[1], hfc.accGroundENUhp[2], hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
+        serial.printf("E %+5.3f N %+5.3f U %+5.3f  E %+5.3f N %+5.3f U %+5.3f\n", hfc.accGroundENUhp[0], hfc.accGroundENUhp[1], hfc.accGroundENUhp[2], hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
     }
     */
 
     /* help baro-altitude using vertical speed */
     hfc.altitude_baro += hfc.IMUspeedGroundENU[2] * dT;
-    hfc.altitude_baro += hfc.config.BaroAltitudeWeight*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
+    hfc.altitude_baro += pConfig->BaroAltitudeWeight*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
     //hfc.altitude_baro += 0.25f*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
 
     /*
     hfc.accUp += hfc.accGroundENUhp[2]*9.81f;
     if (!(hfc.print_counter & 0x7)) {
         hfc.accUp/=8;
-        printf("T %d acc %+5.3f vs %+5.3f altIMU %5.3f altB %5.3f\n", hfc.time_ms, hfc.accUp, hfc.IMUspeedGroundENU[2], hfc.altitude_baro, hfc.baro_altitude_raw);
+        serial.printf("T %d acc %+5.3f vs %+5.3f altIMU %5.3f altB %5.3f\n", hfc.time_ms, hfc.accUp, hfc.IMUspeedGroundENU[2], hfc.altitude_baro, hfc.baro_altitude_raw);
         hfc.accUp = 0;
     }*/
 
@@ -3758,9 +3860,9 @@ void do_control()
     
     /* if GPS detects a glitch, set the blending factor to the long value, otherwise decay towards the regular blanding value */
     if (gps.glitch_) {
-        hfc.Pos_GPS_IMU_Blend = hfc.config.Pos_GPS_IMU_BlendGlitch;
+        hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendGlitch;
     }
-    else if (hfc.Pos_GPS_IMU_Blend>hfc.config.Pos_GPS_IMU_BlendReg) {
+    else if (hfc.Pos_GPS_IMU_Blend>pConfig->Pos_GPS_IMU_BlendReg) {
         hfc.Pos_GPS_IMU_Blend -= dT;
     }
 
@@ -3793,7 +3895,7 @@ void do_control()
         //hfc.altitude = hfc.altitude_gps;
 
         hfc.gps_to_home[0] = DistanceCourse(latitude, longitude, hfc.home_pos[0], hfc.home_pos[1], &hfc.gps_to_home[1]);
-        //printf("D %4.1f C %+5.1f  \r\n", hfc.gps_to_ref[0], hfc.gps_to_ref[1]);
+        //serial.printf("D %4.1f C %+5.1f  \r\n", hfc.gps_to_ref[0], hfc.gps_to_ref[1]);
 
         /* if we have fix and a new position data, run the gradient descent algo
         ** to bring baro-altitude in sync with gps altitude */
@@ -3811,30 +3913,30 @@ void do_control()
             else if (dTGPS < 1 && dTGPS>0) {
                 hfc.altitude_ofs +=  dTGPS * (hfc.altitude_gps - hfc.altitude) / hfc.AltitudeBaroGPSblend;
                 /* decay the initial blending factor into the final value */
-                hfc.AltitudeBaroGPSblend = min(hfc.AltitudeBaroGPSblend+dTGPS, hfc.config.AltitudeBaroGPSblend_final);
-                //printf("%8d\t%5.3f\t%f\t%f\t%f\t%f\t%f\n", time_ms, dTGPS, hfc.AltitudeBaroGPSblend, hfc.altitude_ofs, hfc.altitude_baro, hfc.altitude_gps, hfc.altitude);
+                hfc.AltitudeBaroGPSblend = min(hfc.AltitudeBaroGPSblend+dTGPS, pConfig->AltitudeBaroGPSblend_final);
+                //serial.printf("%8d\t%5.3f\t%f\t%f\t%f\t%f\t%f\n", time_ms, dTGPS, hfc.AltitudeBaroGPSblend, hfc.altitude_ofs, hfc.altitude_baro, hfc.altitude_gps, hfc.altitude);
             }
         }
       
         /* auto-set home for the first time after GPS is locked, it needs to be locked for at least 15sec */
         if (hfc.home_pos[2] == 99999 && gps_data.fix>GPS_FIX_NONE && gps_data.PDOP<200 && hfc.AltitudeBaroGPSblend>25) {
-            SetHome(&hfc);
+            telem.SetHome();
         }
 
         hfc.gps_heading  = gps_data.courseC;
         hfc.gps_speed    = gps_data.HspeedC;
-        //printf("GPS s/c %5.1f C %+5.1f  COOR s/c %5.1f C %+5.1f\r\n", gps_speed, gps_heading, hfc.gps_speed, hfc.gps_heading);
+        //serial.printf("GPS s/c %5.1f C %+5.1f  COOR s/c %5.1f C %+5.1f\r\n", gps_speed, gps_heading, hfc.gps_speed, hfc.gps_heading);
       
         /* split GPS speed into east and north components */
         hfc.GPSspeedGroundENU[0] = gps_data.speedENU[0];
         hfc.GPSspeedGroundENU[1] = gps_data.speedENU[1];
         hfc.GPSspeedGroundENU[2] = gps_data.speedENU[2];
-        //printf("GPS time %d %f %f %f\n", hfc.time_ms, gps_data.speedENU[0], gps_data.speedENU[1], gps_data.speedENU[2]);
+        //serial.printf("GPS time %d %f %f %f\n", hfc.time_ms, gps_data.speedENU[0], gps_data.speedENU[1], gps_data.speedENU[2]);
     }
 
     PrintOrient();
 
-    if (hfc.config.servo_raw) {
+    if (pConfig->servo_raw) {
         ServoUpdateRAW(dT);
     }
     else {
@@ -3842,23 +3944,23 @@ void do_control()
     }
 
     if (hfc.msg2ground_count && !telem.IsTypeInQ(TELEMETRY_MSG2GROUND)) {
-        Telemetry_Generate_Msg2Ground(&hfc, &hfc.telemMsg2ground);
+        telem.Generate_Msg2Ground();
         telem.AddMessage((unsigned char*)&hfc.telemMsg2ground, sizeof(T_Telem_Msg2Ground), TELEMETRY_MSG2GROUND, 6);
         hfc.msg2ground_count--;
     }
 
     /* generate a new telemetry system message every 1s or so, only if is not still in the output Q */
     if ((hfc.print_counter&0x3ff)==7 && !telem.IsTypeInQ(TELEMETRY_SYSTEM)) {
-        Telemetry_Generate_System2(&hfc, &hfc.telemSystem2, time_ms, &telem);
+        telem.Generate_System2(time_ms);
         telem.AddMessage((unsigned char*)&hfc.telemSystem2, sizeof(T_Telem_System2), TELEMETRY_SYSTEM, 5);
-        //printf("%d %d\n", hfc.ticks_max, GetTime_ms());
+        //serial.printf("%d %d\n", hfc.ticks_max, GetTime_ms());
         perf_printf();
         hfc.ticks_max = 0;
     }
   
     /* TCPIP packet confirmation */
     if (hfc.tcpip_confirm && !telem.IsTypeInQ(TELEMETRY_TCPIP)) {
-        Telemetry_Generate_Tcpip7(&hfc, &hfc.telemTcpip7);
+        telem.Generate_Tcpip7();
         telem.AddMessage((unsigned char*)&hfc.telemTcpip7, sizeof(T_Telem_TCPIP7), TELEMETRY_TCPIP, 4);
         hfc.tcpip_confirm = false;
     }
@@ -3870,7 +3972,7 @@ void do_control()
          ** data cache is dropped, this is not expected to be happening under normal conditions */
 
         if (!telem.IsTypeInQ(TELEMETRY_DATASTREAM3)) {
-            int size = Telemetry_Generate_Streaming(&hfc, &hfc.telemDataStream3);
+            int size = telem.Generate_Streaming();
             telem.AddMessage((unsigned char*)&hfc.telemDataStream3, size, TELEMETRY_DATASTREAM3, 3);
         }
     }
@@ -3878,7 +3980,7 @@ void do_control()
     /* if new GPS RMS message arrived and it is not in the serial Q already, generate it and push it to the temetry output */
     if (hfc.gps_new_data) {
         if (!telem.IsTypeInQ(TELEMETRY_GPS)) {
-            Telemetry_Generate_GPS1(&hfc, &hfc.telemGPS1, time_ms);
+            telem.Generate_GPS1(time_ms);
             telem.AddMessage((unsigned char*)&hfc.telemGPS1, sizeof(T_Telem_GPS1), TELEMETRY_GPS, 2);
         }
     }
@@ -3890,14 +3992,14 @@ void do_control()
 
     /* if telemetry output Q is empty, generate the Ctrl telemetry message and push it out */
     if (hfc.telem_ctrl_time >= hfc.telem_ctrl_period && telem.IsEmpty()) {
-        Telemetry_Generate_Ctrl0(&hfc, &hfc.telemCtrl0, time_ms);
+        telem.Generate_Ctrl0(time_ms);
         telem.AddMessage((unsigned char*)&hfc.telemCtrl0, sizeof(T_Telem_Ctrl0), TELEMETRY_CTRL, 0);
         hfc.telem_ctrl_time = 0;
     }
 
     hfc.telem_ctrl_time += ticks;	// in uS
 
-    if (!hfc.config.power_node) {
+    if (!pConfig->power_node) {
         SendPowerCtrl();
     }
 
@@ -3909,42 +4011,42 @@ void do_control()
 
     ProcessStats();
 
-    if (hfc.config.LidarFromServo == 0) {
+    if (pConfig->LidarFromServo == 0) {
         // Nore: if lidar data from servo, its processed directly from can_handler.
         Lidar_Process(&hfc);
     }
 
    RPM_Process();
 
-   Telem_ProcessInputBytes();
+   telem.ProcessInputBytes(telemetry);
 
    AutoReset();
 
-   if (hfc.config.num_gps_nodes > 0) {
-       GpsHeartbeat(hfc.config.num_gps_nodes);
+   if (pConfig->num_gps_nodes > 0) {
+       GpsHeartbeat(pConfig->num_gps_nodes);
    }
 
    // TODO::SP: Remove this, debug code only
-   //if (hfc.config.num_servo_nodes > 0) {
-   //    ServoHeartbeat(hfc.config.num_servo_nodes);
+   //if (pConfig->num_servo_nodes > 0) {
+   //    ServoHeartbeat(pConfig->num_servo_nodes);
    //}
 
     hfc.gps_new_data = false;
     hfc.print_counter++;
 }
 
-void Lidar_fall()
+static void Lidar_fall(void)
 {
     hfc.lidar_fall = GetTime_us();
     hfc.lidar_pulse = true;
 }
 
-void Lidar_rise()
+static void Lidar_rise(void)
 {
     hfc.lidar_rise = GetTime_us();
 }
 
-void RPM_rise()
+static void RPM_rise(void)
 {
     hfc.rpm_dur_us = Ticks2us(hfc.rpm_ticks);
     hfc.rpm_ticks = Ticks1();
@@ -3952,12 +4054,12 @@ void RPM_rise()
     hfc.rpm_pulse = true;
 }
 
-static void Servos_Init(T_HFC *hfc)
+static void Servos_Init(FlightControlData *hfc)
 {
-    if (hfc->config.rpm_sensor) {
-        if ((hfc->config.ccpm_type==CCPM_HEX || hfc->config.ccpm_type==CCPM_QUAD
-                        || hfc->config.ccpm_type==CCPM_OCTO ) && hfc->config.fcm_servo) {
-            printf("Cannot use RPM sensor on multicopter when servos driven from FCM\n");
+    if (pConfig->rpm_sensor) {
+        if ((pConfig->ccpm_type==CCPM_HEX || pConfig->ccpm_type==CCPM_QUAD
+                        || pConfig->ccpm_type==CCPM_OCTO ) && pConfig->fcm_servo) {
+            serial.printf("Cannot use RPM sensor on multicopter when servo's driven from FCM\n");
         }
         else {
             rpm = new InterruptIn(p21);
@@ -3971,7 +4073,7 @@ static void Servos_Init(T_HFC *hfc)
         servoX = new PwmOut(p21);
     }
 
-    if (hfc->config.linklive) {
+    if (pConfig->linklive) {
         servoTman = new DigitalInOut(p26);
         servoTman->output();
         servoTman->write(1);
@@ -3982,18 +4084,18 @@ static void Servos_Init(T_HFC *hfc)
         servoTpwm = new PwmOut(p26);
     }
 
-    if (hfc->config.fcm_servo) {
+    if (pConfig->fcm_servo) {
         if (servoX) {
-          servoX->period_us(hfc->config.pwm_period);
+          servoX->period_us(pConfig->pwm_period);
         }
 
-        servoC.period_us(hfc->config.pwm_period);
-        servoY.period_us(hfc->config.pwm_period);
-        servoP.period_us(hfc->config.pwm_period);
-        servoR.period_us(hfc->config.pwm_period);
+        servoC.period_us(pConfig->pwm_period);
+        servoY.period_us(pConfig->pwm_period);
+        servoP.period_us(pConfig->pwm_period);
+        servoR.period_us(pConfig->pwm_period);
 
         if (servoTpwm) {
-            servoTpwm->period_us(hfc->config.pwm_period);
+            servoTpwm->period_us(pConfig->pwm_period);
         }
 
         if (servoX) {
@@ -4011,117 +4113,112 @@ static void Servos_Init(T_HFC *hfc)
     }
 }
 
-#if 0
-static void Profile()
+volatile int rx_in=0;
+static bool have_config = false;
+/**
+  * @brief  ConfigRx callback handler.
+  * @param  none
+  * @retval none
+  */
+static void ConfigRx(void)
 {
-    volatile float fa = 1.2f;
-    volatile float fb = 1.2456f;
-    volatile float fc;
-    volatile int  ll1 = 0x1234567;
-    volatile int  ll2 = 123456;
-    volatile int  ll3;
-    char str[20];
-    float dT = 0.001f;
-    int i;
-    float dist, cour;
 
-//    LP5_Init(&hfc.lp_gyro[0], 6);
-    LP3_Init(&hfc.lp_gyro3[0], 6);
-    LP4F_Init(&hfc.lp_gyro4[0]);
-    
-//    for (i=0; i<=5; i++) hfc.lp_gyro3[0].xv[i] = i*1.111;
-//    for (i=0; i<=5; i++) hfc.lp_gyro3[0].yv[i] = i*1.23468;
-//    for (i=0; i<=3; i++) hfc.lp_gyro3[0].xv[i] = i*1.111;
-//    for (i=0; i<=3; i++) hfc.lp_gyro3[0].yv[i] = i*1.23468;
-    
-    int ticks = Ticks1();
-//    fc = power1_7(67);
+	while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
+		pRamConfigData[rx_in++] = serial._getc();
+	}
 
-    for (i=0; i<1000; i++)
-    {
-//        fc = LP3B_1200(&hfc.lp_gyro3[0], fb);
-        fc = LP4_1000(&hfc.lpf_gyro4[0], fb); //32 = 32768/1024 64 = 65536/1024
-        fb+=0.1f;
-    }
-
-//    fc = LP5B_1200(&hfc.lp_gyro[0], fa);
-//    fc = LP3B_1200(&hfc.lp_gyro3[0], fa);
-
-
-    ticks = Ticks2(ticks);
-
-//    printf("Int multiply %d %s\r\n", ticks, str);
-//    printf("Int multiply %d %d\r\n", ticks, (int)ll3);
-    printf("Int multiply %d %f\r\n", ticks, fc);
-//    printf("Int multiply %d %d\r\n", ticks, fc);
-    while(1);
+	have_config = true;
 }
-#endif
 
-/* CAN message to power module, toggling switches, id=AVICAN_POWER_SWITCHES */
-/* payload ESC=0x5b, Servo=0x9e, Aux12V=0xd6, ARMEDLED=0xca */
-
-static void Commands_Process(T_HFC *hfc, char c)
+/**
+  * @brief  Process user commands from USB Serial Port.
+  * @param  received command byte
+  * @retval none
+  */
+static void ProcessUserCmnds(char c)
 {
+	char request[20] = {0};
+	ConfigData *pRamConfigData = (ConfigData *)&ram_config;
 
-    if (c=='1' || c=='2' || c=='3' || c=='4')
-	{
-		if (c=='1')
-		{
-			hfc->throttle_armed 	= !hfc->throttle_armed;
-            printf("\r\nDRONE ARMED STATE = %d\r\n", hfc->throttle_armed );
+	// 'L' == Load Request
+	if (c == 'L') {
+
+		led1 = led2 = led3 = led4 = 1;
+
+		serial.printf("OK");
+
+		// Wait for Load Type - config
+		serial.scanf("%19s", request);
+		if (strcmp(request, "config_upload") == 0) {
+			// Clear current RamConfig in preparation for new data.
+			memset((uint8_t *)&ram_config, 0xFF, MAX_CONFIG_SIZE);
+
+			serial.attach(&ConfigRx);	// This handles incoming configuration file
+
+			have_config = false;
+
+			// Clear chars
+			while (serial.readable()) {
+				int rx = serial._getc();
+			}
+
+			serial.printf("ACK");	// Informs Host to start transfer
+
+			while (!have_config) {}
+
+			unsigned char *pData = (unsigned char *)&ram_config;
+			pData += sizeof(ConfigurationDataHeader);
+			// CRC data and check.
+			if (pRamConfigData->header.checksum == crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
+
+				if (SaveNewConfig() == 0) {
+
+					serial.printf("ACK");	// Informs Host, all done
+
+					FCM_NOTIFY_CFG_UPDATED();
+
+					// NOTE::SP: NO RETURN FROM HERE. THIS GENERATES A SOFTWARE RESET OF THE LPC1768
+					//           WHICH CAUSES THE NEW CONFIGURATION TO BE LOADED.
+		            NVIC_SystemReset();
+				}
+				else {
+					serial.printf("NACK");	// Informs Host, Error
+				}
+			}
+			else {
+				serial.printf("NACK");	// Informs Host, Error
+			}
 		}
-		if (c=='2')
-			hfc->power.power_servo 	= !hfc->power.power_servo;
-		else if (c=='3')
-			hfc->power.power_aux12v	= !hfc->power.power_aux12v;
-		else if (c=='4')
-			hfc->power.power_armed_led = !hfc->power.power_armed_led;
-    }
-    else if (c == ' ')
-    {
-        printf("\r\nIMU Reset\r\n");
-        ResetIMU(hfc,true);
+		else if (strcmp(request, "config_dlload") == 0) {
+			// Download fcm configuration to requester
+			//serial.printf("ACK");
 
-        printf("\r\nPITCH measurements\r\n");
-        for(int i = 0; i+1 < PITCH_COMP_LIMIT; i=i+2)
-        {
-            printf("%5d - %d  %5d - %5d\r\n",i,hfc->comp_pitch_flags[i],i+1,hfc->comp_pitch_flags[i+1]);
-        }
+			const int16_t block_size = 64;
+			uint8_t *pData = (uint8_t*)pConfig;
+			int16_t block_num = (sizeof(ConfigData) / block_size) +1;
+			do {
 
-        printf("\r\nROLL measurements\r\n");
-        for(int i = 0; i+1 < ROLL_COMP_LIMIT; i=i+2)
-        {
-            printf("%5d - %d  %5d - %5d\r\n",i,hfc->comp_roll_flags[i],i+1,hfc->comp_roll_flags[i+1]);
-        }
+				if (block_num == 1) {
+					serial.writeBlock(pData, (sizeof(ConfigData) % block_size));
+				}
+				else {
+					serial.writeBlock(pData, block_size);
+				}
 
+				pData += block_size;
 
-        printf("ofs:\t%5.2f\t%5.2f\t%5.2f\r\n", hfc->config.comp_ofs[0], hfc->config.comp_ofs[1], hfc->config.comp_ofs[2]);
-        printf("gains:\t%5.2f\t%5.2f\t%5.2f\r\n", hfc->config.comp_gains[0], hfc->config.comp_gains[1], hfc->config.comp_gains[2]);
-    }
+			} while (--block_num >= 1);
+
+		}
+		else {
+			// Unknown command
+			serial.printf("NACK");
+		}
+	}
+
 }
 
-void PrintSector(byte sector[512])
-{
-    int i,j;
-    for (j=0; j<4; j++)
-    {
-        for (i=0; i<128; i++)
-        {
-            byte b = sector[j*128+i];
-            if (b>=32 && b<128)
-                printf("%c", b);
-            else
-                printf(".");
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
-
-
-
-void button_Select()
+void ProcessButtonSelection()
 {
 //    if (hfc.display_mode==DISPLAY_SPLASH || hfc.display_mode==DISPLAY_STATUS || hfc.display_mode==DISPLAY_POWER)
     // Only allow arm and disarm function on SPLASH screen
@@ -4130,10 +4227,11 @@ void button_Select()
         if (hfc.throttle_armed)
         {
             if (hfc.btnSelectCounter>500)
-                Disarm(&hfc);
+                telem.Disarm();
         }
-        else
-       	Arm(&hfc);			// old code was only Arm
+        else {
+            telem.Arm();			// old code was only Arm
+        }
 
         hfc.resetandarm_req = 1;					// Request reset and arm event
         hfc.resetandarm_time = GetTime_ms();		// capture current time to compare against
@@ -4175,19 +4273,19 @@ void button_Select()
         gps.SetNextChannel();
     else
     if (hfc.display_mode==DISPLAY_GPS2)
-        SetHome(&hfc);
+        telem.SetHome();
     else
     if (hfc.display_mode==DISPLAY_CALIB)
     {
-        ResetIMU(&hfc, true);
+        telem.ResetIMU(false);
     }
     else
     if (hfc.display_mode==DISPLAY_COMPASS)
     {
         int i = 0;
 
-        hfc.compassMin[0] = hfc.compassMin[1] = hfc.compassMin[2] = 9999;
-        hfc.compassMax[0] = hfc.compassMax[1] = hfc.compassMax[2] = -9999;
+        hfc.compass_cal.compassMin[0] = hfc.compass_cal.compassMin[1] = hfc.compass_cal.compassMin[2] = 9999;
+        hfc.compass_cal.compassMax[0] = hfc.compass_cal.compassMax[1] = hfc.compass_cal.compassMax[2] = -9999;
 
         for(i = 0; i < PITCH_COMP_LIMIT; i++)
         {
@@ -4200,11 +4298,11 @@ void button_Select()
         }
 
         hfc.comp_calibrate = COMP_CALIBRATING;
-        printf("Starting Compass Calibration\r\n");
+        serial.printf("Starting Compass Calibration\r\n");
     }
 }
 
-void button_Menu()
+void button_Menu(void)
 {
     hfc.display_mode++;
     if (hfc.display_mode>=DISPLAY_PAGES)
@@ -4224,7 +4322,7 @@ static void Buttons()
     
     btn = btnSelect;
     if (btn && !hfc.btnSelectPrev)
-      button_Select();
+      ProcessButtonSelection();
     hfc.btnSelectPrev = btn;
     if (!btn)
         hfc.btnSelectCounter++;
@@ -4238,10 +4336,9 @@ static void PrintOrient()
     char *pstr = str;
   
     if (!(hfc.display_mode == DISPLAY_SPLASH) && (hfc.print_counter&0x1f) == 8 ) {
-    //printf("P %+5.1f R %+5.1f Y %+5.1f    ", SmoothAcc[PITCH]*R2D, SmoothAcc[ROLL]*R2D, SmoothAcc[YAW]*R2D);
-    //printf("P %+5.1f R %+5.1f Y %+5.1f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D, hfc.IMUorient[YAW]*R2D);
-    //printf("P %+5.1f R %+5.1f Y %+5.1f\r\n", gBfiltered[PITCH], gBfiltered[ROLL], gBfiltered[YAW]);
-
+        //serial.printf("P %+5.1f R %+5.1f Y %+5.1f    ", SmoothAcc[PITCH]*R2D, SmoothAcc[ROLL]*R2D, SmoothAcc[YAW]*R2D);
+        //serial.printf("P %+5.1f R %+5.1f Y %+5.1f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D, hfc.IMUorient[YAW]*R2D);
+        //serial.printf("P %+5.1f R %+5.1f Y %+5.1f\r\n", gBfiltered[PITCH], gBfiltered[ROLL], gBfiltered[YAW]);
         pstr+= PRINTf(pstr, hfc.IMUorient[PITCH]*R2D, 1, 1, 0);
         *pstr++ = ' ';
 
@@ -4283,7 +4380,7 @@ int InitCanServoNodes(int num_servo_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!can_node_found) {
@@ -4310,7 +4407,7 @@ int InitCanGpsNodes(int num_gps_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!can_node_found) {
@@ -4342,7 +4439,7 @@ int ConfigureCanServoNodes(int num_servo_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!canbus_ack) {
@@ -4371,7 +4468,7 @@ int ConfigureCanGpsNodes(int num_gps_nodes)
             if (!can.write(can_tx_message)) {
                 ++write_canbus_error;
             }
-            wait_ms(5);
+            wait_ms(20);
         }
 
         if (!canbus_ack) {
@@ -4421,12 +4518,177 @@ static void ServoHeartbeat(int num_servo_nodes)
 }
 
 //
+void InitializeRuntimeData(void)
+{
+	// Clear out the Runtime RAm copy of the config Data
+	memset(pRamConfigData, 0x00, sizeof(ConfigData));
+
+    if (pConfig->gyro_fixed_offsets) {
+        // TODO::SP: ?? need this?
+        //LoadGyroCalibData();
+    }
+
+    hfc.PRstick_rate  = pConfig->PRstickRate / pConfig->Stick100range;
+    hfc.PRstick_angle = pConfig->PRstickAngle /pConfig->Stick100range;
+    hfc.YawStick_rate = pConfig->YawStickRate / pConfig->Stick100range;
+    hfc.Stick_Vspeed  = pConfig->StickVspeed / pConfig->Stick100range;
+    hfc.Stick_Hspeed  = pConfig->StickHspeed / pConfig->Stick100range;
+
+    // convert dead band values in % to servo range
+    for (int i = 0; i < 4; i++) {
+        hfc.StickDeadband[i] = pConfig->stick_deadband[i] * 0.01f * pConfig->Stick100range;
+    }
+
+    PID_Init(&hfc.pid_PitchRate,  pConfig->pitchrate_pid_params,  0, 1);
+    PID_Init(&hfc.pid_RollRate,   pConfig->rollrate_pid_params,   0, 1);
+    PID_Init(&hfc.pid_YawRate,    pConfig->yawrate_pid_params,    0, 1);
+    PID_Init(&hfc.pid_PitchAngle, pConfig->pitchangle_pid_params, 1, 0);
+    PID_Init(&hfc.pid_RollAngle,  pConfig->rollangle_pid_params,  1, 0);
+    PID_Init(&hfc.pid_CollVspeed, pConfig->collvspeed_pid_params, 0, 0);
+    PID_Init(&hfc.pid_PitchSpeed, pConfig->pitchspeed_pid_params, 0, 0);
+    PID_Init(&hfc.pid_RollSpeed,  pConfig->rollspeed_pid_params,  0, 0);
+
+    PID_Init(&hfc.pid_IMU[0],     pConfig->imu_pid_params, 1, 0);
+    PID_Init(&hfc.pid_IMU[1],     pConfig->imu_pid_params, 1, 0);
+    PID_Init(&hfc.pid_IMU[2],     pConfig->imu_pid_params, 1, 0);
+
+    PID_P_Acc_Init(&hfc.pid_YawAngle,    pConfig->yawangle_pid_params,    1, true); // enable deceleration
+    PID_P_Acc_Init(&hfc.pid_CollAlt,     pConfig->collalt_pid_params,     0, true); // same acc and dec
+    PID_P_Acc_Init(&hfc.pid_Dist2T,      pConfig->dist2T_pid_params,      0, true);
+    PID_P_Acc_Init(&hfc.pid_Dist2P,      pConfig->dist2P_pid_params,      0, false);
+    PID_P_Acc_Init(&hfc.pid_PitchCruise, pConfig->pitchCruise_pid_params, 0, false);
+
+    hfc.speed_Iterm_E     = 0;
+    hfc.speed_Iterm_N     = 0;
+    hfc.speed_Iterm_E_lp  = 0;
+    hfc.speed_Iterm_N_lp  = 0;
+
+    // save default values for playlist mode, duplicated and used within hfc.
+    //   - These used to be in cfg, but this is now READ only
+    hfc.rw_cfg.VspeedMax = hfc.pid_CollAlt.COmax;
+    hfc.rw_cfg.VspeedMin = hfc.pid_CollAlt.COmin;
+    hfc.rw_cfg.VspeedAcc = hfc.pid_CollAlt.acceleration;
+    hfc.rw_cfg.HspeedMax = hfc.pid_Dist2T.COmax;
+    hfc.rw_cfg.HspeedAcc = hfc.pid_Dist2T.acceleration;
+
+    // initialize sensor's low pass filters
+    for (int i=0; i < 3; i++) {
+        hfc.calib_gyro_avg[i]  = 0;
+    }
+
+    LP4_Init(&hfc.lp_gyro4[PITCH], pConfig->gyro_lp_freq[PITCH]);
+    LP4_Init(&hfc.lp_gyro4[ROLL], pConfig->gyro_lp_freq[ROLL]);
+    LP4_Init(&hfc.lp_gyro4[YAW], pConfig->gyro_lp_freq[YAW]);
+
+    for (int i=0; i < 3; i++) {
+        LP4_Init(&hfc.lp_acc4[i], pConfig->acc_lp_freq);
+    }
+
+    LP4_Init(&hfc.lp_baro4, pConfig->baro_lp_freq);
+    LP4_Init(&hfc.lp_baro_vspeed4, pConfig->baro_vspeed_lp_freq);
+
+    hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
+    hfc.telem_ctrl_period = Max(hfc.telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
+
+    hfc.throttle_value   = -pConfig->Stick100range;
+    hfc.collective_value = -pConfig->Stick100range;
+
+    hfc.power.capacity_total = (pConfig->battery_capacity / 1000.0f * 3600); // As
+    hfc.power.energy_total   = (hfc.power.capacity_total * pConfig->battery_cells * 3.7f);  // Ws
+
+    hfc.dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
+    hfc.ctrl_source = pConfig->default_ctrl_source;
+    hfc.acc_dyn_turns = pConfig->default_acc_dyn_turns;
+
+    for (int i = 0; i < 3; i++) {
+        hfc.home_pos[i] = pConfig->default_home_position[i];
+    }
+
+    hfc.orient_reset_counter = pConfig->orient_reset_counter;
+
+    // NOTE:SP: This is data which is updated at runtime to a duplicated
+    // Read/Write area.
+    hfc.rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
+    hfc.rw_cfg.GTWP_retire_speed = pConfig->GTWP_retire_speed;
+    hfc.rw_cfg.FTWP_retire_sr_factor = pConfig->FTWP_retire_sr_factor;
+    hfc.rw_cfg.low_speed_limit = pConfig->low_speed_limit;
+    hfc.rw_cfg.PRstickRate = pConfig->PRstickRate;
+    hfc.rw_cfg.PRstickAngle = pConfig->PRstickAngle;
+    hfc.rw_cfg.YawStickRate = pConfig->YawStickRate;
+    hfc.rw_cfg.StickVspeed = pConfig->StickVspeed;
+    hfc.rw_cfg.StickHspeed = pConfig->StickHspeed;
+    hfc.rw_cfg.StickHaccel = pConfig->StickHaccel;
+    hfc.rw_cfg.RollPitchAngle = pConfig->RollPitchAngle;
+    hfc.rw_cfg.wind_compensation = pConfig->wind_compensation;
+    hfc.rw_cfg.path_navigation = pConfig->path_navigation;
+    hfc.rw_cfg.ManualLidarAltitude = pConfig->ManualLidarAltitude;
+    hfc.rw_cfg.AngleCollMixing = pConfig->AngleCollMixing;
+    hfc.rw_cfg.cruise_speed_limit = pConfig->cruise_speed_limit;
+    hfc.rw_cfg.nose_to_WP = pConfig->nose_to_WP;
+    hfc.rw_cfg.landing_wind_threshold = pConfig->landing_wind_threshold;
+    hfc.rw_cfg.battery_capacity = pConfig->battery_capacity;
+    hfc.rw_cfg.WindTableScale = pConfig->WindTableScale;
+
+    hfc.command.command = TELEM_CMD_NONE;
+    hfc.full_auto = true;
+    hfc.auto_throttle = true;
+    hfc.playlist_status = PLAYLIST_STOPPED;
+    hfc.display_mode = DISPLAY_SPLASH;
+    hfc.control_mode[PITCH] = CTRL_MODE_ANGLE;
+    hfc.control_mode[ROLL] = CTRL_MODE_ANGLE;
+    hfc.control_mode[YAW] = CTRL_MODE_ANGLE;
+    hfc.control_mode[COLL] = CTRL_MODE_MANUAL;
+    hfc.control_mode[THRO] = CTRL_MODE_MANUAL;
+    hfc.waypoint_type = WAYPOINT_NONE;
+    hfc.btnMenuPrev = true;
+    hfc.btnSelectPrev = true;
+    hfc.AltitudeBaroGPSblend = ALTITUDE_BARO_GPS_BLEND_FREQ_INIT;
+    hfc.baro_altitude_raw_lp = -9999;
+    hfc.esc_temp = 20;
+    hfc.altitude_lidar_raw = 40;
+    hfc.distance2WP_min = 999999;
+    hfc.rpm_ticks          = Ticks1();
+    hfc.comp_calibrate = NO_COMP_CALIBRATE;
+
+    for (int i = 0; i < 3; i++) {
+        hfc.rw_cfg.gyro_ofs[i] = pConfig->gyro_ofs[i];
+    }
+
+    GenerateSpeed2AngleLUT();
+
+    // If there is a valid compass calibration, load it.
+    // otherwise use values from config.
+    const CompassCalibrationData *pCompass_cal = NULL;
+
+    if (LoadCompassCalibration(&pCompass_cal) != 0) {
+        memcpy(&hfc.compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
+    }
+    else {
+        // no valid calibration, use values from config
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.comp_ofs[i] = pConfig->comp_ofs[i];
+        }
+
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.comp_gains[i] = pConfig->comp_gains[i];
+        }
+
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.compassMin[i] = pConfig->compassMin[i];
+        }
+
+        for (int i = 0; i < 3; i++) {
+            hfc.compass_cal.compassMax[i] = pConfig->compassMax[i];
+        }
+    }
+}
+
+/**
+  * @brief  main.
+  * @retval none
+  */
 int main()
 {
-    pc.baud(PC_BAUDRATE);
-
-    printf("HELLO\r\n");
-
     spi.frequency(4000000);
     spi.format(8, 0);   // 0-sd ok, disp ok, 1-no sd, disp ok
 
@@ -4446,53 +4708,61 @@ int main()
 
     SysTick_Run();
 
-    Config_SetDefaults(&hfc);
-    //Config_Read(&hfc.config);
-    //Config_Read_Compass(&hfc);
-    //Config_ApplyAndInit(&hfc);
-
     myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
 
-    /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
-    int frequency = (hfc.config.canbus_freq_high == 1) ? 1000000 : 500000;
-    can.frequency(frequency);
-    can.attach(can_handler);
-
-    if (hfc.config.num_servo_nodes) {
-        if ((init_ok = InitCanServoNodes(hfc.config.num_servo_nodes)) != 0) {
-            init_ok = ConfigureCanServoNodes(hfc.config.num_servo_nodes);
-        }
+    if ((LoadConfiguration(&pConfig)) != 0)
+    {
+        init_ok = 0;
+        myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
     }
 
-    if (!init_ok) {
-        myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "CANBUS SERVO", "INITIALIZATION", "FAILED");
-    }
-    else {
-        if (hfc.config.num_gps_nodes) {
+    if (init_ok) {
 
-            gps.Init(hfc.config.num_gps_nodes);
+        InitializeRuntimeData();
 
-            if ((init_ok =InitCanGpsNodes(hfc.config.num_gps_nodes)) != 0) {
-                init_ok = ConfigureCanGpsNodes(hfc.config.num_gps_nodes);
+        //SavePIDUpdates(&hfc); // just for testing
+
+        /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
+        int frequency = (pConfig->canbus_freq_high == 1) ? 1000000 : 500000;
+        can.frequency(frequency);
+        can.attach(can_handler);
+
+        if (pConfig->num_servo_nodes) {
+            if ((init_ok = InitCanServoNodes(pConfig->num_servo_nodes)) != 0) {
+                init_ok = ConfigureCanServoNodes(pConfig->num_servo_nodes);
             }
         }
 
         if (!init_ok) {
-            myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "CANBUS GPS", "INITIALIZATION", "FAILED");
+            myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "CANBUS SERVO", "INITIALIZATION", "FAILED");
+        }
+        else {
+            if (pConfig->num_gps_nodes) {
+
+                gps.Init(pConfig->num_gps_nodes);
+
+                if ((init_ok =InitCanGpsNodes(pConfig->num_gps_nodes)) != 0) {
+                    init_ok = ConfigureCanGpsNodes(pConfig->num_gps_nodes);
+                }
+            }
+
+            if (!init_ok) {
+                myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "CANBUS GPS", "INITIALIZATION", "FAILED");
+            }
         }
     }
 
     if (init_ok) {
-        printf("\r\nCANBus Board Info..\r\n");
+        serial.printf("\r\nCANBus Board Info..\r\n");
 
-        for (int i = 0; i < hfc.config.num_servo_nodes; i++) {
-            printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+        for (int i = 0; i < pConfig->num_servo_nodes; i++) {
+            serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
                         board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
                         board_info[PN_SN][i].part_num_year, board_info[PN_SN][i].part_num_type, board_info[PN_SN][i].serial_number);
         }
 
-        for (int i = 0; i < hfc.config.num_gps_nodes; i++) {
-            printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+        for (int i = 0; i < pConfig->num_gps_nodes; i++) {
+            serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
                         board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
                         board_info[PN_GPS][i].part_num_year, board_info[PN_GPS][i].part_num_type, board_info[PN_GPS][i].serial_number);
         }
@@ -4506,12 +4776,12 @@ int main()
     }
 
     if (init_ok) {
-        if (hfc.config.sensor_mode == FLY_ALL_SENSORS) {
-            if ((hfc.config.compass_type == CHIP_HMC5883L) || (hfc.config.compass_type == CHIP_AK8963)) {
+        if (pConfig->sensor_mode == FLY_ALL_SENSORS) {
+            if ((pConfig->compass_type == CHIP_HMC5883L) || (pConfig->compass_type == CHIP_AK8963)) {
                 compass.enable_i2c_MPU6050(MPU6050_ADDRESS);
             }
 
-            if (!compass.Init(hfc.config.compass_type)) {
+            if (!compass.Init(pConfig)) {
                 myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
                 init_ok = 0;
             }
@@ -4523,21 +4793,26 @@ int main()
             myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
             init_ok = 0;
         }
-    }
 
-    xbus.ConfigRx();
-    telemetry.baud(hfc.config.telem_baudrate);
+        xbus.SetSbusEnabled(pConfig->SbusEnable);
+        xbus.ConfigRx();
 
-    Servos_Init(&hfc);
+        telem.Initialize(&hfc, pConfig);
+        telemetry.baud(pConfig->telem_baudrate);
 
-    if (hfc.config.LidarFromServo == 0) {
-        hfc.lidar_rise = GetTime_us();
-        lidar.fall(&Lidar_fall);
-        lidar.rise(&Lidar_rise);
+        Servos_Init(&hfc);
+
+        if (pConfig->LidarFromServo == 0) {
+            hfc.lidar_rise = GetTime_us();
+            lidar.fall(&Lidar_fall);
+            lidar.rise(&Lidar_rise);
+        }
+
+        telem.Generate_AircraftCfg();
     }
 
     if (init_ok) {
-        printf("========initialized=========\r\n");
+        serial.printf("========initialized=========\r\n");
 
         mpu.readMotion7_start();
 
@@ -4548,8 +4823,9 @@ int main()
             // Main FCM control loop
             do_control();
 
-            if (pc.readable()) {
-                Commands_Process(&hfc, pc.getc());
+            // Process Serial command sif USB is available
+            if (serial.connected() && serial.readable()) {
+            	ProcessUserCmnds(serial.getc());
             }
         }
     }

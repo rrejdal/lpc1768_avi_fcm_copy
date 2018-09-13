@@ -43,7 +43,7 @@ float Distance(float lat1, float long1, float lat2, float long2)
     return dist;
 }
 
-volatile void perf_t1()
+void perf_t1()
 {
     if ((LPC_SC->PCONP & (1<<16)) != (1<<16))
     {
@@ -55,7 +55,7 @@ volatile void perf_t1()
     p1_counter = LPC_RIT->RICOUNTER;
 }
 
-volatile void perf_t2()
+void perf_t2()
 {
     unsigned int p2 = LPC_RIT->RICOUNTER;
     int delta = p2 - p1_counter;
@@ -502,7 +502,7 @@ unsigned short int Float32toFloat16(const float in1)
 extern HMC5883L compass;   
 extern XBus xbus;
 
-static uint16 Streaming_GetValue(T_HFC *hfc, byte param)
+static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
 {
     byte index = param&0x3;
     uint16 value = 0;
@@ -634,7 +634,7 @@ case LOG_PARAM_POSITION:            // heli position relative to home [horizonta
 */
 
 /* returns true when the internal storage is full and the packets needs to be generated */
-bool Streaming_Process(T_HFC *hfc)
+bool Streaming_Process(FlightControlData *hfc)
 {
     if (!hfc->streaming_enable)
         return false;
@@ -666,7 +666,7 @@ bool Streaming_Process(T_HFC *hfc)
     return false;
 }
 
-void Profiling_Process(T_HFC *hfc)
+void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
 {
     if (hfc->profile_mode == PROFILING_START)
     {
@@ -691,7 +691,7 @@ void Profiling_Process(T_HFC *hfc)
         int t = GetTime_ms() - hfc->profile_start_time;  // timeline in ms
         int Td = hfc->profile_lag;
         int Tt = hfc->profile_period;
-        float dC = hfc->profile_delta*0.001f*hfc->config.Stick100range;
+        float dC = hfc->profile_delta*0.001f*pConfig->Stick100range;
         
 //        printf("%d %d %d %4.3f\n", t, Td, Tt, dC);
         if (t>(Td+5*Tt))        // test complete
@@ -726,14 +726,14 @@ void Profiling_Process(T_HFC *hfc)
     }
 }
 
-void GyroCalibDynamic(T_HFC *hfc)
+void GyroCalibDynamic(FlightControlData *hfc)
 {
     int i;
     for (i=0; i<3; i++)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
 
-void CalibrateSensors(T_HFC *hfc, float gB[3])
+void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
 {
     int i;
     DigitalOut **LEDs = (DigitalOut**)hfc->leds;
@@ -742,7 +742,7 @@ void CalibrateSensors(T_HFC *hfc, float gB[3])
         return;
 
     /* when gyro temp curve is enabled, use secondary offsets to eliminate the drift */
-    if (!hfc->config.gyro_fixed_offsets)
+    if (!pConfig->gyro_fixed_offsets)
     {
         GyroCalibDynamic(hfc);
 
@@ -773,18 +773,18 @@ void CalibrateSensors(T_HFC *hfc, float gB[3])
     {
       for (i=0; i<3; i++)
       {
-        hfc->config.gyro_ofs[i]  = hfc->calib_gyro_avg[i]/hfc->calib_count;
+        hfc->rw_cfg.gyro_ofs[i]  = hfc->calib_gyro_avg[i]/hfc->calib_count;
         hfc->calib_gyro_avg[i]  = 0;
         hfc->gyroOfs[i] = 0;
       }
       LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
       printf("= Calibrated: ");
-      printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", hfc->config.gyro_ofs[0], hfc->config.gyro_ofs[1], hfc->config.gyro_ofs[2], hfc->gyro_temp_lp);
+      printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2], hfc->gyro_temp_lp);
       {
         FILE *fp = fopen("/local/gyro_cal.txt", "w");  // Open "out.txt" on the local file system for writing
         if (fp)
         {
-            fprintf(fp, "%f\t%f\t%f\t%f\r\n", hfc->gyro_temp_lp, hfc->config.gyro_ofs[0], hfc->config.gyro_ofs[1], hfc->config.gyro_ofs[2]);
+            fprintf(fp, "%f\t%f\t%f\t%f\r\n", hfc->gyro_temp_lp, hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2]);
             fclose(fp);
         }
       }      
@@ -819,43 +819,28 @@ bool WDT_ResetByWDT()
         return false;
 }
 
-#if 0
-// NOTE::SP: Removed - no longer in use...
-void SensorCalib(T_HFC *hfc, float dT)
+/**
+  * @brief  CRC32b utility
+  * @param  *data_p: pointer to data block to be crc'd
+  * @param  length: length of data to be crc'd
+  * @retval the calculated crc
+  */
+uint32_t crc32b(unsigned char *message, uint32_t length)
 {
-    if (hfc->config.sensor_calib == SENSOR_CALIB_OFF) {
-        return;
-    }
+   int i, j;
+   unsigned int byte_val, crc, mask;
 
-    if (hfc->config.sensor_calib == SENSOR_CALIB_IMU) {
-        int i;
-        static float acc_last[3] = {0};
-
-        for (i=0; i<3; i++) {
-            acc_last[i] = (hfc->accFilt[i] + 1023*acc_last[i])/1024;
-        }
-
-        if (!(hfc->print_counter&0x3f)) {
-            printf("%+5.3f %+5.3f %+5.3f\r\n", acc_last[0], acc_last[1], acc_last[2]);
-        }
-    }
-    else if (hfc->config.sensor_calib == SENSOR_CALIB_TEMP_GYRO_OFS) {
-        int i;
-        static float gyro_int[3];
-
-        if (hfc->time_ms<2000) {
-            for (i=0; i<3; i++) {
-                gyro_int[i] = 0;
-            }
-        }
-
-        for (i=0; i<3; i++) {
-            gyro_int[i] += hfc->gyroFilt[i]*dT;
-        }
-
-        if (!(hfc->print_counter&0x3f)) {
-            printf("%+6.3f %+6.3f %+6.3f\r\n", gyro_int[0], gyro_int[1], gyro_int[2]);
-        }
-    }
+   i = 0;
+   crc = 0xFFFFFFFF;
+   while (length--) {
+      byte_val = message[i];            // Get next byte.
+      crc = crc ^ byte_val;
+      for (j = 7; j >= 0; j--) {    // Do eight times.
+         mask = -(crc & 1);
+         crc = (crc >> 1) ^ (0xEDB88320 & mask);
+      }
+      i = i + 1;
+   }
+   return ~crc;
 }
-#endif
+

@@ -35,7 +35,7 @@
 // TODO::SP: Version should be read in at build time, for now its hard coded.
 #define MAJOR_VERSION 00
 #define MINOR_VERSION 00
-#define BUILD_VERSION 02
+#define BUILD_VERSION 01
 
 // Engineering Test builds are marked as "X" builds
 //#define BUILD_TYPE ""

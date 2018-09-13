@@ -6,7 +6,7 @@
 #define min(a,b) ((a)<(b) ? (a) : (b))
 
 /* Kc, Ti, Td, COofs, COmax, COmin */
-void PID_Init(T_PID *pid, float params[6], char clip360, char decay)
+void PID_Init(T_PID *pid, const float params[6], char clip360, char decay)
 {
   pid->Ie = 0;
   pid->Kp    = params[0];
@@ -22,7 +22,7 @@ void PID_Init(T_PID *pid, float params[6], char clip360, char decay)
 }
 
 /* Kc, COmax, COmin, Acceleration */
-void PID_P_Acc_Init(T_PID *pid, float params[5], char clip360, char decel)
+void PID_P_Acc_Init(T_PID *pid, const float params[5], char clip360, char decel)
 {
   pid->Ie = 0;
   pid->Kp    = params[0];

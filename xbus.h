@@ -28,7 +28,7 @@
 const float sbusScale = 0.0014880938f;
 const float sbusBias = -1.523808f;
 
-extern T_HFC hfc;
+extern FlightControlData hfc;
 
 struct sbusFrame_s {
     uint8_t syncByte;
@@ -66,6 +66,8 @@ class XBus
         XBus(PinName rx);
        ~XBus(void);
 
+       void SetSbusEnabled(int sbus) { sbus_enabled = sbus; }
+
         public:
         int             servos;                     // number of servos
         float           valuesf[MAX_XBUS_SERVOS];   // servo values, +/- 1.0;
@@ -81,6 +83,7 @@ class XBus
     
     private:
         RawSerial       serial;
+        int             sbus_enabled;
         unsigned char   buffer[MAX_XBUS_PAKT_SIZE];
         char            sync;           // true if searching for a sync byte, false accumulating packet data
         unsigned char   bytes;          // bytes accumulated in buffer

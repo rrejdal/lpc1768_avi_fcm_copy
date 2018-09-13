@@ -4,6 +4,8 @@
 #include "defines.h"
 #include "PID.h"
 
+#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
+
 #define LANDING_SITES		20
 #define SPEED2ANGLE_SIZE    56
 #define ANGLE2SPEED_SIZE    46
@@ -614,87 +616,124 @@ typedef struct
     uint16  can_power_tx_errors;
 } T_Stats;
 
-typedef struct 
-{
-    /* swash plate/throttle controls */
-    int				pwm_period;
-    int 			telem_baudrate;
-    unsigned char  ccpm_type;
-    unsigned char  SbusEnable;			// 0 - xbus or 1 - sbus transmitters
-    unsigned char  throttle_ctrl;       // throttle control mode 0-linear, 1-constant
-    unsigned char  RCmodeSwitchOfs;		// offsets the RC mode switch
-    float          throttle_values[2];  // values for throttle switch mode - low / high
-    float		   throttle_gain;       // increase range of throttle for use with multicopter
-    float		   throttle_multi_min; 	// minimum throttle output for multicopter once armed.
-    float          CollZeroAngle;       // collective servo value for 0 angle
-    float 		   CollAngleAutoRotate;	// collective value for auto-rotate
-    float          CollThrAutoLevel;    // collective threshold for leveling furing takeoff
-    float          RollPitchAngle;      // rotates the impact of P/R controls to P/R servos, clockwise in deg
-    
-    /* stick params */
+typedef struct {
+	unsigned int checksum;
+	int total_size;	// Total Number of bytes (including Header)
+	int version;
+	char date_time[20];
+} ConfigurationDataHeader;
+
+typedef struct ConfigurationData {
+
+    // User Config Data
+	ConfigurationDataHeader header;
+    int num_servo_nodes;
+    int num_gps_nodes;
+    int compass_type;
+    int canbus_freq_high;
+    int LidarFromServo;
+
+    int  autoReset;
+    int  can_servo;
+    int  fcm_servo;
+    int  power_node;
+    int  rpm_sensor;
+    int  linklive;
+    int  gps_vspeed;
+    int  gps_units;
+    int  ground_sensor;
+    int  imu_internal;
+
+    int ccpm_type;
+    int SbusEnable;
+    int transmitter_protocol;
+    int RCmodeSwitchOfs;
+    int AllowArmInManual;
+
+    int     throttle_ctrl;
+    float   throttle_values[2];
+    float   throttle_gain;
+    float   throttle_multi_min;
+
+    float CollZeroAngle;
+    float CollAngleAutoRotate;
+    float CollThrAutoLevel;
+    float RollPitchAngle;
+
     float PRstickRate;
     float PRstickAngle;
     float YawStickRate;
-    float StickVspeed;      // vertical speed
-    float StickHspeed;      // horizontal speed
-    float StickHaccel;      // horizontal acceleration
-    float AngleCollMixing;  // Angle->Collective mixing gain
-    float Stick100range;  // xbus value for a full stick
-    unsigned char xbus_revert[8];
-    float         stick_deadband[4];   // deadband on sticks (P, R, Y, C), % in config, rescaled to servo range
+    float StickVspeed;
+    float StickHspeed;
+    float StickHaccel;
+    float AngleCollMixing;
+    float Stick100range;
+    float stick_deadband[4];
 
     float HspeedMax;
     float HspeedAcc;
-    float VspeedMax;        // absolute max vertical speed, up
-    float VspeedMin;        // absolute min vertical speed, down
-    float VspeedAcc;        // acc limit for vertical speed control
-    float max_yaw_rate;     // maximum yaw rate used by angle PID in manual control mode
-    float dyn_yaw_rate_max;	// max value of auto yaw rate during waypoint flying
-    float low_speed_limit;  // speed limit above which tail follows the ground speed vector
-    int   telem_min_ctrl_period; // min period of telem ctrl message in us
-    float VspeedDownCurve[2];	// horiz speed adjusted vertical down speed limit [gain, limit]
-    float LidarHVcurve[4];    	// min above ground alt-speed curve, [minSpeed, slope, minAlt, maxAlt]
-    float TurnAccParams[3];     // coordinated turn acc control, speed to acc curve params [maxAcc, max_speed, minBland]
-    float collective_man_speed; // collective speed in manual col mode, when driven in auto3d mode, servo value change per second
-    float takeoff_angle_rate;	// rate at which angle changes during take off
-    float landing_vspeed_acc;	// vertical speed acceleration during landing
-    float cruise_speed_limit;   // m/s above which cruise mode is engaged
-    float landing_wind_threshold;// m/s wind speed limit above which heli lands with tail downwind
-    float joystick_max_speed;   // max fw speed in joystick mode
+    float VspeedMax;
+    float VspeedMin;
+    float VspeedAcc;
 
-    /* control stuff */    
-    byte  ctrl_mode_inhibit[5];// [P, R, Y, C, T] 1-inhibit, 0-operational
-    float control_gains[5];    // gains on individual control channels (P, R, Y, C, T}
-    byte  servo_revert[6];     // inverts individual servos (P, R, Y, C, T, NA)
-    byte  YawModeMin;           // minimum allowed yaw mode RCradio mode, 1-man, 2-rate, 3-angle
-    byte  YawModeMax;           // maximum allowed yaw mode RCradio mode, 1-man, 2-rate, 3-angle
-    byte  AllowArmInManual;     // allows arming to be done in manual mode as well, rate or higher otherwise
-    byte  ManualLidarAltitude;  // enables altitude to come from LIDAR directly as opposed to from IMU
-    byte  LidarFromServo;		// Lidar input from servo node
-    byte  wind_compensation;    // uses E/N speed PID I-terms, R/F otherwise
-    byte  path_navigation;      // enables path navigation logic
-    byte  nose_to_WP;           // when set, nose points to the next WP, otherwise heli parallel with path to WP
-    byte  autoReset;			// automatically reset the IMU when stationary
-    byte  can_servo;            // enables CAN servo module
-    byte  fcm_servo;            // enables local servo PWM outputs
-    byte  power_node;			// enables power module on CAN
-    byte  rpm_sensor;           // enables RPM sensor on pin p21
-    byte  linklive;             // enables Castle linklive over throttle wire
-    byte  gps_vspeed;           // use gps for vertical speed, baro otherwise
-    byte  gps_units;            // specifies the number of attached GPS units, for pre-flight check
-    byte  ground_sensor;        // 0-none, 1-lidar, 2-sonar
-    byte  config_version;       // specifies config version firmware can check
+    int landing_timeout;
+    float landing_vspeed;
+    float landing_appr_speed;
+    int   lidar_offset;
 
-    float AilRange;             // Tandem mixer configuration settings
+    int   battery_cells;
+    int   battery_capacity;
+    int   power_typical;
+    int   rpm_typical;
+    float power_coeffs[6];
+
+    // Engineering Config Data
+    unsigned char default_ctrl_source;
+    float default_dyn_yaw_rate;
+    float default_acc_dyn_turns;
+    float default_home_position[3];
+    int orient_reset_counter;
+
+    int sensor_mode;
+    int servo_raw;
+
+    int pwm_period;
+    int telem_baudrate;
+    int telem_min_ctrl_period;
+
+    float dyn_yaw_rate_max;
+    float low_speed_limit;
+
+    float VspeedDownCurve[2];
+    float LidarHVcurve[4];
+    float TurnAccParams[3];
+    float collective_man_speed;
+    float takeoff_angle_rate;
+    float landing_vspeed_acc;
+    float cruise_speed_limit;
+    float landing_wind_threshold;
+    float joystick_max_speed;
+
+    int  ctrl_mode_inhibit[5];
+    float control_gains[5];
+    int  servo_revert[6];
+
+    int YawModeMin;
+    int YawModeMax;
+    unsigned char ManualLidarAltitude;
+
+    float AilRange;
     float EleRange;
     float RudRange;
     float TorqCompMult;
     float CollRange;
-    float CcpmMixer;            // 0.5 for 120 and 1 for 140 deg swashplate
-    byte ModelSelect;           // Model type select for tandem mixer
+    float CcpmMixer;
+    int   ModelSelect;
 
+    unsigned char  wind_compensation;
+    unsigned char  path_navigation;
+    unsigned char  nose_to_WP;
 
-    /* PIDs - Kc, Ti, Td, Ofs, Max, Min, Decay */
     float pitchrate_pid_params[6];
     float rollrate_pid_params[6];
     float pitchangle_pid_params[6];
@@ -711,85 +750,103 @@ typedef struct
     float imu_pid_params[6];
     float imu_yaw_pid_params[6];
 
-    float servo_speed[2];       // pitch/roll
-    byte  acc_lp_freq;
-    byte  gyro_lp_freq[3];      // cyclic, yaw
-    float AccIntegGains[3];     // E/N/U
+    float servo_speed[2];
+    int  acc_lp_freq;
+    int  gyro_lp_freq[3];
+    float AccIntegGains[3];
 
-    byte  baro_lp_freq;
-    byte  baro_vspeed_lp_freq;
+    int  baro_lp_freq;
+    int  baro_vspeed_lp_freq;
 
-    /* Range for BaroVspeedWeight, GPSVspeedWeight and BaroAltitudeWeight
-     * is 0-1000, where 1000ms being the maximum of dT variable in gyro_int
-     * which is the loop time.*/
-    float BaroVspeedWeight;     // 0.4 is the original setting that was hard coded
-    float GPSVspeedWeight;      // 0.4 is the original setting that was hard coded
-    float BaroAltitudeWeight;   // 0.25 is the original setting that was hard coded
-    int   heading_avgs;         // originally set to 8
+    float BaroVspeedWeight;
+    float GPSVspeedWeight;
+    float BaroAltitudeWeight;
+    int   heading_avgs;
 
-
-    /* sensor fusion params */
     float IMUaccGyroBlend;
     float AltitudeBaroGPSblend_final;
     float Pos_GPS_IMU_BlendGlitch;
     float Pos_GPS_IMU_BlendReg;
 
-    /* playlist params */
-    float GTWP_retire_radius;  // radius for retiring GTWP
-    float GTWP_retire_speed;   // speed for retiring GTWP
-    float FTWP_retire_sr_factor;// speed-adjusted radius factor for retiring FTWP  radius = speed*FTWP_retire_sr_factor
-    
-    /* take off / landing default params */
-    int landing_timeout;        // timeout in ms before control is switched back to RCradio after motor cutoff
-    float landing_vspeed;		// vertical speed for final approach, positive value
-    float takeoff_speed;		// vertical speed
-    float landing_appr_speed;	// approach speed to landing WP when manually invoked
+    float GTWP_retire_radius;
+    float GTWP_retire_speed;
+    float FTWP_retire_sr_factor;
 
-    /* sensor calibration params */
-    byte  acc_orient[6];        // 3 source indices followed by 3 invert flags
-    byte  gyro_orient[6];
-    byte  comp_orient[6];
-    byte  fcm_orient[6];
+    unsigned char  acc_orient[6];
+    unsigned char  gyro_orient[6];
+    unsigned char  comp_orient[6];
+    unsigned char  fcm_orient[6];
     float acc_ofs[3];
     float acc_gains[3];
     float acc_calib_matrix[3][3];
+
     float gyro_ofs[3];
+
     float gyro_gains[3];
     float gyro_calib_matrix[3][3];
     float comp_ofs[3];
     float comp_gains[3];
+    float compassMin[3];
+    float compassMax[3];
+
     float comp_calib_matrix[3][3];
     float comp_declination_offset;
-    int   lidar_offset;
-    
-    /* gyro drift offset curve temperature coefficients */
-    float gyro_drift_coeffs[3][3];   // [p/r/y][a/b/c] ofs = t*t*a + t*b + c
-    byte  gyro_fixed_offsets;       // disables automatic temperature adjusted gyro offsets
+    int  gyro_fixed_offsets;
+    float gyro_drift_coeffs[3][3];
 
-    float WindTableScale;                   // rescale factor for wind table for heavy heli configurations
-    float WindSpeedLUT[ANGLE2SPEED_SIZE]; // expected speed in m/s as a function of angle in deg
-    float Speed2AngleLUT[SPEED2ANGLE_SIZE]; // angle for a given required speed, index is speed*2, angle is in deg
+    float WindTableScale;
+    float WindSpeedLUT[46];
 
-    int   battery_cells;
-    int   battery_capacity;     // mAh
-    int   power_typical;        // W
-    int   rpm_typical;
-    float power_coeffs[6];
+    float gear_ratio;
+    int  motor_poles;
 
-    float gear_ratio;           // motor to main shaft ratio
-    byte  motor_poles;          // motor poles
+    float V2Energy[36];
 
-    float V2Energy[V2ENERGY_SIZE];  // unloaded voltage to energy percentage in Wh, index = (v-3.5)*50, step 0.02V
+//} __attribute__((packed)) ConfigData;
+} ConfigData;
 
-    // New FCM_2 CAN bus Support
-    int canbus_start_delay;
-    int num_servo_nodes;
-    int num_gps_nodes;
-    int servo_raw;
-    int canbus_freq_high;
-    int sensor_mode;
-    int compass_type;
-} __attribute__((packed)) T_Config;
+// This data is initialized from the config, but may be updated at Runtime, through Telemetry.
+// Keep it here to easily see which config data is writable.
+typedef struct
+{
+    float HspeedMax;
+    float HspeedAcc;
+    float VspeedMax;
+    float VspeedMin;
+    float VspeedAcc;
+    float Speed2AngleLUT[56];
+    float GTWP_retire_radius;
+    float GTWP_retire_speed;
+    float FTWP_retire_sr_factor;
+    float low_speed_limit;
+    float PRstickRate;
+    float PRstickAngle;
+    float YawStickRate;
+    float StickVspeed;
+    float StickHspeed;
+    float StickHaccel;
+    float RollPitchAngle;
+    unsigned char wind_compensation;
+    unsigned char path_navigation;
+    unsigned char ManualLidarAltitude;
+    float AngleCollMixing;
+    float cruise_speed_limit;
+    unsigned char nose_to_WP;
+    float landing_wind_threshold;
+    int battery_capacity;
+    float WindTableScale;
+    float gyro_ofs[3];
+} ModifiableConfigData;
+
+typedef struct
+{
+    int version;
+    int valid;
+    float comp_ofs[3];
+    float comp_gains[3];
+    float compassMin[3];
+    float compassMax[3];
+} CompassCalibrationData;
 
 typedef struct
 {
@@ -959,8 +1016,6 @@ typedef struct
     float        linklive_values[13];   // castle linklive actual values
     unsigned int linklive_period_T;
     
-    int compassMin[3];      // min and max compass values [R/F/U]
-    int compassMax[3];
     int comp_pitch_flags[PITCH_COMP_LIMIT+1]; // used to tack whether the compass hit pitches from -85 to 85 deg
     int comp_roll_flags[ROLL_COMP_LIMIT+1]; // used to check whether the compass hit rolls from -175 to 175 degress
     int comp_calibrate;     // 0 means not calibrating, 1 means calibrating, 2 means just finished calibration
@@ -1021,9 +1076,11 @@ typedef struct
     
     void *leds[4];      // pointers to 4 MBED LEDs
 
-    T_Config config;
+    ModifiableConfigData rw_cfg;
+
+    CompassCalibrationData compass_cal;
+
     T_Command command;
-    
     T_Telem_Ctrl0   telemCtrl0;
     T_Telem_GPS1    telemGPS1;
     T_Telem_System2 telemSystem2;
@@ -1045,7 +1102,9 @@ typedef struct
     T_LandingSite	landing_sites[LANDING_SITES];
 
     /* extra 6000 bytes work, 12000 does not */
-} T_HFC;
+} FlightControlData;
+
+
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
  * 					  AVICAN_POWER_VALUES2 all uint16 Vservo, Vaux12V, dTms_adc, adc_count */
@@ -1065,9 +1124,10 @@ typedef struct
 	uint16	adc_count;	// samples producing the average values in this period
 } T_PowerValues2;
 
-static inline void SetCtrlMode(T_HFC *hfc, unsigned char channel, unsigned char mode)
+// TODO::SP: FIX THIS TRASH
+static inline void SetCtrlMode(FlightControlData *hfc, const ConfigData *pConfig, unsigned char channel, unsigned char mode)
 {
-  if (!hfc->config.ctrl_mode_inhibit[channel]) {
+  if (!pConfig->ctrl_mode_inhibit[channel]) {
     hfc->control_mode[channel] = mode;
   }
 }

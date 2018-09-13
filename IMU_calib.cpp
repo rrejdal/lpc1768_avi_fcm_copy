@@ -14,7 +14,7 @@
 
 #include "IMU_calib.h"
 #include "stdio.h"
-#include "wait_api.h"
+#include "mbed_wait_api.h"
 #include "mymath.h"
 #include "PID.h"
 #include "utils.h"

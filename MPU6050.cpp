@@ -7,7 +7,10 @@ enum {
     CHIP_MPU9250 = 2,
 };
 
-#define MPU6050_ADDRESS         (0x68)
+#define MPU6050_ADDRESS_EXTERNAL (0x68)
+#define MPU6050_ADDRESS_INTERNAL (0x69)
+
+#define MPU6050_ADDRESS         MPU6050_ADDRESS_INTERNAL
 
 #define WHO_AM_I_VALUE_9250     (0x71)
 #define WHO_AM_I_VALUE_6050     (0x68)
