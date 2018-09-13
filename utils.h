@@ -62,4 +62,7 @@ bool WDT_ResetByWDT();
 void SensorCalib(FlightControlData *hfc, float dT);
 void GyroCalibDynamic(FlightControlData *hfc);
 
+uint32_t crc32b(uint8_t *message, uint32_t length);
+
+
 #endif

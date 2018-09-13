@@ -28,6 +28,7 @@
 
 int LoadConfiguration(const ConfigData **pConfig);
 int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
+int SaveNewConfig(void);
 int SavePIDUpdates(FlightControlData *fcm_data);
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
@@ -216,6 +217,52 @@ int SavePIDUpdates(FlightControlData *fcm_data)
 }
 
 /**
+  * @brief  Update New Config Data to Flash.
+  *         - This will ERASE existing configuration
+  * @param  *none
+  * @retval -1 on error, 0 on success
+  */
+int SaveNewConfig(void)
+{
+    if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
+        // Config File has exceeded Max Size
+        return -1;
+    }
+
+    // Grab pointer to reserved RAM space (setup from Linker)
+    // This should contain new configuration data.
+    ConfigData *pConfigData = (ConfigData *)&ram_config;
+    if (pConfigData == NULL) {
+        return -1;
+    }
+
+    // Validate its version
+    if (pConfigData->header.version != MIN_CONFIG_VERSION) {
+        return -1;
+    }
+
+    // Erase existing file
+    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    // Write new file
+    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
   * @brief  Update New compass calibration values to Flash.
   * @param  *pCompass_cal: pointer to compass calibration data in RAM
   * @retval -1 on error, 0 on success
@@ -252,73 +299,6 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
 
     return 0;
 }
-
-#if 0
-void Config_Save(T_Config *cfg)
-{
-    FILE *fp = fopen("/local/config2.txt", "w");
-    if (!fp)
-        return;
-
-    SaveConfig_Int(fp, "PWM_PERIOD", 	  &cfg->pwm_period, 1);
-
-    SaveConfig_Byte(fp, "CCPMtype", 	  &cfg->ccpm_type, 1);
-    SaveConfig_Byte(fp, "SbusEnable", 	  &cfg->SbusEnable, 1);
-
-    SaveConfig_Float(fp, "PRstickRate",   &cfg->PRstickRate, 1);
-    SaveConfig_Float(fp, "PRstickAngle",  &cfg->PRstickAngle, 1);
-    SaveConfig_Float(fp, "YawStickRate",  &cfg->YawStickRate, 1);
-    SaveConfig_Float(fp, "StickVspeed",   &cfg->StickVspeed, 1);
-    SaveConfig_Float(fp, "StickHspeed",   &cfg->StickHspeed, 1);
-    SaveConfig_Float(fp, "Stick100range", &cfg->Stick100range, 1);
-    SaveConfig_Float(fp, "CollZeroAngle", &cfg->CollZeroAngle, 1);
-    SaveConfig_Float(fp, "LowSpeedLimit", &cfg->low_speed_limit, 1);
-    SaveConfig_Byte (fp, "YawMinModeRate",&cfg->YawMinModeRate, 1);
-    
-    SaveConfig_Byte(fp, "ThrottleCtrl",   &cfg->throttle_ctrl, 1);
-    SaveConfig_Float(fp, "ThrottleValues", cfg->throttle_values, 2);
-    SaveConfig_Float(fp, "ThrottleGain" , &cfg-> throttle_gain, 1);
-    SaveConfig_Float(fp, "ThrottleMultiMin" , &cfg-> throttle_multi_min, 1);
-    
-    SaveConfig_Float(fp, "ControlGains",   cfg->control_gains, 4);
-
-    SaveConfig_Byte(fp, "CtrlModeInhibit", cfg->ctrl_mode_inhibit, 5);
-    SaveConfig_Byte(fp, "RCrevert",        cfg->xbus_revert, 8);
-    SaveConfig_Byte(fp, "ServoRevert",     cfg->servo_revert, 6);
-    SaveConfig_Float(fp, "StickDeadband",  cfg->stick_deadband, 4);
-
-    SaveConfig_Float(fp, "PITCHRATE_PID",  cfg->pitchrate_pid_params,  6);
-    SaveConfig_Float(fp, "ROLLRATE_PID",   cfg->rollrate_pid_params,   6);
-    SaveConfig_Float(fp, "YAWRATE_PID",    cfg->yawrate_pid_params,    6);
-    SaveConfig_Float(fp, "PITCHANGLE_PID", cfg->pitchangle_pid_params, 6);
-    SaveConfig_Float(fp, "ROLLANGLE_PID",  cfg->rollangle_pid_params,  6);
-    SaveConfig_Float(fp, "YAWANGLE_PID",   cfg->yawangle_pid_params,   5);
-    SaveConfig_Float(fp, "PITCHSPEED_PID", cfg->pitchspeed_pid_params, 6);
-    SaveConfig_Float(fp, "ROLLSPEED_PID",  cfg->rollspeed_pid_params,  6);
-    SaveConfig_Float(fp, "VSPEED_PID",     cfg->collvspeed_pid_params, 6);
-    SaveConfig_Float(fp, "ALTITUDE_PID",   cfg->collalt_pid_params,    5);
-    SaveConfig_Float(fp, "DISTANCE_PID",   cfg->dist2T_pid_params,     5);
-    SaveConfig_Float(fp, "DIST2PATH_PID",  cfg->dist2P_pid_params,     5);
-
-    SaveConfig_Float(fp, "YawRateSpeed",   &cfg->yaw_rate_speed, 1);
-    SaveConfig_Float(fp, "RollPitchAngle", &cfg->RollPitchAngle, 1);
-
-    SaveConfig_Float(fp, "GTWPretireRad",   &cfg->GTWP_retire_radius, 1);
-    SaveConfig_Float(fp, "GTWPretireSpeed", &cfg->GTWP_retire_speed,  1);
-    SaveConfig_Float(fp, "FTWPretireSRF",   &cfg->FTWP_retire_sr_factor, 1);
-
-    SaveConfig_Int(fp,   "LIDARoffset",     &cfg->lidar_offset, 1);
-
-    SaveConfig_Int(fp,   "CompassOffsets", cfg->comp_ofs, 3);
-    SaveConfig_Float(fp, "CompassGains",   cfg->comp_gains, 3);
-    SaveConfig_Float(fp, "CompassDecOfs", &cfg->comp_declination_offset, 1);
-
-    SaveConfig_Float(fp, "IMUaccGyroBlend", &cfg->IMUaccGyroBlend,      1);
-    SaveConfig_Float(fp, "AltBaroGPSblend", &cfg->AltitudeBaroGPSblend_final, 1);
-
-    fclose(fp);
-}
-#endif
 
 /************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/
 

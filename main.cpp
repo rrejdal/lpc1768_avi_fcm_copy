@@ -53,6 +53,7 @@ void HeadingUpdate(float heading_rate, float dT);
 
 extern int LoadConfiguration(const ConfigData **pConfig);
 extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
+extern int SaveNewConfig(void);
 extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
@@ -158,6 +159,16 @@ static int write_canbus_error = 0;
     	wait(1.0f); \
     	led1 = 0; led2 = 0; led3 = 0; led4 = 0; \
     	wait(1.0f); \
+    } \
+}
+
+#define FCM_NOTIFY_CFG_UPDATED() { \
+    int state = 0; \
+	for (int i=0; i < 10; i++) { \
+    	WDT_Kick(); \
+    	led1 = led2 = led3 = led4 = state; \
+    	wait(0.3f); \
+    	state = !state; \
     } \
 }
 
@@ -4126,12 +4137,12 @@ static void ConfigRx(void)
 static void ProcessUserCmnds(char c)
 {
 	char request[20] = {0};
-	unsigned char *pConfigData = (unsigned char *)&ram_config;
+	ConfigData *pRamConfigData = (ConfigData *)&ram_config;
 
 	// 'L' == Load Request
 	if (c == 'L') {
 
-		led1 = 1; led2 = 1; led3 = 1; led4 = 1;
+		led1 = led2 = led3 = led4 = 1;
 
 		serial.printf("OK");
 
@@ -4139,7 +4150,7 @@ static void ProcessUserCmnds(char c)
 		serial.scanf("%19s", request);
 		if (strcmp(request, "config_upload") == 0) {
 			// Clear current RamConfig in preparation for new data.
-			memset(pConfigData, 0x00, sizeof(ConfigData));
+			memset((uint8_t *)&ram_config, 0x00, sizeof(ConfigData));
 
 			serial.attach(&ConfigRx);	// This handles incoming configuration file
 
@@ -4148,20 +4159,28 @@ static void ProcessUserCmnds(char c)
 
 			while (!have_config) {}
 
-			serial.printf("ACK");	// Informs Host, all done
+			// CRC data and check.
+			if (crc32b((uint8_t *)pConfig->num_servo_nodes,
+						(sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))
+					     == pRamConfigData->header.checksum) {
 
-			int state = 0;
-			for (int i=0; i < 5; i++) {
-				led1 = state;
-				led2 = state;
-				led3 = state;
-				led4 = state;
+				if (SaveNewConfig() == 0) {
 
-				state = !state;
-				wait(0.3f);
+					serial.printf("ACK");	// Informs Host, all done
+
+					FCM_NOTIFY_CFG_UPDATED();
+
+					// NOTE::SP: NO RETURN FROM HERE. THIS GENERATES A SOFTWARE RESET OF THE LPC1768
+					//           WHICH CAUSES THE NEW CONFIGURATION TO BE LOADED.
+		            NVIC_SystemReset();
+				}
+				else {
+					serial.printf("NACK");	// Informs Host, Error
+				}
 			}
-
-            NVIC_SystemReset();
+			else {
+				serial.printf("NACK");	// Informs Host, Error
+			}
 		}
 		else if (strcmp(request, "config_dlload") == 0) {
 			// Download fcm configuration to requester

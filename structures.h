@@ -615,7 +615,7 @@ typedef struct
 } T_Stats;
 
 typedef struct {
-	int checksum;
+	unsigned int checksum;
 	int total_size;	// Total Number of bytes (including Header)
 	int version;
 	char date_time[20];

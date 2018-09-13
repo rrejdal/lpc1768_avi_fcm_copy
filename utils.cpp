@@ -819,3 +819,28 @@ bool WDT_ResetByWDT()
         return false;
 }
 
+/**
+  * @brief  CRC32b utility
+  * @param  *data_p: pointer to data block to be crc'd
+  * @param  length: length of data to be crc'd
+  * @retval the calculated crc
+  */
+uint32_t crc32b(uint8_t *message, uint32_t length)
+{
+   int i, j;
+   unsigned int byte_val, crc, mask;
+
+   i = 0;
+   crc = 0xFFFFFFFF;
+   while (length--) {
+      byte_val = message[i];            // Get next byte.
+      crc = crc ^ byte_val;
+      for (j = 7; j >= 0; j--) {    // Do eight times.
+         mask = -(crc & 1);
+         crc = (crc >> 1) ^ (0xEDB88320 & mask);
+      }
+      i = i + 1;
+   }
+   return ~crc;
+}
+
