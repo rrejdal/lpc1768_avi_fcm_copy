@@ -29,11 +29,15 @@ int GPS::Init(int number_of_channels)
 
 	gps_data_ = {0};
 
+	selected_channel_ = 0;
+
 	return 1;
 }
 
 void GPS::AddGpsData(int channel, int msg_id, char *msg)
 {
+	static int new_data_mask = 0;
+
     if (channel >= number_of_channels_) {
         return;
     }
@@ -51,7 +55,8 @@ void GPS::AddGpsData(int channel, int msg_id, char *msg)
             gps_channel_[channel].online_ = msg0->gps_status;
             gps_channel_[channel].other_fix_ = msg0->other_sats_fix;
 
-            gps_channel_[channel].new_data = 1;
+            //gps_channel_[channel].new_data = 1;
+            new_data_mask |= (1 <<0);
             break;
         }
         case AVIDRONE_MSGID_GPS_1:
@@ -59,6 +64,7 @@ void GPS::AddGpsData(int channel, int msg_id, char *msg)
             GpsAviCanMsg1 *msg1 = (GpsAviCanMsg1*)msg;
             gps_channel_[channel].msg1.lat = msg1->lat;
             gps_channel_[channel].msg1.lon = msg1->lon;
+            new_data_mask |= (1 <<1);
             break;
         }
         case AVIDRONE_MSGID_GPS_2:
@@ -67,7 +73,13 @@ void GPS::AddGpsData(int channel, int msg_id, char *msg)
             gps_channel_[channel].msg2.speedE = msg2->speedE;
             gps_channel_[channel].msg2.speedN = msg2->speedN;
             gps_channel_[channel].msg2.speedU = msg2->speedU;
+
+			gps_channel_[channel].speedENU[0] = msg2->speedE;
+			gps_channel_[channel].speedENU[1] = msg2->speedN;
+			gps_channel_[channel].speedENU[2] = msg2->speedU;
+
             gps_channel_[channel].msg2.PDOP   = msg2->PDOP;
+            new_data_mask |= (1 <<2);
             break;
         }
         case AVIDRONE_MSGID_GPS_3:
@@ -75,6 +87,7 @@ void GPS::AddGpsData(int channel, int msg_id, char *msg)
             GpsAviCanMsg3 *msg3 = (GpsAviCanMsg3*)msg;
             gps_channel_[channel].msg3.date = msg3->date;
             gps_channel_[channel].msg3.time = msg3->time;
+            new_data_mask |= (1 <<3);
             break;
         }
         case AVIDRONE_MSGID_GPS_4:
@@ -85,10 +98,17 @@ void GPS::AddGpsData(int channel, int msg_id, char *msg)
             gps_channel_[channel].msg4.msg_cnt = msg4->msg_cnt;
             gps_channel_[channel].glitch =  ((gps_channel_[channel].msg4.glitch_data & 0x8000) >> 15);
             gps_channel_[channel].glitches =  gps_channel_[channel].msg4.glitch_data & 0x7FFF;
+            new_data_mask |= (1 <<4);
             break;
         }
         default:
             break;
+    }
+
+    if (new_data_mask == 0x1F) {
+        //printf("New Data in ch[%d]\r\n", channel);
+        gps_channel_[channel].new_data = 1;
+        new_data_mask = 0;
     }
 }
 
@@ -226,6 +246,45 @@ void GPS::FindNewChannel()
 			return;
 		}
 	}
+}
+
+int GPS::GpsUpdate(void)
+{
+    if (gps_channel_[selected_channel_].new_data) {
+
+        gps_data_.fix = gps_channel_[selected_channel_].msg0.sats_fix & 0x3;
+
+        if (gps_data_.fix) {
+
+            /* Ground speed and course from N/E speeds*/
+            CalculateSpeedCourse();
+
+            /* publish latest data from the selected GPS channel (m/s) */
+            gps_data_.speedENU[0] = gps_channel_[selected_channel_].speedENU[0]*0.01f;
+            gps_data_.speedENU[1] = gps_channel_[selected_channel_].speedENU[1]*0.01f;
+            gps_data_.speedENU[2] = gps_channel_[selected_channel_].speedENU[2]*0.01f;
+        }
+
+        gps_data_.date = gps_channel_[selected_channel_].msg3.date;
+        gps_data_.time = gps_channel_[selected_channel_].msg3.time;
+        gps_data_.altitude = gps_channel_[selected_channel_].msg0.altitude*0.001f;  // meters
+        gps_data_.sats = gps_channel_[selected_channel_].msg0.sats_fix >> 2;
+        gps_data_.PDOP = gps_channel_[selected_channel_].msg2.PDOP;     // *100
+        gps_data_.lat  = gps_channel_[selected_channel_].msg1.lat;      // *10M
+        gps_data_.lon  = gps_channel_[selected_channel_].msg1.lon;      // *10M
+        gps_data_.latF = gps_data_.lat*0.0000001f;
+        gps_data_.lonF = gps_data_.lon*0.0000001f;
+        gps_data_.latD = gps_data_.lat*0.0000001;
+        gps_data_.lonD = gps_data_.lon*0.0000001;
+
+        glitches_ = gps_channel_[selected_channel_].glitches;
+
+        gps_channel_[selected_channel_].new_data = 0;
+        return 1;
+    }
+
+    return 0;
+
 }
 
 // Return 1 is new data available, 0 otherwise

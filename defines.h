@@ -52,8 +52,9 @@
 #define XBUS_THR_LV   		5		// controls throttle
 #define XBUS_CTRLMODE_SW 	6		// selects between full-auto and RC manual modes
 #define XBUS_MODE_SW  		7		// selects cyclic mode
-#define ELEVGAIN            12      // Tandem mixer elevator gain channel
-#define DCPGAIN             13      // Tandem mixer DCP gain channel
+#define DCPGAIN             12      // Tandem mixer DCP gain channel
+#define ELEVGAIN            13      // Tandem mixer elevator gain channel
+
 
 /* modes */
 #define CCPM_NONE   0

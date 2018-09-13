@@ -262,8 +262,9 @@
 #define THROTTLE_RAMP			3
 #define THROTTLE_FLY			4
 
-#define PITCH_COMP_LIMIT       (180)/9 //-90 to 90 degrees, in groups of 9 degrees, must be an int
-#define ROLL_COMP_LIMIT        (360)/9 //-180 to 180 degrees in groups of 9 degrees, must be an int
+#define PITCH_COMP_LIMIT       (180/9) //-90 to 90 degrees, in 20 groups of 9 degrees, must be a whole number
+#define ROLL_COMP_LIMIT        (360/9) //-180 to 180 degrees in 40 groups of 9 degrees, must be a whole number
+#define NUM_ANGLE_POINTS       100
 
 #define NO_COMP_CALIBRATE       0
 #define COMP_CALIBRATING        1
@@ -729,6 +730,7 @@ typedef struct ConfigurationData {
     float CollRange;
     float CcpmMixer;
     int   ModelSelect;
+    float RearRpmTrim;
 
     unsigned char  wind_compensation;
     unsigned char  path_navigation;

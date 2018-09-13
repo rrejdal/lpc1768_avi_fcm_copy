@@ -98,10 +98,14 @@ public:
     int selected_channel_;
     int glitch_;
     int glitches_;
+    GpsData gps_data_;
 
     int Init(int number_of_channels);
     void AddGpsData(int channel, int msg_id, char *msg);
     GpsData GpsUpdate(int dTus, char* new_data_flag);
+
+    int GpsUpdate(void);
+
     GpsData GetGpsData(void);
     void GetFixSatsOther(char *pfix, char *psats);
     int PreFlightCheck(void);
@@ -112,7 +116,6 @@ public:
     GPS();   // Constructor
 
 private:
-    GpsData gps_data_;
     GPSChannelData gps_channel_[MAX_GPS_CHANNELS];
     int number_of_channels_;
     int set_next_channel_;
