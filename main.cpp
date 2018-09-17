@@ -118,9 +118,7 @@ const ConfigData *pConfig = NULL;
 #define GPS_SEL_CHIP_0          (1 << 0)
 #define GPS_SEL_CHIP_1          (1 << 1)
 #define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
-#define COMPASS_SEL_CHIP_0      (1 << 2)
-#define COMPASS_SEL_CHIP_1      (1 << 3)
-#define COMPASS_SEL_CHIP_AUTO   (COMPASS_SEL_CHIP_0 | COMPASS_SEL_CHIP_1)
+#define COMPASS_SEL_MASK(x)     ((x) << 2)
 
 static T_lidar lidarPayload[MAX_NUM_LIDAR];
 #define MAX_LIDAR_PULSE 40000   // 40m max range; 10us/cm PWM
@@ -4455,9 +4453,8 @@ int ConfigureCanGpsNodes(int num_gps_nodes)
     for (int i = 0; i < num_gps_nodes; i++) {
         canbus_ack = 0;
 
-        // TODO::SP: This will ultimately come from configuration file
         can_tx_message.len = 1;
-        can_tx_message.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_CHIP_0;
+        can_tx_message.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_GPS_NODETYPE,
                                                 (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_GPS_CFG);
         while(!canbus_ack && --timeout) {

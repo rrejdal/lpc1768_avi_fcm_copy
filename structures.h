@@ -632,6 +632,7 @@ typedef struct ConfigurationData {
     int num_gps_nodes;
     int num_power_nodes;
     int compass_type;
+    int compass_selection;
     int canbus_freq_high;
     int LidarFromServo;
 
