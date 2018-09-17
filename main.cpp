@@ -4706,10 +4706,22 @@ int main()
 
     myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
 
-    if ((LoadConfiguration(&pConfig)) != 0)
+    int cfg_result;
+    if ((cfg_result = LoadConfiguration(&pConfig)) < 0)
     {
         init_ok = 0;
-        myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
+
+        if (cfg_result == -1) {
+        	myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "CHECKSUM", "ERROR");
+        }
+        else if (cfg_result == -2) {
+        	char str_temp[20];
+        	sprintf(str_temp, "REQ VER: %d", CONFIG_VERSION);
+        	myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "VERSION ERROR", str_temp);
+        }
+        else {
+        	myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
+        }
     }
 
     if (init_ok) {
@@ -4821,15 +4833,26 @@ int main()
             // Main FCM control loop
             do_control();
 
-            // Process Serial command sif USB is available
+            // Process Serial commands if USB is available
             if (serial.connected() && serial.readable()) {
             	ProcessUserCmnds(serial.getc());
             }
         }
     }
     else {
-        // Toggle LEDS to indicate Error Condition */
-        FCM_FATAL_ERROR();
+
+    	// Turn on ALL leds Solid and look for user commands from
+    	// USB Serial. This Provides a means to update configuration and 'recover'
+    	// board.
+    	while(1) {
+    		WDT_Kick();
+    		led1 = 1; led2 = 1; led3 = 1; led4 = 1;
+
+    		// Process Serial commands if USB is available
+    		if (serial.connected() && serial.readable()) {
+    			ProcessUserCmnds(serial.getc());
+    		}
+    	}
     }
 
 

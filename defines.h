@@ -1,6 +1,8 @@
 #ifndef _DEFINES_H_
 #define _DEFINES_H_
 
+#define CONFIG_VERSION   9
+
 #define PC_BAUDRATE          115200
 #define GPS_BAUDRATE         38400
 

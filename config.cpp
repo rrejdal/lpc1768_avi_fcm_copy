@@ -25,6 +25,7 @@
   */
 #include "structures.h"
 #include "IAP.h"
+#include "utils.h"
 
 int LoadConfiguration(const ConfigData **pConfig);
 int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
@@ -33,7 +34,6 @@ int SavePIDUpdates(FlightControlData *fcm_data);
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
 // Config Info
-#define MIN_CONFIG_VERSION      9
 #define FLASH_CONFIG_ADDR       FLASH_SECTOR_29
 #define FLASH_CONFIG_SECTOR     29
 #define FLASH_CONFIG_SECTORS    (1 - 1)
@@ -59,11 +59,18 @@ int __attribute__((__section__(".ramconfig"))) ram_config; // this is defined by
 int LoadConfiguration(const ConfigData **pConfig)
 {
     // Map fcm ConfigData structure onto the flash and validate its version
-    // TODO::SP: Should be a header in the file representing config data version etc...
     ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if (pConfigData->header.version != MIN_CONFIG_VERSION) {
-        return -1;
+    // Validate Config Checksum
+    unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
+    pData += sizeof(ConfigurationDataHeader);
+    if (pConfigData->header.checksum != crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
+    	return -1;
+    }
+
+    // and its version..
+    if (pConfigData->header.version != CONFIG_VERSION) {
+        return -2;
     }
 
     *pConfig = pConfigData;
@@ -173,7 +180,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // Re-Write config with PID update values from Telemetry.
     ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if (pFlashConfigData->header.version != MIN_CONFIG_VERSION) {
+    if (pFlashConfigData->header.version != CONFIG_VERSION) {
         return -1;
     }
 
@@ -236,7 +243,7 @@ int SaveNewConfig(void)
     }
 
     // Validate its version
-    if (pConfigData->header.version != MIN_CONFIG_VERSION) {
+    if (pConfigData->header.version != CONFIG_VERSION) {
         return -1;
     }
 
