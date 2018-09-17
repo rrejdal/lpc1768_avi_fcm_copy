@@ -3700,26 +3700,28 @@ void do_control()
         }
     }
 
-    hfc.baro_dT += dT;
-    baro_altitude_raw_prev = hfc.baro_altitude_raw_lp;
+    if (pConfig->baro_enable == 1) {
+    	hfc.baro_dT += dT;
+    	baro_altitude_raw_prev = hfc.baro_altitude_raw_lp;
 
-    if (baro.GetTPA(dT, &hfc.baro_temperature, &hfc.baro_pressure, &hfc.baro_altitude_raw)) {   // runs at approximately 32Hz
-        //    hfc.baro_vspeedDF = DerivativeFilter11(hfc.baro_altitude_raw, hfc.baro_derivative_filter)/hfc.baro_dT;
+    	if (baro.GetTPA(dT, &hfc.baro_temperature, &hfc.baro_pressure, &hfc.baro_altitude_raw)) {   // runs at approximately 32Hz
+    		//    hfc.baro_vspeedDF = DerivativeFilter11(hfc.baro_altitude_raw, hfc.baro_derivative_filter)/hfc.baro_dT;
 
-        if (hfc.baro_altitude_raw_lp < -999) {
-            hfc.altitude_baro = hfc.baro_altitude_raw_lp = baro_altitude_raw_prev = hfc.baro_altitude_raw;
-        }
+    		if (hfc.baro_altitude_raw_lp < -999) {
+    			hfc.altitude_baro = hfc.baro_altitude_raw_lp = baro_altitude_raw_prev = hfc.baro_altitude_raw;
+    		}
 
-        hfc.baro_altitude_raw_lp = LP4_1000(&hfc.lp_baro4, hfc.baro_altitude_raw);
-        hfc.baro_vspeed          = (hfc.baro_altitude_raw_lp - baro_altitude_raw_prev)/hfc.baro_dT;
-        hfc.baro_vspeed_lp = LP4_1000(&hfc.lp_baro_vspeed4,hfc.baro_vspeed);
+    		hfc.baro_altitude_raw_lp = LP4_1000(&hfc.lp_baro4, hfc.baro_altitude_raw);
+    		hfc.baro_vspeed          = (hfc.baro_altitude_raw_lp - baro_altitude_raw_prev)/hfc.baro_dT;
+    		hfc.baro_vspeed_lp = LP4_1000(&hfc.lp_baro_vspeed4,hfc.baro_vspeed);
 
-        //    hfc.baro_altitude_raw_lp = (hfc.baro_altitude_raw + 7*hfc.baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
-        //    hfc.baro_vspeed          = (hfc.baro_altitude_raw_lp - baro_altitude_raw_prev)/hfc.baro_dT;
-        //    serial.printf("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", hfc.baro_temperature, hfc.baro_pressure, hfc.baro_altitude_raw, hfc.baro_altitude_raw_lp, hfc.baro_vspeed, hfc.baro_dT);
-        //    serial.printf("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", hfc.IMUspeedGroundENU[2], hfc.altitude, hfc.baro_altitude_rawLP4, hfc.baro_altitude_raw_lp);
+    		//    hfc.baro_altitude_raw_lp = (hfc.baro_altitude_raw + 7*hfc.baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
+    		//    hfc.baro_vspeed          = (hfc.baro_altitude_raw_lp - baro_altitude_raw_prev)/hfc.baro_dT;
+    		//    serial.printf("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", hfc.baro_temperature, hfc.baro_pressure, hfc.baro_altitude_raw, hfc.baro_altitude_raw_lp, hfc.baro_vspeed, hfc.baro_dT);
+    		//    serial.printf("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", hfc.IMUspeedGroundENU[2], hfc.altitude, hfc.baro_altitude_rawLP4, hfc.baro_altitude_raw_lp);
 
-        hfc.baro_dT = 0;
+    		hfc.baro_dT = 0;
+    	}
     }
 
     /* remap ACC axes into my XYZ (RFU) */
@@ -3788,11 +3790,11 @@ void do_control()
             hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
         }
         // blend in Baro vertical speed with IMU vertical speed
-        else if (pConfig->gps_vspeed == 2 ) {
+        else if ((pConfig->gps_vspeed) == 2 && (pConfig->baro_enable)) {
             hfc.IMUspeedGroundENU[2] += pConfig->BaroVspeedWeight*dT*(hfc.baro_vspeed_lp - hfc.IMUspeedGroundENU[2]);    // blend in baro vspeed
         }
         // blend in GPS and Baro vertical speed with IMU vertical speed
-        else if (pConfig->gps_vspeed == 3 ) {
+        else if ((pConfig->gps_vspeed == 3) && (pConfig->baro_enable)) {
             hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight *dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2])
                             + pConfig->BaroVspeedWeight*dT*(hfc.baro_vspeed_lp       - hfc.IMUspeedGroundENU[2]);    // blend in GPS and baro vspeed
         }
@@ -3801,8 +3803,12 @@ void do_control()
             hfc.IMUspeedGroundENU[2] = hfc.GPSspeedGroundENU[2];
         }
         // use only Baro for vertical speed
-        else if (pConfig->gps_vspeed == 5 ) {
+        else if ((pConfig->gps_vspeed == 5) && (pConfig->baro_enable)) {
             hfc.IMUspeedGroundENU[2] = hfc.baro_vspeed_lp;
+        }
+        else {
+            // blend in GPS vertical speed with IMU vertical speed (hfc.config.gps_vspeed == 1 )
+            hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
         }
     }
 
@@ -3819,9 +3825,11 @@ void do_control()
     */
 
     /* help baro-altitude using vertical speed */
-    hfc.altitude_baro += hfc.IMUspeedGroundENU[2] * dT;
-    hfc.altitude_baro += pConfig->BaroAltitudeWeight*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
-    //hfc.altitude_baro += 0.25f*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
+    if (pConfig->baro_enable == 1) {
+    	hfc.altitude_baro += hfc.IMUspeedGroundENU[2] * dT;
+    	hfc.altitude_baro += pConfig->BaroAltitudeWeight*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
+    	//hfc.altitude_baro += 0.25f*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
+    }
 
     /*
     hfc.accUp += hfc.accGroundENUhp[2]*9.81f;
@@ -4777,9 +4785,11 @@ int main()
     }
 
     if (init_ok) {
-        if (!baro.Init()) {
-            myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
-            init_ok = 0;
+    	if (pConfig->baro_enable == 1) {
+    		if (!baro.Init()) {
+    			myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
+    			init_ok = 0;
+    		}
         }
 
         xbus.SetSbusEnabled(pConfig->SbusEnable);

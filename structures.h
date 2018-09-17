@@ -758,6 +758,7 @@ typedef struct ConfigurationData {
     int  gyro_lp_freq[3];
     float AccIntegGains[3];
 
+    int  baro_enable;
     int  baro_lp_freq;
     int  baro_vspeed_lp_freq;
 
