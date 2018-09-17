@@ -31,9 +31,10 @@ class MPU6050
          * @param sda is the pin for the I2C SDA line
          * @param scl is the pin for the I2C SCL line
          */
-        MPU6050(I2Ci *m_i2c, int m_gyro_scale, int m_acc_scale, char address_lsb, char lp);
+        MPU6050(I2Ci *m_i2c, int m_gyro_scale, int m_acc_scale);
         
         bool is_ok();
+        void init(char lp, int internal);
         bool SetGyroScale(char g_scale);
         bool SetAccScale(char a_scale);
         void readMotion7_start();

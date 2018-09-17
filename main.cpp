@@ -62,7 +62,7 @@ SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
 
 I2Ci        Li2c(I2C_SDA1, I2C_SCL1);
-MPU6050     mpu(&Li2c, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4, 0, MPU6050_DLPF_BW_188);
+MPU6050     mpu(&Li2c, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
 HMC5883L    compass(&Li2c);
 BMPx80      baro(&Li2c);
 
@@ -4774,6 +4774,8 @@ int main()
     }
 
     if (init_ok) {
+    	mpu.init(MPU6050_DLPF_BW_188, pConfig->imu_internal);
+
         if (!mpu.is_ok()) {
             myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
             init_ok = 0;

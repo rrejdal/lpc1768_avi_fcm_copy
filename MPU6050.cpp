@@ -65,31 +65,40 @@ bool MPU6050::is_ok()
     }
 }
 
+void MPU6050::init(char lp, int internal)
+{
+	if (internal == 1) {
+		i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
+	}
+	else {
+		i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
+	}
+
+	/* clock source and disable sleep */
+	i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
+
+	/* config - sync input and LPF */
+	i2c->write_reg_blocking(i2c_address, MPU6050_CONFIG, lp);
+
+	/* gyro range */
+	i2c->write_reg_blocking(i2c_address, MPU6050_GYRO_CONFIG, gyro_scale<<3);
+
+	/* acc range */
+	i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
+
+	/* enable secondary I2C for HMC5883L */
+	i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
+}
+
 // Constructor
-MPU6050::MPU6050(I2Ci *m_i2c, int m_gyro_scale, int m_acc_scale, char address_lsb, char lp)
+MPU6050::MPU6050(I2Ci *m_i2c, int m_gyro_scale, int m_acc_scale)
 {
     i2c = m_i2c;
     chip_version = CHIP_NONE;
 
-    i2c_address = (MPU6050_ADDRESS | address_lsb)<<1;
-
     gyro_scale = m_gyro_scale;
     acc_scale  = m_acc_scale;
 
-    /* clock source and disable sleep */
-    i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
-
-    /* config - sync input and LPF */
-    i2c->write_reg_blocking(i2c_address, MPU6050_CONFIG, lp);
-
-    /* gyro range */
-    i2c->write_reg_blocking(i2c_address, MPU6050_GYRO_CONFIG, gyro_scale<<3);
-
-    /* acc range */
-    i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
-
-    /* enable secondary I2C for HMC5883L */
-    i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
 }
 
 void MPU6050::readMotion7_start()
