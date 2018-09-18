@@ -2060,7 +2060,9 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->touchdown_time = hfc->time_ms;
 
                 // TODO::SP: Error Handling on Flash write error??
-                SavePIDUpdates(hfc);
+                if (hfc->pid_params_changed) {
+                	SavePIDUpdates(hfc);
+                }
             }
         }
         else
@@ -4104,8 +4106,8 @@ static void Servos_Init(FlightControlData *hfc)
     }
 }
 
-volatile int rx_in=0;
-static bool have_config = false;
+volatile static int rx_in=0;
+volatile static bool have_config = false;
 /**
   * @brief  ConfigRx callback handler.
   * @param  none
@@ -4150,7 +4152,7 @@ static void ProcessUserCmnds(char c)
 
 			// Clear chars - Dummy Read on Port
 			while (serial.readable()) {
-				int rx = serial._getc();
+				volatile int rx = serial._getc();
 			}
 
 			serial.printf("ACK");	// Informs Host to start transfer

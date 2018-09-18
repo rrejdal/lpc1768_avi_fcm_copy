@@ -1581,7 +1581,9 @@ void TelemSerial::Disarm(void)
 	hfc->LidarCtrlMode   = false;
 
 	// TODO::SP: Error handling on Flash write error??
-	SavePIDUpdates(hfc);
+	if (hfc->pid_params_changed) {
+		SavePIDUpdates(hfc);
+	}
 }
 
 void TelemSerial::PlaylistSaveState(void)

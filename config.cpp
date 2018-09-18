@@ -185,7 +185,6 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     }
 
     if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
-        // Config File has exceeded Max Size
         return -1;
     }
 
@@ -200,6 +199,13 @@ int SavePIDUpdates(FlightControlData *fcm_data)
 
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
+
+    // Recalcuate checksum on file
+    unsigned char *pData = (unsigned char *)pConfigData;
+    pData += sizeof(ConfigurationDataHeader);
+    pConfigData->header.checksum = crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)));
+
+    __disable_irq();
 
     // Erase...
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
@@ -218,6 +224,8 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
         return -1;
     }
+
+    __enable_irq();
 
     return 0;
 }
