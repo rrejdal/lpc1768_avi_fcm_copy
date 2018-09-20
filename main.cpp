@@ -138,6 +138,7 @@ CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
 double heading[MAX_NUM_GPS];
 static void GpsHeartbeat(int node_id);
 static void ServoHeartbeat(int node_id);
+static void PowerNodeHeartbeat(int node_id);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
 static int board_info_avail = 0;
@@ -443,6 +444,7 @@ static void WriteToServoNodes(int num_servo_nodes)
  * The last two of the servos are handled by the FCM since CAN servo can only manage
  * the first 6.
  */
+#define AVICAN_SERVO_ID     0x580
 static void WriteToServos(void)
 {
     float pwm_values[8];
@@ -3259,12 +3261,25 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
 #endif
 }
 
+static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
+{
+    hfc.power.Vmain = *(float *)pdata;
+    pdata += 4;
+    hfc.power.Iesc =  *(float *)pdata;
+}
+
 //
 static void can_handler(void)
 {
+    static int rx_count = 0;
     CANMessage can_rx_message;
 
+    if ((++rx_count % 100) == 0) {
+        led4 = !led4;
+    }
+
     while(can.read(can_rx_message)) {
+
         int node_type = AVIDRONE_CAN_NODETYPE(can_rx_message.id);
         int node_id = (AVIDRONE_CAN_NODEID(can_rx_message.id) -1);
         int message_id = AVIDRONE_CAN_MSGID(can_rx_message.id);
@@ -3306,12 +3321,35 @@ static void can_handler(void)
                 // Unknown
             }
         }
+        else if (node_type == AVIDRONE_PWR_NODETYPE) {
+            if (message_id == AVIDRONE_MSGID_PWR_ACK) {
+                canbus_ack = 1;
+            }
+            else if (message_id == AVIDRONE_PWR_MSGID_LIDAR) {
+                UpdateLidar(node_id, pdata);
+            }
+            else if ((message_id >= AVIDRONE_PWR_MSGID_CASTLE_0) && (message_id <= AVIDRONE_PWR_MSGID_CASTLE_4)) {
+                UpdateCastleLiveLink(node_id, message_id, pdata);
+            }
+            else if (message_id == AVIDRONE_MSGID_PWR_V_I) {
+                UpdatePowerNodeVI(node_id, pdata);
+            }
+            else if (message_id == AVIDRONE_MSGID_PWR_INFO) {
+                UpdateBoardInfo(node_id, PN_PWR, pdata);
+                can_node_found = 1;
+            }
+            else {
+                // Unknown
+            }
+        }
         else {
             // Unknown
         }
     }
 }
 
+//TODO::SP: CHECK!!!!
+#if 0
 static void SendPowerCtrl(void)
 {
     CANMessage msgo;
@@ -3335,6 +3373,7 @@ static void SendPowerCtrl(void)
 		}
     }
 }
+#endif
 
 static void ProcessStats(void)
 {
@@ -3992,9 +4031,10 @@ void do_control()
 
     hfc.telem_ctrl_time += ticks;	// in uS
 
-    if (!pConfig->power_node) {
-        SendPowerCtrl();
-    }
+    //TODO::SP: Validate...
+    //if (!pConfig->power_node) {
+    //    SendPowerCtrl();
+    //}
 
     telem.Update();
 
@@ -4005,7 +4045,7 @@ void do_control()
     ProcessStats();
 
     if (pConfig->LidarFromServo == 0) {
-        // Nore: if lidar data from servo, its processed directly from can_handler.
+        // Note: if lidar data from servo, its processed directly from can_handler.
         Lidar_Process(&hfc);
     }
 
@@ -4017,6 +4057,10 @@ void do_control()
 
    if (pConfig->num_gps_nodes > 0) {
        GpsHeartbeat(pConfig->num_gps_nodes);
+   }
+
+   if (pConfig->num_power_nodes > 0) {
+       PowerNodeHeartbeat(pConfig->num_power_nodes);
    }
 
    // TODO::SP: Remove this, debug code only
@@ -4414,6 +4458,33 @@ int InitCanGpsNodes(int num_gps_nodes)
     return 1;
 }
 
+int InitCanPowerNodes(int num_power_nodes)
+{
+    CANMessage can_tx_message;
+    int timeout = CAN_TIMEOUT;
+
+    // ping the board to determine -
+    //  - a) Is the board connected and
+    //  - b) Read board information (Firmware Version, Hardware Serial Num)
+    for (int i = 0; i < num_power_nodes; i++) {
+        can_node_found = 0;
+        can_tx_message.len = 0;
+        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_PWR_INFO);
+        while(!can_node_found && --timeout) {
+            if (!can.write(can_tx_message)) {
+                ++write_canbus_error;
+            }
+            wait_ms(20);
+        }
+
+        if (!can_node_found) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int ConfigureCanServoNodes(int num_servo_nodes)
 {
     CANMessage can_tx_message;
@@ -4473,6 +4544,36 @@ int ConfigureCanGpsNodes(int num_gps_nodes)
     return 1;
 }
 
+int ConfigureCanPowerNodes(int num_power_nodes)
+{
+    CANMessage can_tx_message;
+    int timeout = CAN_TIMEOUT;
+
+    // Configure Servo board. Board will 'ACK' message to indicate success.
+    //  - If no ACK after Timeout, then Fail
+    for (int i = 0; i < num_power_nodes; i++) {
+        canbus_ack = 0;
+
+        can_tx_message.len = 1;
+        can_tx_message.data[0] = PWM_CHANNEL_1_8;
+        can_tx_message.data[1] = LIDAR_ACTIVE;
+
+        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_PWR_CFG);
+        while(!canbus_ack && --timeout) {
+            if (!can.write(can_tx_message)) {
+                ++write_canbus_error;
+            }
+            wait_ms(20);
+        }
+
+        if (!canbus_ack) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void GpsHeartbeat(int num_gps_nodes)
 {
     CANMessage can_tx_message;
@@ -4484,6 +4585,23 @@ static void GpsHeartbeat(int num_gps_nodes)
     for (int i = 0; i < num_gps_nodes; i++) {
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_GPS_NODETYPE,
                                                 (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_GPS_SYNC);
+        if (!can.write(can_tx_message)) {
+            ++write_canbus_error;
+        }
+    }
+}
+
+static void PowerNodeHeartbeat(int num_power_nodes)
+{
+    CANMessage can_tx_message;
+
+    can_tx_message.type   = CANData;
+    can_tx_message.format = CANStandard;
+    can_tx_message.len    = 0;
+
+    for (int i = 0; i < num_power_nodes; i++) {
+        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_PWR_SYNC);
         if (!can.write(can_tx_message)) {
             ++write_canbus_error;
         }
@@ -4678,6 +4796,76 @@ void InitializeRuntimeData(void)
     }
 }
 
+
+/**
+  * @brief  InitCanbusNodes.
+  * @retval 0 if success, < 0 on failure
+  */
+static int InitCanbusNodes(void)
+{
+    int canbus_status = 0;
+    int init = 0;
+
+    if (pConfig->num_servo_nodes) {
+        if ((init = InitCanServoNodes(pConfig->num_servo_nodes)) != 0) {
+            init = ConfigureCanServoNodes(pConfig->num_servo_nodes);
+        }
+
+        if (!init) {
+            myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "SERVO NODE", "INITIALIZATION", "FAILED");
+            canbus_status = -1;
+        }
+    }
+
+    if (pConfig->num_gps_nodes) {
+
+        gps.Init(pConfig->num_gps_nodes);
+
+        if ((init = InitCanGpsNodes(pConfig->num_gps_nodes)) != 0) {
+            init = ConfigureCanGpsNodes(pConfig->num_gps_nodes);
+        }
+
+        if (!init) {
+            myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "GPS NODE", "INITIALIZATION", "FAILED");
+            canbus_status = -1;
+        }
+    }
+
+    if (pConfig->num_power_nodes) {
+        if ((init = InitCanPowerNodes(pConfig->num_power_nodes)) != 0) {
+            init = ConfigureCanPowerNodes(pConfig->num_power_nodes);
+        }
+
+        if (!init) {
+            myLcd.ShowError("Failed to initialize CANBUS POWER NODE(S)\n", "POWER NODE", "INITIALIZATION", "FAILED");
+            canbus_status = -1;
+        }
+    }
+
+    // TODO::SP: Only print in debug. or perhaps user request...
+    serial.printf("\r\nCANBus Board Info..\r\n");
+
+    for (int i = 0; i < pConfig->num_servo_nodes; i++) {
+        serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+                    board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
+                    board_info[PN_SN][i].part_num_year, board_info[PN_SN][i].part_num_type, board_info[PN_SN][i].serial_number);
+    }
+
+    for (int i = 0; i < pConfig->num_gps_nodes; i++) {
+        serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+                    board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
+                    board_info[PN_GPS][i].part_num_year, board_info[PN_GPS][i].part_num_type, board_info[PN_GPS][i].serial_number);
+    }
+
+    for (int i = 0; i < pConfig->num_power_nodes; i++) {
+        serial.printf("Type[PWR], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+                    board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
+                    board_info[PN_PWR][i].part_num_year, board_info[PN_PWR][i].part_num_type, board_info[PN_PWR][i].serial_number);
+    }
+
+    return canbus_status;
+}
+
 /**
   * @brief  main.
   * @retval none
@@ -4706,20 +4894,19 @@ int main()
     myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
 
     int cfg_result;
-    if ((cfg_result = LoadConfiguration(&pConfig)) < 0)
-    {
+    if ((cfg_result = LoadConfiguration(&pConfig)) < 0) {
         init_ok = 0;
 
         if (cfg_result == -1) {
-        	myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "CHECKSUM", "ERROR");
+            myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "CHECKSUM", "ERROR");
         }
         else if (cfg_result == -2) {
-        	char str_temp[20];
-        	sprintf(str_temp, "REQ VER: %d", CONFIG_VERSION);
-        	myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "VERSION ERROR", str_temp);
+            char str_temp[20];
+            sprintf(str_temp, "REQ VER: %d", CONFIG_VERSION);
+            myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "VERSION ERROR", str_temp);
         }
         else {
-        	myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
+            myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
         }
     }
 
@@ -4727,83 +4914,48 @@ int main()
 
         InitializeRuntimeData();
 
-        //SavePIDUpdates(&hfc); // just for testing
-
         /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
         int frequency = (pConfig->canbus_freq_high == 1) ? 1000000 : 500000;
         can.frequency(frequency);
         can.attach(can_handler);
 
-        if (pConfig->num_servo_nodes) {
-            if ((init_ok = InitCanServoNodes(pConfig->num_servo_nodes)) != 0) {
-                init_ok = ConfigureCanServoNodes(pConfig->num_servo_nodes);
-            }
-        }
-
-        if (!init_ok) {
-            myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "CANBUS SERVO", "INITIALIZATION", "FAILED");
-        }
-        else {
-            if (pConfig->num_gps_nodes) {
-
-                gps.Init(pConfig->num_gps_nodes);
-
-                if ((init_ok =InitCanGpsNodes(pConfig->num_gps_nodes)) != 0) {
-                    init_ok = ConfigureCanGpsNodes(pConfig->num_gps_nodes);
-                }
-            }
-
-            if (!init_ok) {
-                myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "CANBUS GPS", "INITIALIZATION", "FAILED");
-            }
-        }
-    }
-
-    if (init_ok) {
-        serial.printf("\r\nCANBus Board Info..\r\n");
-
-        for (int i = 0; i < pConfig->num_servo_nodes; i++) {
-            serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
-                        board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
-                        board_info[PN_SN][i].part_num_year, board_info[PN_SN][i].part_num_type, board_info[PN_SN][i].serial_number);
-        }
-
-        for (int i = 0; i < pConfig->num_gps_nodes; i++) {
-            serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
-                        board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
-                        board_info[PN_GPS][i].part_num_year, board_info[PN_GPS][i].part_num_type, board_info[PN_GPS][i].serial_number);
-        }
-    }
-
-    if (init_ok) {
-    	mpu.init(MPU6050_DLPF_BW_188, pConfig->imu_internal);
-
-        if (!mpu.is_ok()) {
-            myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
+        if (InitCanbusNodes() < 0) {
             init_ok = 0;
         }
-    }
 
-    if (init_ok) {
-        if (pConfig->sensor_mode == FLY_ALL_SENSORS) {
-            if ((pConfig->compass_type == CHIP_HMC5883L) || (pConfig->compass_type == CHIP_AK8963)) {
-                compass.enable_i2c_MPU6050(MPU6050_ADDRESS);
-            }
+        if (init_ok) {
+            mpu.init(MPU6050_DLPF_BW_188, pConfig->imu_internal);
 
-            if (!compass.Init(pConfig)) {
-                myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
+            if (!mpu.is_ok()) {
+                myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
                 init_ok = 0;
             }
         }
+
+        if (init_ok) {
+            if (pConfig->sensor_mode == FLY_ALL_SENSORS) {
+                if ((pConfig->compass_type == CHIP_HMC5883L) || (pConfig->compass_type == CHIP_AK8963)) {
+                    compass.enable_i2c_MPU6050(MPU6050_ADDRESS);
+                }
+
+                if (!compass.Init(pConfig)) {
+                    myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
+                    init_ok = 0;
+                }
+            }
+        }
+
+        if (init_ok) {
+            if (pConfig->baro_enable == 1) {
+                if (!baro.Init()) {
+                    myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
+                    init_ok = 0;
+                }
+            }
+        }
     }
 
     if (init_ok) {
-    	if (pConfig->baro_enable == 1) {
-    		if (!baro.Init()) {
-    			myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
-    			init_ok = 0;
-    		}
-        }
 
         xbus.SetSbusEnabled(pConfig->SbusEnable);
         xbus.ConfigRx();
@@ -4820,10 +4972,6 @@ int main()
         }
 
         telem.Generate_AircraftCfg();
-    }
-
-    if (init_ok) {
-        serial.printf("========initialized=========\r\n");
 
         mpu.readMotion7_start();
 
@@ -4836,26 +4984,25 @@ int main()
 
             // Process Serial commands if USB is available
             if (serial.connected() && serial.readable()) {
-            	ProcessUserCmnds(serial.getc());
+                ProcessUserCmnds(serial.getc());
             }
         }
     }
     else {
 
-    	// Turn on ALL leds Solid and look for user commands from
-    	// USB Serial. This Provides a means to update configuration and 'recover'
-    	// board.
-    	while(1) {
-    		WDT_Kick();
-    		led1 = 1; led2 = 1; led3 = 1; led4 = 1;
+        // Turn on ALL leds Solid and look for user commands from
+        // USB Serial. This Provides a means to update configuration and 'recover'
+        // board.
+        while(1) {
+            WDT_Kick();
+            led1 = 1; led2 = 1; led3 = 1; led4 = 1;
 
-    		// Process Serial commands if USB is available
-    		if (serial.connected() && serial.readable()) {
-    			ProcessUserCmnds(serial.getc());
-    		}
-    	}
+            // Process Serial commands if USB is available
+            if (serial.connected() && serial.readable()) {
+                ProcessUserCmnds(serial.getc());
+            }
+        }
     }
-
-
 }
+
 /************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/

@@ -1110,6 +1110,21 @@ typedef struct
 } FlightControlData;
 
 
+typedef struct
+{
+    unsigned short int id : 3;
+    signed short int value : 13;
+} T_Servo;
+
+typedef struct
+{
+    T_Servo servo[4];
+} T_Servos;
+
+typedef union {
+  unsigned char msg[4];
+  unsigned int lidarCount;
+} T_lidar;
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
  * 					  AVICAN_POWER_VALUES2 all uint16 Vservo, Vaux12V, dTms_adc, adc_count */

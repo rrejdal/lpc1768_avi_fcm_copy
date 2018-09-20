@@ -178,17 +178,4 @@
 #define PROFILING_ON        2   // active
 #define PROFILING_FINISH    3   // to be stopped
 
-// Canbus Servo Node configuration
-#define PWM_CHANNEL_1   (1 << 0)
-#define PWM_CHANNEL_2   (1 << 1)
-#define PWM_CHANNEL_3   (1 << 2)
-#define PWM_CHANNEL_4   (1 << 3)
-#define PWM_CHANNEL_5   (1 << 4)
-#define PWM_CHANNEL_6   (1 << 5)
-#define PWM_CHANNEL_7   (1 << 6)
-#define PWM_CHANNEL_8   (1 << 7)
-
-#define LIDAR_ACTIVE             (1 << 6)
-#define LIVE_LINK_ACTIVE         (1 << 7)
-
 #endif

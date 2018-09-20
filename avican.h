@@ -1,5 +1,32 @@
-#ifndef _AVICAN_H_
-#define _AVICAN_H_
+/**
+  ******************************************************************************
+  * @file    avidrone_can.h
+  * @author  AVIDRONE FIRMWARE Team
+  * @brief   header file for Avidrone Can constants
+  *
+  ******************************************************************************
+  * @attention
+  *
+  * <h2><center>&copy; COPYRIGHT(c) 2018 Avidrone Aerospace Inc.</center></h2>
+  *
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  *
+  ******************************************************************************
+  */
+
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __AVIDRONE_CAN_H
+#define __AVIDRONE_CAN_H
 
 /* Using CAN2.0B standard mode, providing 11 bit identifiers.
  * Avidrone Can node/msg assignment as follows:
@@ -7,9 +34,6 @@
  *  - bits[10..8] Node TYPE (0.7 node Types)
  *  - bits[07..4] Node ID   (0.15 node ids per node type)
  *  - bits[03..0] Msg ID    (0..15 message ids per node type)
- *
- *  NOTE: AT PRESENT, ANY CHANGES TO THIS FILE SHOULD ALSO BE MADE TO
- *        SERVO AND GPS NODE. (NEED TO MAKE THIS COMMON....)
  */
 
 #define AVIDRONE_CAN_NODE_TYPE_MASK     0x700
@@ -78,42 +102,42 @@ typedef enum {
 } AVIDRONE_CAN_GPS_MSG_IDS;
 
 typedef enum {
-    AVIDRONE_MSGID_PWR_NONE = 0,
-    AVIDRONE_MSGID_PWR_MAX  = AVIDRONE_MSGID_PWR_NONE,
+    AVIDRONE_MSGID_PWR_NONE     = 0,
+    AVIDRONE_MSGID_PWR_INFO     = 1,
+    AVIDRONE_PWR_MSGID_LIDAR    = 2,
+    AVIDRONE_PWR_MSGID_CASTLE_0 = 3,
+    AVIDRONE_PWR_MSGID_CASTLE_1 = 4,
+    AVIDRONE_PWR_MSGID_CASTLE_2 = 5,
+    AVIDRONE_PWR_MSGID_CASTLE_3 = 6,
+    AVIDRONE_PWR_MSGID_CASTLE_4 = 7,
+    AVIDRONE_MSGID_PWR_V_I      = 8,
+    AVIDRONE_MSGID_PWR_CFG      = 9,
+    AVIDRONE_MSGID_PWR_ACK      = 10,
+    AVIDRONE_MSGID_PWR_LO_CTRL  = 11,
+    AVIDRONE_MSGID_PWR_HI_CTRL  = 12,
+    AVIDRONE_MSGID_PWR_SYNC     = 13,
+    AVIDRONE_MSGID_PWR_MAX      = AVIDRONE_MSGID_PWR_SYNC,
 } AVIDRONE_CAN_PWR_MSG_IDS;
 
-//#else
+// Canbus Servo/Power Node configurations
+#define PWM_NO_CHANNEL  (0)
+#define PWM_CHANNEL_1   (1 << 0)
+#define PWM_CHANNEL_2   (1 << 1)
+#define PWM_CHANNEL_3   (1 << 2)
+#define PWM_CHANNEL_4   (1 << 3)
+#define PWM_CHANNEL_5   (1 << 4)
+#define PWM_CHANNEL_6   (1 << 5)
+#define PWM_CHANNEL_7   (1 << 6)
+#define PWM_CHANNEL_8   (1 << 7)
+#define PWM_CHANNEL_1_8 (PWM_CHANNEL_1 | PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 \
+                         | PWM_CHANNEL_5 | PWM_CHANNEL_6 | PWM_CHANNEL_7 | PWM_CHANNEL_8)
 
-#define AVICAN_SERVO_LIDAR  0x585
-#define AVICAN_SERVO_GPS_ID 0x581
+#define CALIBRATE_PWR_NODE       (1 << 5)
+#define LIDAR_ACTIVE             (1 << 6)
+#define LIVE_LINK_ACTIVE         (1 << 7)
 
-#define AVICAN_SERVO_ID     0x580
-#define AVICAN_SERVO_MASK   0x7f0   // 0x580-0x58f
 
-#define AVICAN_SERVOPRINTF_ID       0x100
-#define AVICAN_POWERPRINTF_ID       0x110
+#endif /* __AVIDRONE_CAN_H */
 
-#define AVICAN_POWER_SWITCHES   0x480   // ESC=0x5b, Servo=0x9e, Aux12V=0xd6, LED=0xca
-#define AVICAN_POWER_GPS        0x481   // 481-484
-#define AVICAN_POWER_LIDAR      0x486
-#define AVICAN_POWER_VALUES1    0x487   // ADC0-3
-#define AVICAN_POWER_VALUES2    0x488   // ADC4-5, dTmS, count
-
-typedef struct
-{
-    unsigned short int id : 3;
-    signed short int value : 13;
-} T_Servo;
-
-typedef struct
-{
-    T_Servo servo[4];
-} T_Servos;
-
-typedef union {
-  uint8_t     msg[4];
-  unsigned int lidarCount;
-} T_lidar;
-//#endif
-#endif
+/************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/
 
