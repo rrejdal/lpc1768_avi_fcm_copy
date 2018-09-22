@@ -671,9 +671,9 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
     if (hfc->profile_mode == PROFILING_START)
     {
         int i;
-        DigitalOut **LEDs = (DigitalOut**)hfc->leds;
+        //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
         
-        LEDs[0]->write(1); LEDs[1]->write(1); LEDs[2]->write(1); LEDs[3]->write(1);
+        //LEDs[0]->write(1); LEDs[1]->write(1); LEDs[2]->write(1); LEDs[3]->write(1);
         hfc->profile_mode = PROFILING_ON;
         hfc->profile_start_time = GetTime_ms();
         
@@ -685,7 +685,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
     if (hfc->profile_mode == PROFILING_ON)
     {
         int i;
-        DigitalOut **LEDs = (DigitalOut**)hfc->leds;
+        //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
         float *controlled = &hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
         float delta = 0;            // value added to the controlled variable
         int t = GetTime_ms() - hfc->profile_start_time;  // timeline in ms
@@ -698,7 +698,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
         {
 //            printf("profiling finish\r\n");
             hfc->profile_mode = PROFILING_FINISH;
-            LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
+            //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
             return;
         }
         else if (t>(Td+4*Tt))   // test complete
@@ -718,7 +718,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
                 hfc->profile_mode = PROFILING_OFF;
                 hfc->streaming_enable = false;
                 delta = 0;
-                LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
+                //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
                 break;
             }
 
@@ -736,7 +736,7 @@ void GyroCalibDynamic(FlightControlData *hfc)
 void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
 {
     int i;
-    DigitalOut **LEDs = (DigitalOut**)hfc->leds;
+    //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
     
     if (!hfc->calibrate)
         return;
@@ -765,7 +765,7 @@ void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
       if ((hfc->calib_count & 0x7f)==0)
       {
         printf("%2.3f %2.3f %2.3f\r\n", hfc->calib_gyro_avg[0]/hfc->calib_count, hfc->calib_gyro_avg[1]/hfc->calib_count, hfc->calib_gyro_avg[2]/hfc->calib_count);
-        for (i=0; i<4; i++) LEDs[i]->write(!LEDs[i]->read());
+        //for (i=0; i<4; i++) LEDs[i]->write(!LEDs[i]->read());
       }
     }
     hfc->calibrate--;
@@ -777,7 +777,7 @@ void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
         hfc->calib_gyro_avg[i]  = 0;
         hfc->gyroOfs[i] = 0;
       }
-      LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
+      //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
       printf("= Calibrated: ");
       printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2], hfc->gyro_temp_lp);
       {

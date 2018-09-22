@@ -148,6 +148,7 @@ static int init_ok = 1;
 static int can_node_found = 0;
 static int canbus_ack = 0;
 static int write_canbus_error = 0;
+static int can_power_coeff = 0;
 
 #define FCM_FATAL_ERROR() { \
     while(1) { \
@@ -3268,13 +3269,20 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
     hfc.power.Iesc =  *(float *)pdata;
 }
 
+static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
+{
+    hfc.power.Vcoeff = *(float *)pdata;
+    pdata += 4;
+    hfc.power.Icoeff =  *(float *)pdata;
+}
+
 //
 static void can_handler(void)
 {
     static int rx_count = 0;
     CANMessage can_rx_message;
 
-    if ((++rx_count % 100) == 0) {
+    if ((++rx_count % 10) == 0) {
         led4 = !led4;
     }
 
@@ -3337,6 +3345,10 @@ static void can_handler(void)
             else if (message_id == AVIDRONE_MSGID_PWR_INFO) {
                 UpdateBoardInfo(node_id, PN_PWR, pdata);
                 can_node_found = 1;
+            }
+            else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
+                can_power_coeff = 1;
+                UpdatePowerNodeCoeff(node_id, pdata);
             }
             else {
                 // Unknown
@@ -4160,11 +4172,11 @@ volatile static bool have_config = false;
 static void ConfigRx(void)
 {
 
-	while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
-		pRamConfigData[rx_in++] = serial._getc();
-	}
+    while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
+        pRamConfigData[rx_in++] = serial._getc();
+    }
 
-	have_config = true;
+    have_config = true;
 }
 
 /**
@@ -4174,82 +4186,176 @@ static void ConfigRx(void)
   */
 static void ProcessUserCmnds(char c)
 {
-	char request[20] = {0};
-	ConfigData *pRamConfigData = (ConfigData *)&ram_config;
+    char request[20] = {0};
+    ConfigData *pRamConfigData = (ConfigData *)&ram_config;
 
-	// 'L' == Load Request
-	if (c == 'L') {
+    // 'L' == Load Request
+    if (c == 'L') {
 
-		led1 = led2 = led3 = led4 = 1;
+        led1 = led2 = led3 = led4 = 1;
 
-		serial.printf("OK");
+        serial.printf("OK");
 
-		// Wait for Load Type - config
-		serial.scanf("%19s", request);
-		if (strcmp(request, "config_upload") == 0) {
-			// Clear current RamConfig in preparation for new data.
-			memset((uint8_t *)&ram_config, 0xFF, MAX_CONFIG_SIZE);
+        // Wait for Load Type - config
+        serial.scanf("%19s", request);
+        if (strcmp(request, "config_upload") == 0) {
+            // Clear current RamConfig in preparation for new data.
+            memset((uint8_t *)&ram_config, 0xFF, MAX_CONFIG_SIZE);
 
-			serial.attach(&ConfigRx);	// This handles incoming configuration file
+            serial.attach(&ConfigRx);	// This handles incoming configuration file
 
-			have_config = false;
+            have_config = false;
 
-			// Clear chars - Dummy Read on Port
-			while (serial.readable()) {
-				volatile int rx = serial._getc();
-			}
+            // Clear chars - Dummy Read on Port
+            while (serial.readable()) {
+                volatile int rx = serial._getc();
+            }
 
-			serial.printf("ACK");	// Informs Host to start transfer
+            serial.printf("ACK");	// Informs Host to start transfer
 
-			while (!have_config) {}
+            while (!have_config) {}
 
-			unsigned char *pData = (unsigned char *)&ram_config;
-			pData += sizeof(ConfigurationDataHeader);
-			// CRC data and check.
-			if (pRamConfigData->header.checksum == crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
+            unsigned char *pData = (unsigned char *)&ram_config;
+            pData += sizeof(ConfigurationDataHeader);
+            // CRC data and check.
+            if (pRamConfigData->header.checksum
+                    == crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
 
-				if (SaveNewConfig() == 0) {
+                if (SaveNewConfig() == 0) {
+                    serial.printf("ACK");	// Informs Host, all done
 
-					serial.printf("ACK");	// Informs Host, all done
+                    FCM_NOTIFY_CFG_UPDATED();
 
-					FCM_NOTIFY_CFG_UPDATED();
+                    // NOTE::SP: NO RETURN FROM HERE. THIS GENERATES A SOFTWARE RESET OF THE LPC1768
+                    //           WHICH CAUSES THE NEW CONFIGURATION TO BE LOADED.
+                    NVIC_SystemReset();
+                }
+                else {
+                    serial.printf("NACK");	// Informs Host, Error
+                }
+            }
+            else {
+                serial.printf("NACK");	// Informs Host, Error
+            }
+        }
+        else if (strcmp(request, "config_dlload") == 0) {
+            // Download fcm configuration to requester
+            const int16_t block_size = 64;
+            uint8_t *pData = (uint8_t*)pConfig;
+            int16_t block_num = (sizeof(ConfigData) / block_size) +1;
 
-					// NOTE::SP: NO RETURN FROM HERE. THIS GENERATES A SOFTWARE RESET OF THE LPC1768
-					//           WHICH CAUSES THE NEW CONFIGURATION TO BE LOADED.
-		            NVIC_SystemReset();
-				}
-				else {
-					serial.printf("NACK");	// Informs Host, Error
-				}
-			}
-			else {
-				serial.printf("NACK");	// Informs Host, Error
-			}
-		}
-		else if (strcmp(request, "config_dlload") == 0) {
-			// Download fcm configuration to requester
-			const int16_t block_size = 64;
-			uint8_t *pData = (uint8_t*)pConfig;
-			int16_t block_num = (sizeof(ConfigData) / block_size) +1;
-			do {
+            do {
+                if (block_num == 1) {
+                    serial.writeBlock(pData, (sizeof(ConfigData) % block_size));
+                }
+                else {
+                    serial.writeBlock(pData, block_size);
+                }
 
-				if (block_num == 1) {
-					serial.writeBlock(pData, (sizeof(ConfigData) % block_size));
-				}
-				else {
-					serial.writeBlock(pData, block_size);
-				}
+                pData += block_size;
+            } while (--block_num >= 1);
+        }
+        else {
+            // Unknown command
+            serial.printf("NACK");
+        }
+    }
+    else if (c == 'C') {
+        // Calibrate requested
+        serial.printf("OK");
 
-				pData += block_size;
+        int timeout = CAN_TIMEOUT;
+        CANMessage can_tx_message;
 
-			} while (--block_num >= 1);
+        // Wait for Load Type - config
+        serial.scanf("%19s", request);
+        if (strcmp(request, "read") == 0) {
+            can_tx_message.len = 0;
+            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                    DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
 
-		}
-		else {
-			// Unknown command
-			serial.printf("NACK");
-		}
-	}
+            while(!can_power_coeff && --timeout) {
+                if (!can.write(can_tx_message)) {
+                    ++write_canbus_error;
+                }
+                wait_ms(20);
+            }
+
+            if (!can_power_coeff) {
+                serial.printf("ERROR");
+            }
+            else {
+                serial.printf("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
+            }
+            can_power_coeff = 0;
+        }
+        else if (strcmp(request, "start") == 0) {
+            // Issue a request to start power node calibration
+            can_power_coeff = 0;
+            timeout = 2;
+            can_tx_message.len = 2;
+            can_tx_message.data[0] = PWM_NO_CHANNEL;
+            can_tx_message.data[1] = CALIBRATE_PWR_NODE;
+
+            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_CFG);
+
+            if (!can.write(can_tx_message)) {
+                ++write_canbus_error;
+            }
+
+            timeout = 60; // seconds
+            while(--timeout) {
+                WDT_Kick();
+                wait(1.0f);
+            }
+
+            // Now poll to see if it completed successfully
+            can_tx_message.len = 0;
+            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                    DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
+
+            timeout = CAN_TIMEOUT;
+            while(!can_power_coeff && --timeout) {
+                if (!can.write(can_tx_message)) {
+                    ++write_canbus_error;
+                }
+                wait_ms(20);
+            }
+
+            if (!can_power_coeff) {
+                serial.printf("ERROR");
+            }
+            else {
+                serial.printf("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
+            }
+            can_power_coeff = 0;
+        }
+    }
+    else if (c == 'A') {
+        // Audit system
+        serial.printf("\r\nCANBus Board Info..\r\n");
+
+        for (int i = 0; i < pConfig->num_servo_nodes; i++) {
+            serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+                        board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
+                        board_info[PN_SN][i].part_num_year, board_info[PN_SN][i].part_num_type, board_info[PN_SN][i].serial_number);
+        }
+
+        for (int i = 0; i < pConfig->num_gps_nodes; i++) {
+            serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+                        board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
+                        board_info[PN_GPS][i].part_num_year, board_info[PN_GPS][i].part_num_type, board_info[PN_GPS][i].serial_number);
+        }
+
+        for (int i = 0; i < pConfig->num_power_nodes; i++) {
+            serial.printf("Type[PWR], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+                        board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
+                        board_info[PN_PWR][i].part_num_year, board_info[PN_PWR][i].part_num_type, board_info[PN_PWR][i].serial_number);
+            serial.printf("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
+
+        }
+    }
 
 }
 
@@ -4399,7 +4505,7 @@ static void PrintOrient()
         led1 = hfc.throttle_armed;
         led2 = hfc.throttle_armed;
         led3 = hfc.throttle_armed;
-        led4 = hfc.throttle_armed;
+        //led4 = hfc.throttle_armed;
         ArmedLed = !hfc.throttle_armed;
     }
 }
@@ -4554,7 +4660,7 @@ int ConfigureCanPowerNodes(int num_power_nodes)
     for (int i = 0; i < num_power_nodes; i++) {
         canbus_ack = 0;
 
-        can_tx_message.len = 1;
+        can_tx_message.len = 2;
         can_tx_message.data[0] = PWM_CHANNEL_1_8;
         can_tx_message.data[1] = LIDAR_ACTIVE;
 
@@ -4842,27 +4948,6 @@ static int InitCanbusNodes(void)
         }
     }
 
-    // TODO::SP: Only print in debug. or perhaps user request...
-    serial.printf("\r\nCANBus Board Info..\r\n");
-
-    for (int i = 0; i < pConfig->num_servo_nodes; i++) {
-        serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
-                    board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
-                    board_info[PN_SN][i].part_num_year, board_info[PN_SN][i].part_num_type, board_info[PN_SN][i].serial_number);
-    }
-
-    for (int i = 0; i < pConfig->num_gps_nodes; i++) {
-        serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
-                    board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
-                    board_info[PN_GPS][i].part_num_year, board_info[PN_GPS][i].part_num_type, board_info[PN_GPS][i].serial_number);
-    }
-
-    for (int i = 0; i < pConfig->num_power_nodes; i++) {
-        serial.printf("Type[PWR], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
-                    board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
-                    board_info[PN_PWR][i].part_num_year, board_info[PN_PWR][i].part_num_type, board_info[PN_PWR][i].serial_number);
-    }
-
     return canbus_status;
 }
 
@@ -4872,6 +4957,8 @@ static int InitCanbusNodes(void)
   */
 int main()
 {
+    led1 = 1;
+
     spi.frequency(4000000);
     spi.format(8, 0);   // 0-sd ok, disp ok, 1-no sd, disp ok
 
@@ -4879,11 +4966,6 @@ int main()
     btnSelect.mode(PullUp);
 
     lidar.mode(PullNone);
-
-    hfc.leds[0] = &led1;
-    hfc.leds[1] = &led2;
-    hfc.leds[2] = &led3;
-    hfc.leds[3] = &led4;
 
     myLcd.InitLcd();
 

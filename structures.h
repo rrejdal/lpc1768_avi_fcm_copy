@@ -593,6 +593,8 @@ typedef struct
 	float	Vesc;
 	float	Iesc;
 	float	Iaux;
+	float   Vcoeff;
+	float   Icoeff;
 	float	battery_level;	// 0-100%, energy based, not capacity
 	float	capacity_used;	// AmpSeconds
 	float   capacity_total; // rated As
@@ -1079,8 +1081,6 @@ typedef struct
     uint16  tcpip_user1;  // custom field 1
     uint16  tcpip_user2;  // custom field 2
     
-    void *leds[4];      // pointers to 4 MBED LEDs
-
     ModifiableConfigData rw_cfg;
 
     CompassCalibrationData compass_cal;
