@@ -39,6 +39,7 @@
 #include "telemetry.h"
 #include "avican.h"
 #include "USBSerial.h"
+#include "IAP.h"
 #include "version.h"
 
 //#define PR_DEBUG
@@ -127,9 +128,9 @@ typedef struct {
     uint8_t major_version;
     uint8_t minor_version;
     uint8_t build_version;
-    uint8_t part_num_year;
-    uint8_t part_num_type;
-    uint16_t serial_number;
+    uint32_t serial_number0;
+    uint32_t serial_number1;
+    uint32_t serial_number2;
 } BoardInfo;
 
 BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
@@ -141,7 +142,6 @@ static void ServoHeartbeat(int node_id);
 static void PowerNodeHeartbeat(int node_id);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
-static int board_info_avail = 0;
 static int init_ok = 1;
 
 #define CAN_TIMEOUT 500
@@ -3152,27 +3152,35 @@ static void UpdateBatteryStatus(float dT)
     p->initialized = true;
 }
 
-static void UpdateBoardInfo(int node_id, int board_type, unsigned char *pdata)
+static void UpdateBoardInfo(int node_id, unsigned char *pdata)
 {
+    int board_type = pdata[0];
+
     if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
         board_info[board_type][node_id].major_version = pdata[1];
         board_info[board_type][node_id].minor_version = pdata[2];
         board_info[board_type][node_id].build_version = pdata[3];
 
-        board_info[board_type][node_id].part_num_year = pdata[4];
-        board_info[board_type][node_id].part_num_type = pdata[5];
-        board_info[board_type][node_id].serial_number = (pdata[6] << 8);
-        board_info[board_type][node_id].serial_number |= (pdata[7] & 0xFF);
+        board_info[board_type][node_id].serial_number2 = pdata[4] << 24;
+        board_info[board_type][node_id].serial_number2 |= pdata[5] << 16;
+        board_info[board_type][node_id].serial_number2 |= (pdata[6] << 8);
+        board_info[board_type][node_id].serial_number2 |= (pdata[7]);
     }
+}
 
-    if (board_type == PN_SN) {
-        board_info_avail |= (1 << (node_id));
-    }
-    if (board_type == PN_GPS) {
-        board_info_avail |= (1 << 2);
-    }
+static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata)
+{
+    if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
+        board_info[board_type][node_id].serial_number1 = pdata[0] << 24;
+        board_info[board_type][node_id].serial_number1 |= pdata[1] << 16;
+        board_info[board_type][node_id].serial_number1 |= (pdata[2] << 8);
+        board_info[board_type][node_id].serial_number1 |= (pdata[3]);
 
-    //serial.printf("board_info_avail 0x%08x\r\n", board_info_avail);
+        board_info[board_type][node_id].serial_number0 = pdata[4] << 24;
+        board_info[board_type][node_id].serial_number0 |= pdata[5] << 16;
+        board_info[board_type][node_id].serial_number0 |= (pdata[6] << 8);
+        board_info[board_type][node_id].serial_number0 |= (pdata[7]);
+    }
 }
 
 static void UpdateLidar(int node_id, unsigned char *pdata)
@@ -3304,8 +3312,11 @@ static void can_handler(void)
                 UpdateCastleLiveLink(node_id, message_id, pdata);
             }
             else if (message_id == AVIDRONE_MSGID_SERVO_INFO) {
-                UpdateBoardInfo(node_id, PN_SN, pdata);
+                UpdateBoardInfo(node_id, pdata);
                 can_node_found = 1;
+            }
+            else if (message_id == AVIDRONE_MSGID_SERVO_PN) {
+                UpdateBoardPartNum(node_id, PN_SN, pdata);
             }
             else {
                 // Unknown
@@ -3322,7 +3333,10 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_MSGID_GPS_INFO) {
-                UpdateBoardInfo(node_id, PN_GPS, pdata);
+                UpdateBoardInfo(node_id, pdata);
+            }
+            else if (message_id == AVIDRONE_MSGID_GPS_PN) {
+                UpdateBoardPartNum(node_id, PN_GPS, pdata);
                 can_node_found = 1;
             }
             else {
@@ -3343,7 +3357,10 @@ static void can_handler(void)
                 UpdatePowerNodeVI(node_id, pdata);
             }
             else if (message_id == AVIDRONE_MSGID_PWR_INFO) {
-                UpdateBoardInfo(node_id, PN_PWR, pdata);
+                UpdateBoardInfo(node_id, pdata);
+            }
+            else if (message_id == AVIDRONE_MSGID_PWR_PN) {
+                UpdateBoardPartNum(node_id, PN_PWR, pdata);
                 can_node_found = 1;
             }
             else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
@@ -4334,29 +4351,34 @@ static void ProcessUserCmnds(char c)
     }
     else if (c == 'A') {
         // Audit system
-        serial.printf("\r\nCANBus Board Info..\r\n");
+        IAP iap;
+        int *fcm_serial_num;
+        fcm_serial_num = iap.read_serial();
 
+        serial.printf("Type[FCM], Node[%d], Version[%02x:%02x:%02x],  SERIAL[%08x:%08x:%08x:%08x]\r\n",
+                            DEFAULT_NODE_ID, MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION,
+                            fcm_serial_num[0], fcm_serial_num[1], fcm_serial_num[2], fcm_serial_num[3]);
+
+        serial.printf("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
-            serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+            serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
-                        board_info[PN_SN][i].part_num_year, board_info[PN_SN][i].part_num_type, board_info[PN_SN][i].serial_number);
+                        board_info[PN_SN][i].serial_number2, board_info[PN_SN][i].serial_number1, board_info[PN_SN][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_gps_nodes; i++) {
-            serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+            serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
-                        board_info[PN_GPS][i].part_num_year, board_info[PN_GPS][i].part_num_type, board_info[PN_GPS][i].serial_number);
+                        board_info[PN_GPS][i].serial_number2, board_info[PN_GPS][i].serial_number1, board_info[PN_GPS][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_power_nodes; i++) {
-            serial.printf("Type[PWR], Node[%d], Version[%02x:%02x:%02x], P/N[AVID20%d%03d], SERIAL[%04d]\r\n", i+1,
+            serial.printf("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
-                        board_info[PN_PWR][i].part_num_year, board_info[PN_PWR][i].part_num_type, board_info[PN_PWR][i].serial_number);
+                        board_info[PN_PWR][i].serial_number2, board_info[PN_PWR][i].serial_number1, board_info[PN_PWR][i].serial_number0);
             serial.printf("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
-
         }
     }
-
 }
 
 void ProcessButtonSelection()
