@@ -30,6 +30,7 @@
 #define PN_GPS  0x03
 #define PN_SN   0x02
 #define PN_FCM  0x05
+#define PN_IMU  0x04
 #define PN_PWR  0x06
 
 // TODO::SP: Version should be read in at build time, for now its hard coded.

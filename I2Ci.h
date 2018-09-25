@@ -50,6 +50,43 @@ public:
     void write_reg_blocking(int address, char reg, char data);
     
     /**
+    * Write to register in an I2C device through I2C multiplexer, blocking version
+	*
+	* @param address - I2C address of the slave (7 bit address << 1).
+	* @param reg     - register number
+	*/
+
+    void write_reg_blocking(int address, char data);
+
+    /**
+    * Write to multiple registers in an I2C device in blocking mode,
+    * for IMU EEPROM: 24LC01B
+    * only 1 byte needed to address EEPROM memory since the size is
+    * only 1kbit = 128 bytes, address 0x00 to 0x7F
+    *
+    * @param address - I2C address of the slave (7 bit address << 1).
+    * @param reg     - register number (0x00 to 0x7F)
+    * @param *data   - pointer to first byte in data to be written
+    * @param length  - number of bytes in "data"
+    */
+    void write_blocking(int address, char reg, char *data, int length);
+
+    /**
+    * Write to multiple registers in an I2C device in blocking mode,
+    * for FCM EEPROM: 24AA256
+    * 2 bytes are needed for the register since
+    * this eeprom is so big 256kbit = 32k bytes, 0x0000 to 0x7D00
+    * addressing register: first byte is MSB, second byte is LSB
+    *
+    * @param address - I2C address of the slave (7 bit address << 1).
+    * @param *reg     - register number
+    * @param reg_len  - number of bytes in "reg"
+    * @param *data    - pointer to first byte in data to be written
+    * @param data_len - number of bytes in "data"
+    */
+    void write_blocking(int address, char* reg, int reg_len, char *data, int data_len);
+
+    /**
     * Write to a register in an I2C device, non-blocking versions. Data has to exist until the write is performed !!!!!!
     *
     * @param address - I2C address of the slave (7 bit address << 1).
@@ -66,6 +103,21 @@ public:
     * @param return  - returns a numgative number on an error, the value read otherwise
     */
     int read_reg_blocking(int address, char reg);
+
+    /**
+    * Read single register that has 2 byte register address - blocking
+    * addressing register: first byte is MSB, second byte is LSB
+    * for FCM EEPROM: 24AA256
+    * 2 bytes are needed for the register address since
+    * this eeprom is so big 256kbit = 32k bytes, 0x0000 to 0x7D00
+    * addressing register: first byte is MSB, second byte is LSB
+    *
+    * @param address - I2C address of the slave (7 bit address << 1).
+    * @param reg     - register number to read, reg number can span 2 bytes
+    * @param reg_len - register number to read, length of reg number
+    * @param return  - returns a numgative number on an error, the value read otherwise
+    */
+    int read_reg_blocking(int address, char* reg, int reg_len);
 
     /**
     * Read multiple registers - none-blocking

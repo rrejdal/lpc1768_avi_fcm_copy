@@ -379,19 +379,23 @@ float HMC5883L::GetHeadingDeg(const unsigned char comp_orient[6], const float of
      * since the compass has to be mounted on the drone before calibrating
      * and the calibration data is collected from the frame of reference of
      * the drone.*/
-    if( gains[0] == 0 )
-    {
-    	for (i=0; i<3; i++) {
-			dataXYZcalib[i] = pConfigData->comp_calib_matrix[0][i] * (dataXYZ[0] - offsets[0])
-		                        + pConfigData->comp_calib_matrix[1][i] * (dataXYZ[1] - offsets[1])
-		                        + pConfigData->comp_calib_matrix[2][i] * (dataXYZ[2] - offsets[2]);
-    	}
-    }
-    else {
+
+    // NOTE::SP: For the minute, we are ont making use of a seperate comp_calib_matrix, so
+    // removing this
+    //
+    //if( gains[0] == 0 )
+    //{
+    //	for (i=0; i<3; i++) {
+	//		dataXYZcalib[i] = pConfigData->comp_calib_matrix[0][i] * (dataXYZ[0] - offsets[0])
+	//	                        + pConfigData->comp_calib_matrix[1][i] * (dataXYZ[1] - offsets[1])
+	//	                        + pConfigData->comp_calib_matrix[2][i] * (dataXYZ[2] - offsets[2]);
+    //	}
+    //}
+    //else {
     	for (i=0; i<3; i++) {
     		dataXYZcalib[i] = (dataXYZ[i] - offsets[i]) * gains[i];
     	}
-    }
+    //}
 
     data[0] = dataXYZcalib[0];
     data[1] = dataXYZcalib[1];

@@ -733,6 +733,8 @@ void GyroCalibDynamic(FlightControlData *hfc)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
 
+#if 0
+// TODO::SP: This is not called from anywhere, removing...
 void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
 {
     int i;
@@ -790,6 +792,7 @@ void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
       }      
     }
 }
+#endif
 
 // "kick" or "feed" the dog - reset the watchdog timer
 // by writing this required bit pattern

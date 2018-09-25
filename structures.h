@@ -626,6 +626,8 @@ typedef struct {
 	char date_time[20];
 } ConfigurationDataHeader;
 
+// NOTE::SP: DO NOT!!!! CHANGE THE ORDER OF THIS ARRAY WITHOUT UPDATING
+// CONFIGURATION TOOL ALSO
 typedef struct ConfigurationData {
 
     // User Config Data
@@ -637,6 +639,7 @@ typedef struct ConfigurationData {
     int compass_selection;
     int canbus_freq_high;
     int LidarFromServo;
+    int LidarFromPowerNode;
 
     int  autoReset;
     int  can_servo;
@@ -645,7 +648,6 @@ typedef struct ConfigurationData {
     int  rpm_sensor;
     int  linklive;
     int  gps_vspeed;
-    int  gps_units;
     int  ground_sensor;
     int  imu_internal;
 
@@ -783,23 +785,10 @@ typedef struct ConfigurationData {
     unsigned char  gyro_orient[6];
     unsigned char  comp_orient[6];
     unsigned char  fcm_orient[6];
-    float acc_ofs[3];
-    float acc_gains[3];
-    float acc_calib_matrix[3][3];
 
-    float gyro_ofs[3];
-
-    float gyro_gains[3];
-    float gyro_calib_matrix[3][3];
-    float comp_ofs[3];
-    float comp_gains[3];
-    float compassMin[3];
-    float compassMax[3];
-
-    float comp_calib_matrix[3][3];
+    int gyro_first_order;
+    int acc_first_order;
     float comp_declination_offset;
-    int  gyro_fixed_offsets;
-    float gyro_drift_coeffs[3][3];
 
     float WindTableScale;
     float WindSpeedLUT[46];
@@ -842,7 +831,7 @@ typedef struct
     float landing_wind_threshold;
     int battery_capacity;
     float WindTableScale;
-    float gyro_ofs[3];
+    //float gyro_ofs[3];
 } ModifiableConfigData;
 
 typedef struct
@@ -1081,6 +1070,8 @@ typedef struct
     uint16  tcpip_user1;  // custom field 1
     uint16  tcpip_user2;  // custom field 2
     
+    float gyro_ofs[3];
+
     ModifiableConfigData rw_cfg;
 
     CompassCalibrationData compass_cal;

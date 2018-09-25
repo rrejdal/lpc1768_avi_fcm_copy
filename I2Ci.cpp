@@ -61,6 +61,40 @@ void I2Ci::write_reg_blocking(int address, char reg, char data)
     while (!status) wait_us(1);
 }
 
+void I2Ci::write_reg_blocking(int address, char data) // function to talk with the mux, is of length 2 bytes only
+{
+	volatile char d = data;
+	int status;
+	write_nb(address, &d, 1, &status);
+	while(!status) wait_us(1);
+}
+
+void I2Ci::write_blocking(int address, char reg, char *data, int length)
+{
+   char d[length+1];
+   d[0] = reg;
+   for(int i = 0; i<length; i++) {
+       d[i+1] = data[i];
+   }
+   int status;
+   write_nb(address, d, length+1, &status);
+   while (!status) wait_ms(5);
+}
+
+void I2Ci::write_blocking(int address, char* reg, int reg_len, char *data, int data_len)
+{
+   char d[reg_len+data_len]; // register length is two bytes
+   for(int i = 0; i<reg_len; i++) {
+       d[i] = reg[i];
+   }
+   for(int i = 0; i<data_len; i++) {
+       d[i+reg_len] = data[i];
+   }
+   int status;
+   write_nb(address, d, reg_len+data_len, &status);
+   while (!status) wait_ms(5);
+}
+
 int I2Ci::read_nb(int address, volatile char *data, int length, volatile int *status)
 {
     //Store relevant information
@@ -125,6 +159,48 @@ int I2Ci::read_reg_blocking(int address, char reg)
         return 0;
 
     return d;
+}
+
+int I2Ci::read_reg_blocking(int address, char* reg, int reg_len)
+{
+    char d[reg_len]; // register length is two bytes
+    volatile int status;
+
+    for(int i = 0; i<reg_len; i++) {
+        d[i] = reg[i];
+    }
+
+    //isIdle check here
+    I2CData Data;
+
+    write_nb(address, d, reg_len, &status);
+    while (!status) wait_us(1);
+
+    //Store relevant information
+    address |= 0x01;
+
+    Data.caller  = this;
+    Data.address  = address;
+    Data.repeated = false;
+    Data.data     = d;
+    Data.length   = reg_len;
+    Data.status   = &status;
+
+    while(!addBuffer(Data, I2CMODULE));
+
+    I2CBuffer *Buffer;
+    if (I2CMODULE == LPC_I2C1)
+        Buffer = (I2CBuffer*)&Buffer1;
+    else
+        Buffer = (I2CBuffer*)&Buffer2;
+
+    while(Buffer->queue!=0)
+        wait_us(1);
+
+    if (status!=0x58)         //Return zero if ended correctly, otherwise return return code.
+        return 0;
+
+    return d[0];
 }
 
 void I2Ci::frequency(int hz) {

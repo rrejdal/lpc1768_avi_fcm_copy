@@ -63,7 +63,7 @@ SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
 
 I2Ci        Li2c(I2C_SDA1, I2C_SCL1);
-MPU6050     mpu(&Li2c, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
+MPU6050     mpu(&Li2c, -1, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
 HMC5883L    compass(&Li2c);
 BMPx80      baro(&Li2c);
 
@@ -275,10 +275,8 @@ void AutoReset(void)
 			/*Check if GPS signal is good, if so, then reset if
 			 * IMU altitude and GPS altitude differ by more than 2m */
 			//GpsData gps_data = gps.GetGpsData();
-			if (((gps.gps_data_.fix > GPS_FIX_NONE) && (gps.gps_data_.PDOP < 250)) || (pConfig->gps_units == 0) )
-			{
-				if( ABS(hfc.altitude_baro - hfc.altitude_gps) >= 2 )
-				{
+			if ( (gps.gps_data_.fix > GPS_FIX_NONE) && (gps.gps_data_.PDOP < 250) ) {
+				if (ABS(hfc.altitude_baro - hfc.altitude_gps) >= 2) {
 					hfc.altitude_ofs = hfc.altitude_gps - hfc.altitude_baro;
 				}
 			}
@@ -2953,7 +2951,7 @@ static void ServoUpdate(float dT)
     Playlist_ProcessBottom(&hfc, retire_waypoint);
 }
 
-/* re-orients sensors within FCM, applies gains and offsets and the re-orients FCM */
+// re-orients sensors within FCM, applies gains and offsets and the re-orients FCM
 static void SensorsRescale(float accRaw[3], float gyroRaw[3])
 {
     int i;
@@ -2961,103 +2959,88 @@ static void SensorsRescale(float accRaw[3], float gyroRaw[3])
     float gyro1[3];
     float tmp[3] = {0}; // temporary variable, used for calibration
 
-    /* recalculate gyro drifts based on temperature data*/
-    if (!pConfig->gyro_fixed_offsets && (hfc.print_counter&0x3ff)==3)  {
+    // recalculate gyro drifts based on temperature data
+    if ((hfc.print_counter & 0x3ff) ==3 ) {
         float t = hfc.gyro_temp_lp;
-
-        for (i=0; i<3; i++) {
-            hfc.rw_cfg.gyro_ofs[i] = t*( t*pConfig->gyro_drift_coeffs[i][0]
-                                             + pConfig->gyro_drift_coeffs[i][1] )
-                                             + pConfig->gyro_drift_coeffs[i][2];
-        }
+        hfc.gyro_ofs[0] = t*( t*mpu.gyroP_temp_coeffs[0] + mpu.gyroP_temp_coeffs[1] +  mpu.gyroP_temp_coeffs[2]);
+        hfc.gyro_ofs[1] = t*( t*mpu.gyroR_temp_coeffs[0] + mpu.gyroR_temp_coeffs[1] +  mpu.gyroR_temp_coeffs[2]);
+        hfc.gyro_ofs[2] = t*( t*mpu.gyroY_temp_coeffs[0] + mpu.gyroY_temp_coeffs[1] +  mpu.gyroY_temp_coeffs[2]);
     }
   
-    /* remove gyro drift */
+    // remove gyro drift
     for (i=0; i<3; i++) {
-        gyroRaw[i] -= hfc.rw_cfg.gyro_ofs[i];
+        gyroRaw[i] -= hfc.gyro_ofs[i];
     }
 
-    /* mmri: apply gain to gyro
-     * if gyro_gains = 0, then use gyro calib matrix*/
-    if( pConfig->gyro_gains[0] == 0 )
-    {
-        for (i=0; i<3; i++)
-        {
-            gyro1[i] = pConfig->gyro_calib_matrix[i][0]*gyroRaw[0]
-                     + pConfig->gyro_calib_matrix[i][1]*gyroRaw[1]
-                     + pConfig->gyro_calib_matrix[i][2]*gyroRaw[2];
+    // apply gain to gyro, if first order, take the diagonal only
+    if (pConfig->gyro_first_order) {
+        for (i=0; i<3; i++) {
+            gyro1[i] = mpu.Cg[i][i] * gyroRaw[i];
         }
     }
-    else
-    {
-        for (i=0; i<3; i++)
-        {
-            gyro1[i] = pConfig->gyro_gains[i]*gyroRaw[i];
+    else {
+        for (i=0; i<3; i++) {
+            gyro1[i] = mpu.Cg[i][0]*gyroRaw[0]
+                           + mpu.Cg[i][1]*gyroRaw[1]
+                           + mpu.Cg[i][2]*gyroRaw[2];
         }
     }
 
     tmp[0] = gyro1[0];
     tmp[1] = gyro1[1];
     tmp[2] = gyro1[2];
-    /* re-orient gyro, negative value flips the sign */
-    for (i=0; i<3; i++)
-    {
+
+    // re-orient gyro, negative value flips the sign
+    for (i=0; i<3; i++)  {
         gyro1[i] = tmp[pConfig->gyro_orient[i]];
-        if (pConfig->gyro_orient[i+3])
+        if (pConfig->gyro_orient[i+3]) {
             gyro1[i] = -gyro1[i];
+        }
     }
 
-    /* mmri: apply gain and offset to acc
-    * if acc_gains = 0, then use acc calib matrix*/
-    if( pConfig->acc_gains[0] == 0 )
-    {
-        for (i=0; i<3; i++)
-        {
-            acc1[i] = pConfig->acc_calib_matrix[i][0]*( accRaw[0] - pConfig->acc_ofs[0] )
-                    + pConfig->acc_calib_matrix[i][1]*( accRaw[1] - pConfig->acc_ofs[1] )
-                    + pConfig->acc_calib_matrix[i][2]*( accRaw[2] - pConfig->acc_ofs[2] );
+    // apply gain and offset to acc, if first order, take the diagonal only
+    if (pConfig->acc_first_order) {
+        for (i=0; i<3; i++) {
+            acc1[i] = mpu.Ca[i][i] * (accRaw[i]- mpu.aofs[i]);
         }
     }
-    else
-    {
-        for (i=0; i<3; i++)
-        {
-            acc1[i] = pConfig->acc_gains[i]*(accRaw[i]-pConfig->acc_ofs[i]);
+    else {
+        for (i=0; i<3; i++) {
+            acc1[i] = mpu.Ca[i][0] * (accRaw[0] - mpu.aofs[0])
+                            + mpu.Ca[i][1] * (accRaw[1] - mpu.aofs[1])
+                            + mpu.Ca[i][2] * (accRaw[2] - mpu.aofs[2]);
         }
     }
-    
+
     tmp[0] = acc1[0];
     tmp[1] = acc1[1];
     tmp[2] = acc1[2];
-    /* re-orient accelerometer, negative value flips sign */
-    for (i=0; i<3; i++)
-    {
+    // re-orient accelerometer, negative value flips sign
+    for (i=0; i<3; i++) {
         acc1[i] = tmp[pConfig->acc_orient[i]];
-        if (pConfig->acc_orient[i+3])
+        if (pConfig->acc_orient[i+3]) {
             acc1[i] = -acc1[i];
+        }
     }
 
-
-    /* re-orient the entire flight controller, negative value flips the sign */
-    for (i=0; i<3; i++)
-    {
+    // re-orient the entire flight controller, negative value flips the sign
+    for (i=0; i<3; i++) {
         int index = pConfig->fcm_orient[i];
         hfc.acc[i]  = acc1[index];
         hfc.gyro[i] = gyro1[index];
-        if (pConfig->fcm_orient[i+3])
-        {
+
+        if (pConfig->fcm_orient[i+3]) {
             hfc.acc[i]  = -hfc.acc[i];
             hfc.gyro[i] = -hfc.gyro[i];
         }
     }
 
-    /* secondary gyro offset for fine drift removal */
-    for (i=0; i<3; i++)
-    {
+    // secondary gyro offset for fine drift removal
+    for (i=0; i<3; i++) {
         hfc.gyro[i] -= hfc.gyroOfs[i];
     }
 
-    /* low passed gyro averaged value for dynamic gyro calibration */
+    // low passed gyro averaged value for dynamic gyro calibration
     for (i=0; i<3; i++)
     {
         hfc.gyro_lp_disp[i] = (hfc.gyroFilt[i] + hfc.gyro_lp_disp[i]*4095)/4096;
@@ -4764,11 +4747,6 @@ void InitializeRuntimeData(void)
 	// Clear out the Runtime RAm copy of the config Data
 	memset(pRamConfigData, 0x00, sizeof(ConfigData));
 
-    if (pConfig->gyro_fixed_offsets) {
-        // TODO::SP: ?? need this?
-        //LoadGyroCalibData();
-    }
-
     hfc.PRstick_rate  = pConfig->PRstickRate / pConfig->Stick100range;
     hfc.PRstick_angle = pConfig->PRstickAngle /pConfig->Stick100range;
     hfc.YawStick_rate = pConfig->YawStickRate / pConfig->Stick100range;
@@ -4891,39 +4869,34 @@ void InitializeRuntimeData(void)
     hfc.rpm_ticks          = Ticks1();
     hfc.comp_calibrate = NO_COMP_CALIBRATE;
 
-    for (int i = 0; i < 3; i++) {
-        hfc.rw_cfg.gyro_ofs[i] = pConfig->gyro_ofs[i];
-    }
-
     GenerateSpeed2AngleLUT();
 
     // If there is a valid compass calibration, load it.
-    // otherwise use values from config.
+    // otherwise use defaults.
     const CompassCalibrationData *pCompass_cal = NULL;
 
     if (LoadCompassCalibration(&pCompass_cal) != 0) {
         memcpy(&hfc.compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
     }
     else {
-        // no valid calibration, use values from config
+        // no valid calibration, use defaults
         for (int i = 0; i < 3; i++) {
-            hfc.compass_cal.comp_ofs[i] = pConfig->comp_ofs[i];
+            hfc.compass_cal.comp_ofs[i] = 0;
         }
 
         for (int i = 0; i < 3; i++) {
-            hfc.compass_cal.comp_gains[i] = pConfig->comp_gains[i];
+            hfc.compass_cal.comp_gains[i] = 1;
         }
 
         for (int i = 0; i < 3; i++) {
-            hfc.compass_cal.compassMin[i] = pConfig->compassMin[i];
+            hfc.compass_cal.compassMin[i] = 9999;
         }
 
         for (int i = 0; i < 3; i++) {
-            hfc.compass_cal.compassMax[i] = pConfig->compassMax[i];
+            hfc.compass_cal.compassMax[i] = -9999;
         }
     }
 }
-
 
 /**
   * @brief  InitCanbusNodes.
@@ -5018,7 +4991,7 @@ int main()
 
         InitializeRuntimeData();
 
-        /* Configure CAN frequency to either 1Mhz or 500Khz, based on configuration */
+        // Configure CAN frequency to either 1Mhz or 500Khz, based on configuration
         int frequency = (pConfig->canbus_freq_high == 1) ? 1000000 : 500000;
         can.frequency(frequency);
         can.attach(can_handler);
@@ -5028,10 +5001,22 @@ int main()
         }
 
         if (init_ok) {
-            mpu.init(MPU6050_DLPF_BW_188, pConfig->imu_internal);
+            int mpu_init = 0;
+            if (pConfig->imu_internal) {
+                mpu_init = mpu.init(INTERNAL, MPU6050_DLPF_BW_188);
+            }
+            else {
+                mpu_init = mpu.init(EXTERNAL, MPU6050_DLPF_BW_188);
+            }
 
-            if (!mpu.is_ok()) {
-                myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
+            if (mpu_init == 1) {
+                if (!mpu.is_ok()) {
+                    myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
+                    init_ok = 0;
+                }
+            }
+            else {
+                myLcd.ShowError("Failed to Read IMU Cal\n", "IMU", "READ CAL", "FAILED");
                 init_ok = 0;
             }
         }

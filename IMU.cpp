@@ -951,3 +951,83 @@ float WrapPI(float delta)
 //    return delta;
 }
 
+// Following is matrix math functins (add, subtract, inverse, print, scalar multiply, matrix multiply, integrate
+
+void print_matrix3x3( double m[3][3] )
+{
+    int i;
+    for( i = 0; i < 3; i++)
+        printf("\t%f\t%f\t%f\r\n",m[i][0],m[i][1],m[i][2]);
+}
+
+void inverse_matrix3x3( double m[3][3] )
+{
+
+    double m_inv[3][3];
+
+    double det = m[0][0] * ( m[1][1] * m[2][2] - m[2][1] * m[1][2]) -
+                 m[0][1] * ( m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+                 m[0][2] * ( m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+
+    double invdet = 1 / det;
+
+    // calculate the inverse of matrix m
+    m_inv[0][0] = ( m[1][1] * m[2][2] - m[2][1] * m[1][2] ) * invdet;
+    m_inv[0][1] = ( m[0][2] * m[2][1] - m[0][1] * m[2][2] ) * invdet;
+    m_inv[0][2] = ( m[0][1] * m[1][2] - m[0][2] * m[1][1] ) * invdet;
+    m_inv[1][0] = ( m[1][2] * m[2][0] - m[1][0] * m[2][2] ) * invdet;
+    m_inv[1][1] = ( m[0][0] * m[2][2] - m[0][2] * m[2][0] ) * invdet;
+    m_inv[1][2] = ( m[1][0] * m[0][2] - m[0][0] * m[1][2] ) * invdet;
+    m_inv[2][0] = ( m[1][0] * m[2][1] - m[2][0] * m[1][1] ) * invdet;
+    m_inv[2][1] = ( m[2][0] * m[0][1] - m[0][0] * m[2][1] ) * invdet;
+    m_inv[2][2] = ( m[0][0] * m[1][1] - m[1][0] * m[0][1] ) * invdet;
+
+    memcpy(m, &m_inv, sizeof(m[0])*3);
+    return;
+}
+
+void add_matrix3x3( double m1[3][3], double m2[3][3], double m[3][3])
+{
+    for(int i = 0; i < 3; i++)
+        for(int j = 0; j < 3; j++)
+            m[i][j]=m1[i][j]+m2[i][j];
+    return;
+}
+
+void subtract_matrix3x3( double m1[3][3], double m2[3][3], double m[3][3])
+{
+    for(int i = 0; i < 3; i++)
+        for(int j = 0; j < 3; j++)
+            m[i][j]=m1[i][j]-m2[i][j];
+    return;
+}
+
+void scalar_mutliply3x3(double m[3][3], double scalar)
+{
+    for(int i = 0; i < 3; i++){
+        for(int j = 0; j < 3; j++){
+            m[i][j] *= scalar;
+        }
+    }
+}
+void multiply_matrix3x3( double m1[3][3], double m2[3][3], double m[3][3])
+{
+    int i, j, k;
+
+    for(i = 0; i < 3; i++){
+        for(j = 0; j < 3; j++){
+            m[i][j] = 0;
+            for(k = 0; k < 3; k++){
+                m[i][j] +=  m1[i][k] *  m2[k][j];
+            }
+        }
+    }
+}
+
+void integrate_matrix3x3(float data[3], float data_int[3], float dT)
+{
+    for(int i = 0; i < 3; i++){
+        data_int[i] += data[i] * dT;
+    }
+}
+

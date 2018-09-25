@@ -47,7 +47,7 @@ bool Streaming_Process(FlightControlData *hfc);
 
 void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
 
-void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig);
+//void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig);
 
 /* float32/float16 conversion
 ** largest +/-65504, smallest +/-6.10352e—6 */

@@ -78,7 +78,7 @@ int LoadConfiguration(const ConfigData **pConfig)
 }
 
 /**
-  * @brief  Return a pointer to comapss calibration Data held in Flash.
+  * @brief  Return a pointer to compass calibration Data held in Flash.
   * @param  **pCompass_cal: pointer to calibration Data in Flash
   * @retval -1 if Config Data mismatch version, 0 on Success
   */
@@ -200,7 +200,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
 
-    // Recalcuate checksum on file
+    // Recalculate checksum on file
     unsigned char *pData = (unsigned char *)pConfigData;
     pData += sizeof(ConfigurationDataHeader);
     pConfigData->header.checksum = crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)));

@@ -49,4 +49,13 @@ float Plane2GroundU(float plane[3], float PRY[3]);
 float WrapPI(float delta);
 float Wrap180(float delta);
 
+// matrix math
+void print_matrix3x3( double m[3][3] );
+void inverse_matrix3x3( double m[3][3] );
+void add_matrix3x3( double m1[3][3], double m2[3][3], double m[3][3]);
+void subtract_matrix3x3( double m1[3][3], double m2[3][3], double m[3][3]);
+void scalar_mutliply3x3(double m[3][3], double scalar);
+void multiply_matrix3x3( double m1[3][3], double m2[3][3], double m[3][3]);
+void integrate_matrix3x3(float data[3], float data_int[3], float dT);
+
 #endif
