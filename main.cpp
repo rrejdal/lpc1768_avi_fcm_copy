@@ -4054,8 +4054,9 @@ void do_control()
 
     ProcessStats();
 
-    if (pConfig->LidarFromServo == 0) {
-        // Note: if lidar data from servo, its processed directly from can_handler.
+    // TODO::SP: Assumption here is that lidar not from servo and not from power,
+    // then must be onboard FCM. Should be better handled!
+    if ((pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0)) {
         Lidar_Process(&hfc);
     }
 
@@ -4665,7 +4666,7 @@ int ConfigureCanPowerNodes(int num_power_nodes)
 
         can_tx_message.len = 2;
         can_tx_message.data[0] = PWM_CHANNEL_1_8;
-        can_tx_message.data[1] = LIDAR_ACTIVE;
+        can_tx_message.data[1] = (pConfig->LidarFromPowerNode) ? LIDAR_ACTIVE : 0;
 
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
                                                 (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_PWR_CFG);
