@@ -798,6 +798,8 @@ typedef struct ConfigurationData {
 
     float V2Energy[36];
 
+    int force_gyro_acc_defaults;
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 

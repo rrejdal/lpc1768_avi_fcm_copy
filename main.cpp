@@ -2960,13 +2960,11 @@ static void SensorsRescale(float accRaw[3], float gyroRaw[3])
     float tmp[3] = {0}; // temporary variable, used for calibration
 
     // recalculate gyro drifts based on temperature data
-    if ((hfc.print_counter & 0x3ff) ==3 ) {
-        float t = hfc.gyro_temp_lp;
-        hfc.gyro_ofs[0] = t*( t*mpu.gyroP_temp_coeffs[0] + mpu.gyroP_temp_coeffs[1] +  mpu.gyroP_temp_coeffs[2]);
-        hfc.gyro_ofs[1] = t*( t*mpu.gyroR_temp_coeffs[0] + mpu.gyroR_temp_coeffs[1] +  mpu.gyroR_temp_coeffs[2]);
-        hfc.gyro_ofs[2] = t*( t*mpu.gyroY_temp_coeffs[0] + mpu.gyroY_temp_coeffs[1] +  mpu.gyroY_temp_coeffs[2]);
-    }
-  
+    float t = hfc.gyro_temp_lp;
+    hfc.gyro_ofs[0] = t*( t*mpu.gyroP_temp_coeffs[0] + mpu.gyroP_temp_coeffs[1] ) +  mpu.gyroP_temp_coeffs[2];
+    hfc.gyro_ofs[1] = t*( t*mpu.gyroR_temp_coeffs[0] + mpu.gyroR_temp_coeffs[1] ) +  mpu.gyroR_temp_coeffs[2];
+    hfc.gyro_ofs[2] = t*( t*mpu.gyroY_temp_coeffs[0] + mpu.gyroY_temp_coeffs[1] ) +  mpu.gyroY_temp_coeffs[2];
+
     // remove gyro drift
     for (i=0; i<3; i++) {
         gyroRaw[i] -= hfc.gyro_ofs[i];
@@ -5003,10 +5001,10 @@ int main()
         if (init_ok) {
             int mpu_init = 0;
             if (pConfig->imu_internal) {
-                mpu_init = mpu.init(INTERNAL, MPU6050_DLPF_BW_188);
+                mpu_init = mpu.init(INTERNAL, MPU6050_DLPF_BW_188, pConfig->force_gyro_acc_defaults);
             }
             else {
-                mpu_init = mpu.init(EXTERNAL, MPU6050_DLPF_BW_188);
+                mpu_init = mpu.init(EXTERNAL, MPU6050_DLPF_BW_188, pConfig->force_gyro_acc_defaults);
             }
 
             if (mpu_init == 1) {
@@ -5016,8 +5014,9 @@ int main()
                 }
             }
             else {
-                myLcd.ShowError("Failed to Read IMU Cal\n", "IMU", "READ CAL", "FAILED");
-                init_ok = 0;
+                // Continue on, but using defaults
+                // Flash Turn on LED perhaps..
+                //myLcd.ShowError("Failed to Read IMU Cal\n", "WARNING", "IMU READ CAL", "FAILED");
             }
         }
 

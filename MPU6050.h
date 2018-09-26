@@ -63,8 +63,26 @@ enum IMU_TYPE {
     EXTERNAL    = 1
 };
 
-/** Interface library for the MPU-6050 */
+// NOTE::SP: This data is taken from IMU X4-02 Calibration and is used for TESTING
+// only
+//#define IMU_X4_02
 
+#ifdef IMU_X4_02
+static double dflt_gyroP_temp_coeffs[] = { -0.0001494521, -0.07258565,  1.118024  };
+static double dflt_gyroR_temp_coeffs[] = {  4.798885e-05,  0.0251157,  -0.8757614 };
+static double dflt_gyroY_temp_coeffs[] = {  0.0003652208, -0.00113438, -2.332723  };
+static double dflt_aofs[] = { 0.0302385, 0.006651, -0.025128 };
+
+static double dflt_acc_calib_matrix[3][3] = { {0.9955115, -0.009184, -0.0071185},
+                                            {0.0054765,  0.99369,  -0.005709},
+                                            {-0.001209, -0.016995,  0.983033} };
+
+static double dflt_gyr_calib_matrix[3][3] = { {0.9931725, -0.0100325, -0.0025095},
+                                            {0.0106015,  1.0072235,  0.0073105},
+                                            {0.003368, 0.013248,   0.9936395} };
+#endif
+
+/** Interface library for the MPU-6050 */
 class MPU6050
 {
     public:
@@ -75,7 +93,7 @@ class MPU6050
         MPU6050(I2Ci *m_i2c, int mux_reg_setting, int m_gyro_scale, int m_acc_scale);
         
         bool is_ok();
-        int init(IMU_TYPE type, char lp);
+        int init(IMU_TYPE type, char lp, bool use_defaults = false);
         bool SetGyroScale(char g_scale);
         bool SetAccScale(char a_scale);
         void readMotion7_start();
@@ -91,6 +109,8 @@ class MPU6050
         uint8_t getIntStatus();
 
         void determine_orient();
+
+        void ForceCalData();
 
         // Helper functions for Accelerometer Calibration
         void write_accel_data();

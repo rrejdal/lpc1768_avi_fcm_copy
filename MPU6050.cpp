@@ -85,17 +85,17 @@ bool MPU6050::is_ok()
     return false;
 }
 
-int MPU6050::init(IMU_TYPE type, char lp)
+int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
 {
-    EEPROM_TYPE ee_type;
+    int result = 1;
+
+    // Assume external IMU by default.
+    EEPROM_TYPE ee_type = IMU_EEPROM;
+    i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
 
     if (type == INTERNAL) {
         i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
         ee_type = FCM_EEPROM;
-    }
-    else if (type == EXTERNAL) {
-        i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
-        ee_type = IMU_EEPROM;
     }
 
     eeprom = new EEPROM(i2c, ee_type);
@@ -105,8 +105,10 @@ int MPU6050::init(IMU_TYPE type, char lp)
         wait_ms(50);
     }
 
-    if (read_eeprom() != 0) {
-        return -1;
+    if (!use_defaults) {
+        if (read_eeprom() != 0) {
+            result = -1;
+        }
     }
 
     /* clock source and disable sleep */
@@ -124,7 +126,27 @@ int MPU6050::init(IMU_TYPE type, char lp)
     /* enable secondary I2C for HMC5883L */
     i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
 
-    return 1;
+    return result;
+}
+
+void MPU6050::ForceCalData()
+{
+    serialNum = 4;
+
+#ifdef IMU_X4_02
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j<3; j++) {
+            Ca[i][j] = dflt_acc_calib_matrix[i][j];
+            Cg[i][j] = dflt_gyr_calib_matrix[i][j];
+        }
+
+        aofs[i] = dflt_aofs[i];
+
+        gyroP_temp_coeffs[i] = dflt_gyroP_temp_coeffs[i];
+        gyroR_temp_coeffs[i] = dflt_gyroR_temp_coeffs[i];
+        gyroY_temp_coeffs[i] = dflt_gyroY_temp_coeffs[i];
+    }
+#endif
 }
 
 int MPU6050::read_eeprom()
@@ -153,6 +175,7 @@ int MPU6050::read_eeprom()
         }
 
         aofs[i] = eeprom->data.acc_offsets[i];
+
         gyroP_temp_coeffs[i] = eeprom->data.gyroP_temp_coeffs[i];
         gyroR_temp_coeffs[i] = eeprom->data.gyroR_temp_coeffs[i];
         gyroY_temp_coeffs[i] = eeprom->data.gyroY_temp_coeffs[i];
