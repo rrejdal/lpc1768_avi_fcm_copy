@@ -19,6 +19,7 @@
 #include "utils.h"
 #include <math.h>
 #include <stdio.h>
+#include "defines.h"
 
 #define PITCH   0
 #define ROLL    1
@@ -701,7 +702,7 @@ void LP4_Init(T_LP4 *lp, byte freq)
         if (freq == BW4freq[i])
             lp->coeffs = BW4coeffs[i];
     if (lp->coeffs==NULL)
-        printf("LP4_Init: frequency %d is not defined\n", freq);
+        debug_print("LP4_Init: frequency %d is not defined\n", freq);
 }
 
 #if 0
@@ -957,7 +958,7 @@ void print_matrix3x3( double m[3][3] )
 {
     int i;
     for( i = 0; i < 3; i++)
-        printf("\t%f\t%f\t%f\r\n",m[i][0],m[i][1],m[i][2]);
+        debug_print("\t%f\t%f\t%f\r\n",m[i][0],m[i][1],m[i][2]);
 }
 
 void inverse_matrix3x3( double m[3][3] )

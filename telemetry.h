@@ -92,8 +92,6 @@ private:
 
     char PreFlightChecks(void);
     int FindNearestLandingSite(void);
-
-    void ResetMBED(void);
 };
 
 static const unsigned int crc32_table[256] =

@@ -331,8 +331,8 @@ void I2Ci::IRQHandler( volatile I2CBuffer *Buffer, LPC_I2C_TypeDef *I2CMODULE)
     //Depending on the status register it determines next action, see datasheet
     //This is also pretty much copy pasting the datasheet
     //General options
-//    printf("%x ", I2CMODULE->I2STAT);
-//    printf(" ");
+//    debug_print("%x ", I2CMODULE->I2STAT);
+//    debug_print(" ");
 //    wait_us(1);
     switch (I2CMODULE->I2STAT)
     {
@@ -488,7 +488,7 @@ bool I2Ci::addBuffer(I2CData Data, LPC_I2C_TypeDef *I2CMODULE)
         //If queue was empty, set I2C settings, start conversion
         if (Buffer->queue==1)
         {
-//          printf("addBuffer %d %d %d %d %d  ", Data.address, Data.data[0], Data.length, Data.repeated, Data.status[0]);
+//          debug_print("addBuffer %d %d %d %d %d  ", Data.address, Data.data[0], Data.length, Data.repeated, Data.status[0]);
             startBuffer(I2CMODULE);
         }
 

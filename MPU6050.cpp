@@ -2,6 +2,7 @@
 #include "MPU6050.h"
 #include "IMU.h"
 #include "utils.h"
+#include "defines.h"
 
 static const float gyro_scale_factor[4] = {250.0f/32768.0f, 500.0f/32768.0f, 1000.0f/32768.0f, 2000.0f/32768.0f};
 static const float acc_scale_factor[4]  = {  2.0f/32768.0f,   4.0f/32768.0f,    8.0f/32768.0f,   16.0f/32768.0f};
@@ -81,7 +82,7 @@ bool MPU6050::is_ok()
         return true;
     }
 
-    //printf("Unrecognized Who Am I: %x\r\n", r);
+    debug_print("Unrecognized Who Am I: %x\r\n", r);
     return false;
 }
 
@@ -96,6 +97,13 @@ int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
     if (type == INTERNAL) {
         i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
         ee_type = FCM_EEPROM;
+    }
+
+    // Confirm we can talk to IMU and its who we expect it to be
+    int r = i2c->read_reg_blocking(i2c_address, MPU6050_WHO_AM_I);
+    if (r != WHO_AM_I_VALUE_6050) {
+        debug_print("Unrecognized Who Am I: %x\r\n", r);
+        return -2;
     }
 
     eeprom = new EEPROM(i2c, ee_type);
@@ -159,7 +167,7 @@ int MPU6050::read_eeprom()
         return -1;
     }
 
-    //printf("eeprom read status = %d\r\n",status);
+    debug_print("eeprom read status = %d\r\n",status);
     eeprom->getDate();
 
     serialNum = eeprom->data.serial_num;
@@ -300,7 +308,7 @@ bool MPU6050::readMotion7_blocking(float acc[3], float gyro[3], float *temp)
 
     if (!readMotion7_finish(a, g, &t))
     {
-    	//printf("readMotion7_blocking - I AM FALSE\r\n");
+    	//debug_print("readMotion7_blocking - I AM FALSE\r\n");
         return false;
     }
     acc[0]  = a[0]*acc_scale_factor[acc_scale];
@@ -329,7 +337,7 @@ bool MPU6050::readMotion7_blocking(){
 
     if (!readMotion7_finish(a, g, &t))
     {
-    	//printf("I AM FALSE");
+        //debug_print("I AM FALSE");
     	return false;
     }
 
@@ -491,32 +499,32 @@ void MPU6050::get_gyro_calib_data()
 {
     double m[3][3] = {0};
 
-    printf("\r\n\r\n");
+    debug_print("\r\n\r\n");
 
-    printf("\tOMEGA = \r\n");
+    debug_print("\tOMEGA = \r\n");
     print_matrix3x3(omega);
-    printf("\tOMEGA_0 = \r\n");
+    debug_print("\tOMEGA_0 = \r\n");
     print_matrix3x3(omega_0);
-    printf("\tOMEGA_S = \r\n");
+    debug_print("\tOMEGA_S = \r\n");
     print_matrix3x3(omega_s);
 
     subtract_matrix3x3(omega_s, omega_0, m);
-    printf("\tSubtract: OMEGA_S - OMEGA_0\r\n");
+    debug_print("\tSubtract: OMEGA_S - OMEGA_0\r\n");
     print_matrix3x3(m);
 
     inverse_matrix3x3(m);
-    printf("\tInverse Matrix: (OMEGA_S - OMEGA_0)^-1\r\n");
+    debug_print("\tInverse Matrix: (OMEGA_S - OMEGA_0)^-1\r\n");
     print_matrix3x3(m);
 
     multiply_matrix3x3(omega,m,Cg);
-    printf("\tCg = OMEGA*(OMEGA_S - OMEGA_0)^-1: \r\n");
+    debug_print("\tCg = OMEGA*(OMEGA_S - OMEGA_0)^-1: \r\n");
     print_matrix3x3(Cg);
 
-    printf("\tGyro offsets = [");
+    debug_print("\tGyro offsets = [");
     for(int i = 0; i < 3; i++) {
-        printf(" %f ",gofs[i]);
+        debug_print(" %f ",gofs[i]);
     }
-    printf("]\r\n\r\n\r\n");
+    debug_print("]\r\n\r\n\r\n");
 
 }
 
@@ -568,11 +576,11 @@ void MPU6050::determine_orient()
 	}
 
 
-    //printf("ROUNDED ORIENT: ");
+    //debug_print("ROUNDED ORIENT: ");
 	//for(int i = 0; i<3; i++){
-	//	printf(" %d", round_orient[i]);
+	//	debug_print(" %d", round_orient[i]);
 	//}
-	//printf("\r\n");
+	//debug_print("\r\n");
 
 	if( (round_orient[0] == 1) &&
 		(round_orient[1] == 0) &&
@@ -616,7 +624,7 @@ void MPU6050::determine_orient()
 	}
 
 	else {
-		//printf("ERROR: UNKNOWN ROUND_ORIENT\r\n");
+		//debug_print("ERROR: UNKNOWN ROUND_ORIENT\r\n");
 	}
 
 	return;

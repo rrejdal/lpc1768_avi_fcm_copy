@@ -30,24 +30,9 @@ void perf_t1();
 void perf_t2();
 void perf_printf();
 
-char LoadConfig_Float(const char *name, float *value, int N);
-char LoadConfig_Int(const char *name, int *value, int N);
-char LoadConfig_Byte(const char *name, unsigned char *value, int N);
-char LoadConfig_Char(const char *name, char *value, int N);
-char Config_Open(char *filename);
-void Config_Close();
-void SaveConfig_Float(FILE *fp, const char *name, float *value, int N);
-void SaveConfig_Int(FILE *fp, const char *name, int *value, int N);
-void SaveConfig_Byte(FILE *fp, const char *name, unsigned char *value, int N);
-
-void GetLogFileName(char *filename);
-void LoadGyroCalibData(float ofs[3]);
-
 bool Streaming_Process(FlightControlData *hfc);
 
 void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
-
-//void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig);
 
 /* float32/float16 conversion
 ** largest +/-65504, smallest +/-6.10352e—6 */

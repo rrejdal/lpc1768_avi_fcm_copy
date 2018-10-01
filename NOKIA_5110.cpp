@@ -6,6 +6,7 @@
 //  Desc: Supporting code for the NokiaLcd class
  
 #include "NOKIA_5110.h"
+#include "defines.h"
 
 // Command Instructions
 //       H = 0
@@ -369,9 +370,9 @@ void NokiaLcd::ShowSplash(const char *l1, const char *l2, const char *l3)
 
 void NokiaLcd::ShowError(const char *str_cons, const char *l1, const char *l2, const char *l3)
 {
-    printf("\r\n=== ERROR ========================================\r\n");
-    printf(str_cons);
-    printf("\r\n=== ERROR ========================================\r\n");
+    debug_print("\r\n=== ERROR ========================================\r\n");
+    debug_print(str_cons);
+    debug_print("\r\n=== ERROR ========================================\r\n");
     SetLine(3, (char*)l1, false);
     SetLine(4, (char*)l2, false);
     SetLine(5, (char*)l3, false);

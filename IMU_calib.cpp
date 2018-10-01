@@ -297,7 +297,7 @@ void gyro_temp_calib(MPU6050* mpu,  NokiaLcd* myLcd,
 	/* Set period for current control servo to 1s*/
 	current_ctrl.period_us(1000000);
 
-	/* servoR is used to control the TEMP_CHAMBER door
+	/* FCM_SERVO_CH2 is used to control the TEMP_CHAMBER door
 	 * - OPEN when the IMU is cooling, decay flag is 1
 	 * - CLOSE when IMU is heating, decay flag is 0
 	 * - period is 300 HZ = 3333 us
@@ -575,7 +575,7 @@ int imu_calib_helper(MPU6050* mpu, NokiaLcd* myLcd, DigitalIn* btnEnter, Digital
 	 * that is, Ca, aofs, Cg and gofs are all set*/
 	if( accel_done == 0 )
 	{
-		for(i = 2; i<=4; i++)  //<--NOTE: NOT NORMAL INDEXING!!!!
+		for(i = 2; i<=4; i++)
 		{
 			if( Load_Double("AccXGains", Ca[0], 3, accel_files[i])
 			 && Load_Double("AccYGains", Ca[1], 3, accel_files[i])
@@ -589,7 +589,7 @@ int imu_calib_helper(MPU6050* mpu, NokiaLcd* myLcd, DigitalIn* btnEnter, Digital
 	}
 	if( gyro_done == 0 )
 	{
-		for(i = 2; i<=4; i++)  //<--NOTE: NOT NORMAL INDEXING!!!!
+		for(i = 2; i<=4; i++)
 		{
 			if( Load_Double("GyroXGains", Cg[0], 3, gyro_files[i])
 			 && Load_Double("GyroYGains", Cg[1], 3, gyro_files[i])

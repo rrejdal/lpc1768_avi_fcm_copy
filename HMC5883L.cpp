@@ -194,9 +194,9 @@ bool HMC5883L::Init(const ConfigData *pConfig)
         wait(0.006f);//wait 6ms as told in the datasheet
 
         chip = CHIP_HMC5883L;
-        printf("Compass HMC5883L initialized\r\n");
-        printf("\t - output Data Rate = %f,  Averaging %d Samples\r\n",outputRate,numAvgs);
-        printf("\t - HMC5883L ConfigA REG = %d\r\n",configA);
+        debug_print("Compass HMC5883L initialized\r\n");
+        debug_print("\t - output Data Rate = %f,  Averaging %d Samples\r\n",outputRate,numAvgs);
+        debug_print("\t - HMC5883L ConfigA REG = %d\r\n",configA);
         return true;
     }
 
@@ -216,13 +216,13 @@ bool HMC5883L::Init(const ConfigData *pConfig)
         wait(0.01f);
         asaXYZ[2] = i2c->read_reg_blocking(i2c_address, AK8963_ASAZ);   // Reading ROM adjustment values
         wait(0.01f);
-		//printf("asaXYZ(XYZ): %6.3f %6.3f %6.3f\r\n", (float)asaXYZ[0], (float)asaXYZ[1], (float)asaXYZ[2]);
+		//debug_print("asaXYZ(XYZ): %6.3f %6.3f %6.3f\r\n", (float)asaXYZ[0], (float)asaXYZ[1], (float)asaXYZ[2]);
 
 		float mRes = 10.*4912./8190.; // Proper scale to return milliGauss
 		magGainXYZ[0] = ((((float)asaXYZ[0] - 128) / 256) + 1) * mRes;
 		magGainXYZ[1] = ((((float)asaXYZ[1] - 128) / 256) + 1) * mRes;
 		magGainXYZ[2] = ((((float)asaXYZ[2] - 128) / 256) + 1) * mRes;
-		//printf("magGainXYZ(XYZ): %6.3f %6.3f %6.3f\r\n", magGainXYZ[0], magGainXYZ[1], magGainXYZ[2]);
+		//debug_print("magGainXYZ(XYZ): %6.3f %6.3f %6.3f\r\n", magGainXYZ[0], magGainXYZ[1], magGainXYZ[2]);
 
         i2c->write_reg_blocking(i2c_address, AK8963_CNTL, CNTL1_MODE_POWER_DOWN); // Power down magnetometer
         wait(0.01f);
@@ -237,11 +237,11 @@ bool HMC5883L::Init(const ConfigData *pConfig)
         interval = 1/15.0f;
         duration = 0;
         chip = CHIP_AK8963;
-        printf("Compass AK8963 initialized\r\n");
+        debug_print("Compass AK8963 initialized\r\n");
         return true;
     }
 
-    printf("Compass not responding %x %x %x\r\n", id[0], id[1], id[2]);
+    debug_print("Compass not responding %x %x %x\r\n", id[0], id[1], id[2]);
     return false;
 }
 
@@ -354,7 +354,7 @@ bool HMC5883L::getRawValues(float dT)
         dataXYZ[COMP_X] = int16_t((raw_data[2] << 8) | raw_data[1]) * magGainXYZ[COMP_X];
         dataXYZ[COMP_Y] = int16_t((raw_data[4] << 8) | raw_data[3]) * magGainXYZ[COMP_Y];
         dataXYZ[COMP_Z] = int16_t((raw_data[6] << 8) | raw_data[5]) * magGainXYZ[COMP_Z];
-        //printf("dataXYZ(XYZ): %10d %10d %10d\r\n", dataXYZ[0], dataXYZ[1], dataXYZ[2]);
+        //debug_print("dataXYZ(XYZ): %10d %10d %10d\r\n", dataXYZ[0], dataXYZ[1], dataXYZ[2]);
     }
     return true;
 }
@@ -369,8 +369,8 @@ float HMC5883L::GetHeadingDeg(const unsigned char comp_orient[6], const float of
     float compENU[3];
     float PRY[3] = {pitch, roll, 0};
 
-	//printf("Compas_data(XYZ): %10d %10d %10d\r\n", dataXYZ[0], dataXYZ[1], dataXYZ[2]);
-	//printf("magGain(XYZ): %6.3f %6.3f %6.3f\r\n", magGainXYZ[0], magGainXYZ[1], magGainXYZ[2]);
+	//debug_print("Compas_data(XYZ): %10d %10d %10d\r\n", dataXYZ[0], dataXYZ[1], dataXYZ[2]);
+	//debug_print("magGain(XYZ): %6.3f %6.3f %6.3f\r\n", magGainXYZ[0], magGainXYZ[1], magGainXYZ[2]);
     
     /* apply calibration */
     /* mmri: apply gain and offset to acc

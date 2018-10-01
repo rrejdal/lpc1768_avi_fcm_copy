@@ -1,6 +1,7 @@
 #include "PID.h"
 #include "IMU.h"
 #include <math.h>
+#include "defines.h"
 
 #define max(a,b) ((a)>(b) ? (a) : (b))
 #define min(a,b) ((a)<(b) ? (a) : (b))
@@ -229,7 +230,7 @@ int PID_temp(T_PID *pid, float temp, float dT, int throttle_width)
 
 	out = Pout + Iout + Dout;
 
-//	printf(" Pout=%f Iout=%f Dout=%f out=%d\r\n",Pout,Iout,Dout,out);
+//	debug_print(" Pout=%f Iout=%f Dout=%f out=%d\r\n",Pout,Iout,Dout,out);
 
 	out += throttle_width;
 

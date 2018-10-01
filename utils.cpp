@@ -3,6 +3,7 @@
 #include "defines.h"
 #include "HMC5883L.h"
 #include "mymath.h"
+#include "defines.h"
 
 static unsigned int ticks;
 static unsigned int ticks_base=0;    // counts how many times SysTick wrapped around
@@ -68,7 +69,7 @@ void perf_printf()
 {
     if (max_delta>0)
     {
-        printf("Avg %5d Min %5d Max %5dus\n", (avg_delta+48)/96, (min_delta+48)/96, (max_delta+48)/96);
+        usb_print("Avg %5d Min %5d Max %5dus\n", (avg_delta+48)/96, (min_delta+48)/96, (max_delta+48)/96);
         min_delta = 1<<30;
         max_delta = 0;
     }
@@ -156,292 +157,6 @@ void Ticks_wait(unsigned int us)
     if (us>87000)
         us = 87000;
     while (Ticks2us(ticks1)<us);
-}
-
-static char *config_mem = NULL;
-static int   config_size = 0;
-#define MAX_LINE    200
-
-/* copies config file line into str, which starts with string name */
-static char LoadConfig_FindLine(const char *name, char *str)
-{
-    if (config_mem && config_size>0)
-    {
-        char *pstr = str;
-        int ch = 0;
-        int len = strlen(name);
-        int i;
-
-        for (i=0; i<config_size; i++)
-        {
-            if ((pstr-str)>=MAX_LINE)
-            {
-                printf("Config line too long, max %d\r\n", MAX_LINE);
-                while(1);
-            }
-            ch = config_mem[i];
-            if (ch==0xa)
-            {
-                /* complete line */
-                *pstr++ = 0;
-                if (!strncmp(name, str, len))
-                {
-                    /* found the line */
-                    return 1;
-                }
-                pstr = str;
-            }
-            else
-            if (ch!=0xd)
-                *pstr++ = ch;
-        }
-    }
-    else
-    {
-        FILE *fp = fopen("/local/config.txt", "r");
-        if (fp)
-        {
-            char *pstr = str;
-            int ch = 0;
-            char eof = 0;
-            int len = strlen(name);
-
-            while (!eof)
-            {
-                ch = getc(fp);
-                if (ch==EOF)
-                {
-                  ch = 0xa;
-                  eof = 1;
-                }
-                if (ch==0xa)
-                {
-                    /* complete line */
-                    *pstr++ = 0;
-                    if (!strncmp(name, str, len))
-                    {
-                        /* found the line */
-                        fclose(fp);
-                        return 1;
-                    }
-                    pstr = str;
-                }
-                else
-                if (ch!=0xd)
-                    *pstr++ = ch;
-            }
-            fclose(fp);
-        }
-    }
-    printf("===== Did not find %s =====\r\n", name);
-    return 0;
-}
-
-static char *FindNextItem(char *pstr)
-{
-    while (*pstr)
-    {
-        if (*pstr==' ' || *pstr=='\t')
-            break;
-        pstr++;
-
-    }
-    while (*pstr)
-    {
-        if (*pstr!=' ' && *pstr!='\t')
-            break;
-        pstr++;
-
-    }
-    return pstr;
-}
-
-char LoadConfig_Float(const char *name, float *value, int N)
-{
-    char str[MAX_LINE];
-    char *pstr = str;
-    if (LoadConfig_FindLine(name, str))
-    {
-        char str1[64];
-        int i;
-        sscanf(pstr, "%s", str1);
-        printf("%s\t", str1);
-        pstr = FindNextItem(pstr);
-        for (i=0; i<N; i++)
-        {
-            sscanf(pstr, "%f", value+i);
-            printf("%8.4f\t", value[i]);
-            pstr = FindNextItem(pstr);
-        }
-        printf("\r\n");
-        return 1;
-    }
-    return 0;
-}
-
-char LoadConfig_Int(const char *name, int *value, int N)
-{
-    char str[MAX_LINE];
-    char *pstr = str;
-    if (LoadConfig_FindLine(name, str))
-    {
-        char str1[64];
-        int i;
-        sscanf(pstr, "%s", str1);
-        printf("%s\t", str1);
-        pstr = FindNextItem(pstr);
-        for (i=0; i<N; i++)
-        {
-            sscanf(pstr, "%d", value+i);
-            printf("%8d\t", value[i]);
-            pstr = FindNextItem(pstr);
-        }
-        printf("\r\n");
-        return 1;
-    }
-    return 0;
-}
-
-char LoadConfig_Byte(const char *name, unsigned char *value, int N)
-{
-    char str[MAX_LINE];
-    char *pstr = str;
-    if (LoadConfig_FindLine(name, str))
-    {
-        char str1[64];
-        int i;
-        sscanf(pstr, "%s", str1);
-        printf("%s\t", str1);
-        pstr = FindNextItem(pstr);
-        for (i=0; i<N; i++)
-        {
-            int v;
-            sscanf(pstr, "%d", &v);
-            printf("%8d\t", v);
-            value[i] = (unsigned char)v;
-            pstr = FindNextItem(pstr);
-        }
-        printf("\r\n");
-        return 1;
-    }
-    return 0;
-}
-
-char LoadConfig_Char(const char *name, char *value, int N)
-{
-    char str[MAX_LINE];
-    char *pstr = str;
-    if (LoadConfig_FindLine(name, str))
-    {
-        char str1[64];
-        int i;
-        sscanf(pstr, "%s", str1);
-        printf("%s\t", str1);
-        pstr = FindNextItem(pstr);
-        for (i=0; i<N; i++)
-        {
-            int v;
-            sscanf(pstr, "%d", &v);
-            printf("%8d\t", v);
-            value[i] = (char)v;
-            pstr = FindNextItem(pstr);
-        }
-        printf("\r\n");
-        return 1;
-    }
-    return 0;
-}
-
-void GetLogFileName(char *filename)
-{
-    int i;
-    for (i=0; i<100; i++)
-    {
-        sPRINTd(filename, (char*)"/local/log%02d.txt", i);
-        FILE *fp = fopen(filename, "r");
-        /* this one does not exist, so use it */
-        if (!fp)
-            return;
-        fclose(fp);
-    }
-}
-
-char Config_Open(char *filename)
-{
-    int c=0;
-    FILE *fp = fopen(filename, "r");
-    if (!fp)
-        return false;
-    config_size = 0;
-    while (1)
-    {
-        c = getc(fp);
-        if (c==EOF)
-            break;
-        config_size++;
-    }
-    printf("Config file size=%d\r\n", config_size);
-    fclose(fp);
-    config_size++;
-    config_mem = (char*)malloc(config_size);
-    if (!config_mem)
-    {
-        printf("Failed to malloc config\n");
-        while(1);
-    }
-
-    fp = fopen(filename, "r");
-    fread(config_mem, 1, config_size, fp);
-    config_mem[config_size-1] = 0xa;
-    fclose(fp);
-
-    printf("Config file opened\r\n");
-    return true;
-}
-
-void Config_Close()
-{
-    if (config_mem)
-        free(config_mem);
-    config_mem=NULL;
-}
-
-void SaveConfig_Float(FILE *fp, const char *name, float *value, int N)
-{
-    int i;
-    fprintf(fp, "%s", name);
-    for (i=0; i<N; i++)
-        fprintf(fp, "\t%f", value[i]);
-    fprintf(fp, "\n");
-}
-
-void SaveConfig_Int(FILE *fp, const char *name, int *value, int N)
-{
-    int i;
-    fprintf(fp, "%s", name);
-    for (i=0; i<N; i++)
-        fprintf(fp, "\t%d", value[i]);
-    fprintf(fp, "\n");
-}
-
-void SaveConfig_Byte(FILE *fp, const char *name, unsigned char *value, int N)
-{
-    int i;
-    fprintf(fp, "%s", name);
-    for (i=0; i<N; i++)
-        fprintf(fp, "\t%d", value[i]);
-    fprintf(fp, "\n");
-}
-
-void LoadGyroCalibData(float ofs[3])
-{
-    FILE *fp = fopen("/local/gyro_cal.txt", "r");
-    if (fp)
-    {
-        float temp;
-        fscanf(fp, "%f %f %f %f\n", &temp, &ofs[0], &ofs[1], &ofs[2]);
-        fclose(fp);
-    }
 }
 
 union u32
@@ -693,10 +408,10 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
         int Tt = hfc->profile_period;
         float dC = hfc->profile_delta*0.001f*pConfig->Stick100range;
         
-//        printf("%d %d %d %4.3f\n", t, Td, Tt, dC);
+//        debug_print("%d %d %d %4.3f\n", t, Td, Tt, dC);
         if (t>(Td+5*Tt))        // test complete
         {
-//            printf("profiling finish\r\n");
+//            debug_print("profiling finish\r\n");
             hfc->profile_mode = PROFILING_FINISH;
             //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
             return;
@@ -714,7 +429,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
         for (i=0; i<5; i++)
             if (ABS(hfc->ctrl_initial[i] - hfc->ctrl_out[RAW][i]) > AUTO_PROF_TERMINATE_THRS)
             {
-//                printf("Profiling terminated\r\n");
+//                debug_print("Profiling terminated\r\n");
                 hfc->profile_mode = PROFILING_OFF;
                 hfc->streaming_enable = false;
                 delta = 0;
@@ -732,67 +447,6 @@ void GyroCalibDynamic(FlightControlData *hfc)
     for (i=0; i<3; i++)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
-
-#if 0
-// TODO::SP: This is not called from anywhere, removing...
-void CalibrateSensors(FlightControlData *hfc, float gB[3], ConfigData *pConfig)
-{
-    int i;
-    //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-    
-    if (!hfc->calibrate)
-        return;
-
-    /* when gyro temp curve is enabled, use secondary offsets to eliminate the drift */
-    if (!pConfig->gyro_fixed_offsets)
-    {
-        GyroCalibDynamic(hfc);
-
-        printf("= Calibrated: ");
-        printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", hfc->gyroOfs[0], hfc->gyroOfs[1], hfc->gyroOfs[2], hfc->gyro_temp_lp);
-        hfc->calibrate = 0;
-        return;
-    }
-
-    /* in fixed gyro temperature compensation mode, average the raw gyro values and use them as offsets */
-    if (hfc->calibrate==CALIBRATE_SAMPLES)
-    {
-      for (i=0; i<3; i++) hfc->calib_gyro_avg[i]  = gB[i];
-      hfc->calib_count=1;
-    }
-    else
-    {
-      for (i=0; i<3; i++) hfc->calib_gyro_avg[i]  += gB[i];
-      hfc->calib_count++;
-      if ((hfc->calib_count & 0x7f)==0)
-      {
-        printf("%2.3f %2.3f %2.3f\r\n", hfc->calib_gyro_avg[0]/hfc->calib_count, hfc->calib_gyro_avg[1]/hfc->calib_count, hfc->calib_gyro_avg[2]/hfc->calib_count);
-        //for (i=0; i<4; i++) LEDs[i]->write(!LEDs[i]->read());
-      }
-    }
-    hfc->calibrate--;
-    if (!hfc->calibrate)
-    {
-      for (i=0; i<3; i++)
-      {
-        hfc->rw_cfg.gyro_ofs[i]  = hfc->calib_gyro_avg[i]/hfc->calib_count;
-        hfc->calib_gyro_avg[i]  = 0;
-        hfc->gyroOfs[i] = 0;
-      }
-      //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
-      printf("= Calibrated: ");
-      printf("%2.3f %2.3f %2.3f at %5.2fdeg\r\n", hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2], hfc->gyro_temp_lp);
-      {
-        FILE *fp = fopen("/local/gyro_cal.txt", "w");  // Open "out.txt" on the local file system for writing
-        if (fp)
-        {
-            fprintf(fp, "%f\t%f\t%f\t%f\r\n", hfc->gyro_temp_lp, hfc->rw_cfg.gyro_ofs[0], pConfig->gyro_ofs[1], pConfig->gyro_ofs[2]);
-            fclose(fp);
-        }
-      }      
-    }
-}
-#endif
 
 // "kick" or "feed" the dog - reset the watchdog timer
 // by writing this required bit pattern

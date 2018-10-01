@@ -1,6 +1,7 @@
 #include "eeprom.h"
 #include <math.h>
 #include "version.h"
+#include "defines.h"
 
 
 EEPROM::EEPROM(I2Ci *m_i2c, EEPROM_TYPE m_type)
@@ -20,6 +21,8 @@ EEPROM::EEPROM(I2Ci *m_i2c, EEPROM_TYPE m_type)
     }
 
     data.serial_num = 0;
+    data.crc[0] = 0;
+    data.crc[1] = 0;
 
     calib_year = 0;
     calib_month = 0;
@@ -45,7 +48,7 @@ int EEPROM::write_data()
 
     data.crc[0] = buffer[EEPROM_DATA_SIZE-2];
     data.crc[1] = buffer[EEPROM_DATA_SIZE-1];
-    printf("crc = %d-%d\r\n",data.crc[0],data.crc[1]);
+    debug_print("crc = %d-%d\r\n",data.crc[0],data.crc[1]);
 
     // Write the buffer to the EEPROM
     for(int i = 0; i<128; i++) {
@@ -97,9 +100,9 @@ int EEPROM::read_data()
             || (CRC[1] != buffer[EEPROM_DATA_SIZE - 1])) {
 
         if (data.serial_num !=0) {
-            //printf("===>ERROR: CRC FAIL!\r\n");
-            //printf("           CRC = %d-%d   buffer = %d-%d\r\n",CRC[0],CRC[1],
-            //        buffer[EEPROM_DATA_SIZE - 2],buffer[EEPROM_DATA_SIZE - 1]);
+            debug_print("===>ERROR: CRC FAIL!\r\n");
+            debug_print("           CRC = %d-%d   buffer = %d-%d\r\n",CRC[0],CRC[1],
+                    buffer[EEPROM_DATA_SIZE - 2],buffer[EEPROM_DATA_SIZE - 1]);
             return -1;
         }
     }
@@ -138,7 +141,7 @@ int EEPROM::clear()
 
 void EEPROM::print_data()
 {
-    printf("data:\r\n"
+    debug_print("data:\r\n"
            "- serial num = %d\r\n"
            "- date = %d\r\n"
            "- acc calib matrix  = [%3.6f %3.6f %3.6f]\r\n"

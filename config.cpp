@@ -61,15 +61,19 @@ int LoadConfiguration(const ConfigData **pConfig)
     // Map fcm ConfigData structure onto the flash and validate its version
     ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
+    if ((pConfigData->header.total_size == 0) || (pConfigData->header.total_size >= MAX_CONFIG_SIZE)) {
+        return -3;
+    }
+
     // Validate Config Checksum
     unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
     pData += sizeof(ConfigurationDataHeader);
-    if (pConfigData->header.checksum != crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
+    if (pConfigData->header.checksum != crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)))) {
     	return -1;
     }
 
-    // and its version..
-    if (pConfigData->header.version != CONFIG_VERSION) {
+    // If out version is > then the file version then we cannot process it.
+    if (CONFIG_VERSION > pConfigData->header.version) {
         return -2;
     }
 

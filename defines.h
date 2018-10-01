@@ -1,6 +1,21 @@
 #ifndef _DEFINES_H_
 #define _DEFINES_H_
 
+#include <stddef.h>
+#include "mbed.h"
+#include "USBSerial.h"
+extern USBSerial   serial;
+
+// Only allow debug printing when in Debug mode AND the serial/usb is in a connected state
+// For Release mode builds, used for Flight, NEVER print!
+#define debug_print(fmt, ...) \
+            do { if (DEBUG && serial.connected()) serial.printf(fmt, ##__VA_ARGS__); } while (0)
+
+// This is used to print to the Serial/USB for operator commands, such as config updates.
+// It is therefore Always in the build and the connection check is done elsewhere.
+#define usb_print(fmt, ...) \
+            do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
+
 #define CONFIG_VERSION   9
 
 #define PC_BAUDRATE          115200

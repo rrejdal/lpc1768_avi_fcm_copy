@@ -71,7 +71,7 @@ public:
       float        gyroY_temp_coeffs[3];   //   3*4 =  12   - quadratic model: offset = aT^2+bT+c
       uint8_t      crc[2];                 //   2*1 =   2   - coefficients are a, b and c
 //                                        Total bytes = 128
-    };
+    }__attribute__((packed));
 
     EEPROMdata data;
 

@@ -42,8 +42,6 @@
 #include "IAP.h"
 #include "version.h"
 
-//#define PR_DEBUG
-
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
 static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
 
@@ -89,16 +87,16 @@ TelemSerial telem(&telemetry);
 InterruptIn  lidar(LIDAR_PWM);
 InterruptIn  *rpm = NULL;
 
-PwmOut *servoX = NULL;
-PwmOut servoC(CHANNEL_5);      // collective (C)   // 5	10 o'clock
-PwmOut servoY(CHANNEL_4);      // yaw              // 4
-PwmOut servoP(CHANNEL_3);      // pitch      (A)   // 3	6 o'clock (back)
-PwmOut servoR(CHANNEL_2);      // roll       (B)   // 2	2 o'clock
-PwmOut *servoTpwm = NULL;      // throttle p26     // 1 driven by pwm hardware
+PwmOut *FCM_SERVO_CH6 = NULL;   // This can be re-purposed as RPM Sensor Input
+PwmOut FCM_SERVO_CH5(CHANNEL_5);
+PwmOut FCM_SERVO_CH4(CHANNEL_4);
+PwmOut FCM_SERVO_CH3(CHANNEL_3);
+PwmOut FCM_SERVO_CH2(CHANNEL_2);
+PwmOut *FCM_SERVO_CH1 = NULL;   // This can be re-purposed as LiveLink Input
 
-DigitalInOut *servoTman = NULL;// throttle p26     // 1 driven timer, supports castle linklive
-InterruptIn  *linklive = NULL; // linklive input p26
-Ticker throttle_timer;
+DigitalInOut *FCMLinkLive = NULL;   // When re-purposed Ch1 for LiveLink
+InterruptIn  *linklive = NULL;      // When re-purposed Ch1 for LiveLink
+Ticker livelink_timer;
 
 FlightControlData hfc = {0};
 const ConfigData *pConfig = NULL;
@@ -143,12 +141,14 @@ static void PowerNodeHeartbeat(int node_id);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
 static int init_ok = 1;
+static int init_warning = 0;
 
 #define CAN_TIMEOUT 500
 static int can_node_found = 0;
 static int canbus_ack = 0;
 static int write_canbus_error = 0;
 static int can_power_coeff = 0;
+static int canbus_livelink_avail = 0;
 
 #define FCM_FATAL_ERROR() { \
     while(1) { \
@@ -288,19 +288,15 @@ void AutoReset(void)
 
 static void OrientResetCounter()
 {
-  if (hfc.orient_reset_counter)
-  {
-    hfc.orient_reset_counter--;
-    if (!(hfc.orient_reset_counter&0x3ff))
-    {
-      /*mmri: just took out the carriage return so that gyrotemp
-       * compensation output data is more easily read in .csv file*/
-#if defined(DEBUG)
-    //  serial.printf("IMU reset   ====   %f %f === ", hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D);
-#endif
-      telem.ResetIMU(false);
+    if (hfc.orient_reset_counter) {
+        hfc.orient_reset_counter--;
+        if (!(hfc.orient_reset_counter&0x3ff)) {
+            /*mmri: just took out the carriage return so that gyrotemp
+             * compensation output data is more easily read in .csv file*/
+            debug_print("IMU reset   ====   %f %f === ", hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D);
+            telem.ResetIMU(false);
+        }
     }
-  }
 }
 
 #define AccLP_Freq  5.0f     // 1/T
@@ -336,12 +332,12 @@ static void linklive_fall(void)
 
 static void throttle_pulse_int(void)
 {
-    servoTman->write(1);
+    FCMLinkLive->write(1);
     hfc.linklive_t1 = CLOCK();
     hfc.linklive_t2 = hfc.linklive_t1;  // if t2 stays the same as t1, pulse from ESC did not happen -> sync
-    throttle_timer.detach();
-    servoTman->input();
-    servoTman->mode(PullUp);
+    livelink_timer.detach();
+    FCMLinkLive->input();
+    FCMLinkLive->mode(PullUp);
     linklive->fall(linklive_fall);
 }
 
@@ -376,8 +372,10 @@ static const short int LL2TEMP[128] = {
 -7156};
 
 signed short int pwm_values[MAX_NUMBER_SERVO_NODES][8];
+//static int servo_remap[8] = { 4, 1, 0, 2, 3, 5, 6, 7 };
+static int servo_remap[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 
-static void WriteToServoNodes(int num_servo_nodes)
+static void WriteToServoNodeServos(int num_servo_nodes)
 {
     CANMessage can_tx_message;
     static int pwm_out = 0;
@@ -391,22 +389,15 @@ static void WriteToServoNodes(int num_servo_nodes)
 					temp = -hfc.servos_out[i];
 				}
 			}
-
-			// serial.printf("WriteToServos[%d][%d], temp=%f\r\n", i+1, j, temp);
+			// debug_print("WriteToServos[%d][%d], temp=%f\r\n", i+1, j, temp);
 			pwm_values[i][j] = (((SERVOMINMAX(temp) * 32767) * 500) /32768) + 1500;
-			// serial.printf("pwm_values[%d][%d] = %d\r\n", i, j, pwm_values[i][j]);
+			// debug_print("pwm_values[%d][%d] = %d\r\n", i, j, pwm_values[i][j]);
 		}
 	}
 
-#ifdef PR_DEBUG
-    if ((pConfig->print_counter%1000)==0) {
-    	serial.printf("FT PWM [%d], RT PWM[%d]\r\n", pwm_values[0][0], pwm_values[1][0]);
-    }
-#endif
-
-    // Override to 1000 - i.e do NOT drive PWM
-    //pwm_values[0][0] = 1000;
-    //pwm_values[1][0] = 1000;
+    //if ((hfc.print_counter%1000)==0) {
+    //    debug_print("FT PWM [%d], RT PWM[%d]\r\n", pwm_values[0][0], pwm_values[1][0]);
+    //}
 
     can_tx_message.type   = CANData;
     can_tx_message.format = CANStandard;
@@ -438,17 +429,58 @@ static void WriteToServoNodes(int num_servo_nodes)
     }
 }
 
-/* inputs values can range from -1 to 1 corresponding to the absolute maximum range */
-/* Added support for Octocopter mixer.
- * The last two of the servos are handled by the FCM since CAN servo can only manage
- * the first 6.
- */
-#define AVICAN_SERVO_ID     0x580
-static void WriteToServos(void)
+// NOTE::SP: Only handles a single power node
+static void WriteToPowerNodeServos()
+{
+    CANMessage can_tx_message;
+    static int pwm_out = 0;
+    float temp;
+
+    for (int i=0; i < 8; i++) {
+        temp = hfc.servos_out[servo_remap[i]];
+
+        if (i < 6) {
+            if (pConfig->servo_revert[i] & (1<<i)) {
+                temp = -hfc.servos_out[i];
+            }
+        }
+
+        pwm_values[0][i] = (((SERVOMINMAX(temp) * 32767) * 500) /32768) + 1500;
+    }
+
+    can_tx_message.type   = CANData;
+    can_tx_message.format = CANStandard;
+    can_tx_message.len    = 8;
+
+    if (pwm_out ^= 1) {
+        memcpy(can_tx_message.data, &pwm_values[0][0], 8);
+
+        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                (DEFAULT_NODE_ID), AVIDRONE_MSGID_PWR_LO_CTRL);
+
+        if (!can.write(can_tx_message)) {
+            ++write_canbus_error;
+        }
+    }
+    else {
+
+        memcpy(can_tx_message.data, &pwm_values[0][4], 8);
+
+        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                (DEFAULT_NODE_ID), AVIDRONE_MSGID_PWR_HI_CTRL);
+
+        if (!can.write(can_tx_message)) {
+            ++write_canbus_error;
+        }
+    }
+}
+
+// inputs values can range from -1 to 1 corresponding to the absolute maximum range
+static void WriteToFcmServos(void)
 {
     float pwm_values[8];
-
     float temp;
+
     for (int i = 0; i < 8; i++) {
         temp = hfc.servos_out[i];
         if (i < 6) {
@@ -456,166 +488,103 @@ static void WriteToServos(void)
                 temp = -hfc.servos_out[i];
             }
         }
-
-        /* clip servo values to +/-150% */
+        // clip servo values to +/-150%
         pwm_values[i] = SERVOMINMAX(temp);
-
-        /* For Canbus Servo, scale into 13bits signed */
-        if (pConfig->can_servo) {
-            pwm_values[i] *= 4095;
-        }
     }
 
-    /* write it out */
-    if (pConfig->can_servo)
-    {
-        CANMessage msgo;
-        T_Servos servos;
-        
-        /* every other cycle - 600Hz, do not send 2 messages back to back,
-         * servo node will not process them fast enough without dropping one sometime
-         */
-        if (!(hfc.print_counter&1))
-        {
-            /* first 4 servos */
-            servos.servo[0].id = 0;
-            servos.servo[0].value = pwm_values[0];
-            servos.servo[1].id = 1;
-            servos.servo[1].value = pwm_values[1];
-            servos.servo[2].id = 2;
-            servos.servo[2].value = pwm_values[2];
-            servos.servo[3].id = 3;
-            servos.servo[3].value = pwm_values[3];
-
-            msgo.len = 8;
-            msgo.type   = CANData;
-            msgo.format = CANStandard;
-            msgo.id     = AVICAN_SERVO_ID;
-            *((long long*)msgo.data) = *((long long*)&servos);
-
-            if (!can.write(msgo)) {
-                hfc.stats.can_servo_tx_failed = true;
-            }
-        }
-        else
-        {
-            /* last two servos */
-            servos.servo[0].id = 4;
-            servos.servo[0].value = pwm_values[4];
-            servos.servo[1].id = 5;
-            servos.servo[1].value = pwm_values[5];
-            servos.servo[2].id = 6;
-            servos.servo[2].value = pwm_values[6];
-            servos.servo[3].id = 7;
-            servos.servo[3].value = pwm_values[7];
-
-            msgo.len = 8;
-            msgo.type   = CANData;
-            msgo.format = CANStandard;
-            msgo.id     = AVICAN_SERVO_ID;
-
-            *((long long*)msgo.data) = *((long long*)&servos);
-
-            if (!can.write(msgo)) {
-                hfc.stats.can_servo_tx_failed = true;
-            }
-
-        }
+    // CH1 may have been re-purposed for link live
+    if (FCM_SERVO_CH1) {
+        FCM_SERVO_CH1->pulsewidth_us((int)(1500.5f + pwm_values[4]*500));
     }
 
-    if (pConfig->fcm_servo) {
-        if (servoX) {
-          servoX->pulsewidth_us((int)(1500.5f + pwm_values[5] * 500));  //s5
+    FCM_SERVO_CH1->pulsewidth_us(1200.0f);
+
+    FCM_SERVO_CH2.pulsewidth_us((int)(1500.5f + pwm_values[1] * 500));
+    FCM_SERVO_CH3.pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));
+    FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[2] *500));
+    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + pwm_values[3] *500));
+
+    // CH6 may have been re-purposed for rpm speed sense
+    if (FCM_SERVO_CH6) {
+            FCM_SERVO_CH6->pulsewidth_us((int)(1500.5f + pwm_values[5] * 500));
+    }
+}
+
+static void ProcessFcmLinkLive(void)
+{
+    hfc.fcm_linkLive_counter++;
+
+    // Every 50Hz
+    if (hfc.fcm_linkLive_counter >= 20) {
+        int delta = (hfc.linklive_t2 - hfc.linklive_t1);
+        // debug_print("%dus\n", delta);
+        linklive->fall(NULL);
+        FCMLinkLive->output();
+        FCMLinkLive->write(0);
+
+        float throttle = hfc.servos_out[THRO];
+        if (pConfig->servo_revert[THRO]) {
+            throttle = - hfc.servos_out[THRO];
         }
+        throttle = SERVOMINMAX(throttle);
 
-        if (servoTpwm) {
-            servoTpwm->pulsewidth_us((int)(1500.5f + pwm_values[4]*500));   //throttle
-        }
+        livelink_timer.attach_us(throttle_pulse_int, (int)(1500.5f + throttle * 500));
+        hfc.fcm_linkLive_counter = 0;
 
-        servoP.pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));   // (A)   pitch
-        servoR.pulsewidth_us((int)(1500.5f + pwm_values[1] * 500));    // (B) roll
+         // Sync
+         if (delta == 0) {
+            unsigned int T = CLOCK();
+            unsigned int delta_us = (T - hfc.linklive_period_T + 48) / 96;
+            const float *coeffs = pConfig->power_coeffs;
 
-        if (pConfig->ccpm_type==CCPM_OCTO) {
-            servoY.pulsewidth_us((int)(1500.5f + pwm_values[6] * 500));	// last two octo channels   s6
-            servoC.pulsewidth_us((int)(1500.5f + pwm_values[7] * 500)); // on S4 and S5 of FCM output s7
-        }
-        else {
-            servoY.pulsewidth_us((int)(1500.5f + pwm_values[2] *500));  //yaw
-            servoC.pulsewidth_us((int)(1500.5f + pwm_values[3] *500));    // (C) coll
-        }
+            hfc.linklive_item = 1;
+            hfc.linklive_period_T = T;
+            hfc.power.Iaux   = hfc.linklive_values[10];    // I BEC
+            hfc.power.Iesc   = (hfc.linklive_values[5] * coeffs[1] + 3 * hfc.power.Iesc) * 0.25f;  // rvw
+            hfc.power.Vmain  = (hfc.linklive_values[3] *coeffs[3] + 3 * hfc.power.Vmain) * 0.25f;
+            hfc.power.Vesc   = hfc.power.Vmain;
+            hfc.power.Vservo = hfc.linklive_values[9];    // V BEC
+            hfc.power.Vaux   = hfc.linklive_values[9];    // V BEC
 
-        if (servoTman) {
+            if (!pConfig->rpm_sensor) {
+                hfc.RPM = hfc.linklive_values[8] / pConfig->gear_ratio / pConfig->motor_poles;
+            }
 
-            hfc.servoT_counter++;
+            if (hfc.linklive_values[11] > hfc.linklive_values[12]) {
+                hfc.esc_temp = hfc.linklive_values[11]; // linear temperature
+            }
+            else {
 
-            // Every 50Hz
-            if (hfc.servoT_counter >= 20) {
-
-                int delta = (hfc.linklive_t2 - hfc.linklive_t1);
-//                serial.printf("%dus\n", delta);
-                linklive->fall(NULL);
-                servoTman->output();
-                servoTman->write(0);
-                throttle_timer.attach_us(throttle_pulse_int, (int)(1500.5f + pwm_values[4]*500)); //throttle
-                hfc.servoT_counter = 0;
-
-                // Sync
-                if (delta == 0) {
-
-                    unsigned int T = CLOCK();
-                    unsigned int delta_us = (T - hfc.linklive_period_T + 48)/96;
-                    const float *coeffs = pConfig->power_coeffs;
-
-                    hfc.linklive_item = 1;
-                    hfc.linklive_period_T = T;
-                    hfc.power.Iaux   = hfc.linklive_values[10];    // I BEC
-                    hfc.power.Iesc   = (hfc.linklive_values[5] * coeffs[1]  + 3*hfc.power.Iesc)*0.25f;  // rvw
-                    hfc.power.Vmain  = (hfc.linklive_values[3] *coeffs[3] + 3*hfc.power.Vmain)*0.25f;
-                    hfc.power.Vesc   = hfc.power.Vmain;
-                    hfc.power.Vservo = hfc.linklive_values[9];    // V BEC
-                    hfc.power.Vaux   = hfc.linklive_values[9];    // V BEC
-
-                    if (!pConfig->rpm_sensor) {
-                        hfc.RPM = hfc.linklive_values[8] / pConfig->gear_ratio / pConfig->motor_poles;
-                    }
-
-                    if (hfc.linklive_values[11] > hfc.linklive_values[12]) {
-                        hfc.esc_temp     = hfc.linklive_values[11]; // linear temperature
-                    }
-                    else {
-
-                        float value = hfc.linklive_values[12];
-                        if (value) {
-                            int idx = ClipMinMax((int)value*0.5f, 1, 126);
-                            int re = ((int)(value*0.5f*256)) & 0xff;
-                            int temp1 = LL2TEMP[idx];
-                            int temp2 = LL2TEMP[idx+1];
-                            int temp3 = (temp1*(256-re) + temp2*re);
-                            float temp = temp3/25600.0f;
-//                            float temp = 1 / (logf(value*10200 / (255-value) / 10000.0f) / 3455.0f + 1/298.0f) - 273;
-                            hfc.esc_temp = (temp + 3*hfc.esc_temp)*0.25f;
-                        }
-                    }
-//                    serial.printf("Iesc %5.1f Iaux %4.1f Vmain %5.2f Vesc %5.2f Vaux %5.2f RPM %4.0f Temp %4.1f\n",
-//                            hfc->power.Iesc, hfc->power.Iaux, hfc->power.Vmain, hfc->power.Vesc, hfc->power.Vaux, hfc->RPM, hfc->esc_temp);
-
-                    /* 50us */
-                    UpdateBatteryStatus(delta_us * 0.000001f);
-                }
-                else if (hfc.linklive_item>0) { // keep incrementing if already initialized
-                    hfc.linklive_item++;
-                }
-
-                if (hfc.linklive_item==2) {
-                    hfc.linklive_calib = 1000.0f/Max(delta, 500*96);
-//                    serial.printf("Calib %d\n", delta);
-                }
-
-                if ((hfc.linklive_item>2) && (hfc.linklive_item<13)) {
-                    hfc.linklive_values[hfc.linklive_item] = ((delta * hfc.linklive_calib) - 500.0f) * LINKLIVE_SCALES[hfc.linklive_item];
-//                    serial.printf("%02d %4d %4.2f\n", hfc->linklive_item, delta, hfc->linklive_values[hfc->linklive_item]);
+                float value = hfc.linklive_values[12];
+                if (value) {
+                    int idx = ClipMinMax((int)value * 0.5f, 1, 126);
+                    int re = ((int)(value * 0.5f * 256)) & 0xff;
+                    int temp1 = LL2TEMP[idx];
+                    int temp2 = LL2TEMP[idx+1];
+                    int temp3 = (temp1 * (256-re) + temp2 * re);
+                    float temp = temp3 / 25600.0f;
+                    // float temp = 1 / (logf(value*10200 / (255-value) / 10000.0f) / 3455.0f + 1/298.0f) - 273;
+                    hfc.esc_temp = (temp + 3 * hfc.esc_temp) * 0.25f;
                 }
             }
+
+            // debug_print("Iesc %5.1f Iaux %4.1f Vmain %5.2f Vesc %5.2f Vaux %5.2f RPM %4.0f Temp %4.1f\n",
+            //                  hfc->power.Iesc, hfc->power.Iaux, hfc->power.Vmain, hfc->power.Vesc, hfc->power.Vaux, hfc->RPM, hfc->esc_temp);
+
+            UpdateBatteryStatus(delta_us * 0.000001f);
+        }
+        else if (hfc.linklive_item > 0) { // keep incrementing if already initialized
+            hfc.linklive_item++;
+        }
+
+        if (hfc.linklive_item == 2) {
+            hfc.linklive_calib = 1000.0f / Max(delta, 500 * 96);
+            // debug_print("Calib %d\n", delta);
+        }
+
+        if ((hfc.linklive_item > 2) && (hfc.linklive_item < 13)) {
+            hfc.linklive_values[hfc.linklive_item] = ((delta * hfc.linklive_calib) - 500.0f) * LINKLIVE_SCALES[hfc.linklive_item];
+            // debug_print("%02d %4d %4.2f\n", hfc->linklive_item, delta, hfc->linklive_values[hfc->linklive_item]);
         }
     }
 }
@@ -669,12 +638,6 @@ static void SetControlMode(void)
         hfc.full_auto = true;
     else
         hfc.full_auto = false;
-
-#ifdef PR_DEBUG
-    if ((hfc->print_counter&0xff)==2) {
-        serial.printf("SetControlMode full_auto=%d\r\n", hfc->full_auto);
-    }
-#endif
 
     /* in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle */
     if (hfc.full_auto)
@@ -744,11 +707,6 @@ static void SetControlMode(void)
             else
                 hfc.control_mode[COLL] = CTRL_MODE_SPEED;
         }
-#ifdef PR_DEBUG
-    if ((hfc->print_counter&0xff)==2) {
-            serial.printf("control_mode[COLL] =%d\r\n", hfc->control_mode[COLL]);
-    }
-#endif
     }
 
     /* pitch/rate/yaw mode switches checked only in RCradio mode */
@@ -777,15 +735,6 @@ static void SetControlMode(void)
 	    if (hfc.profile_mode == PROFILING_ON)
 	        SetCtrlMode(&hfc, pConfig, hfc.profile_ctrl_variable, hfc.profile_ctrl_level+1);
     }
-
-#ifdef PR_DEBUG
-    if ((hfc->print_counter&0xff)==2) {
-        for (int i=0; i < 5; i++) {
-            serial.printf("SetCtrlMode hfc->control_mode[%d] = %d\r\n", i, hfc->control_mode[i]);
-        }
-    }
-#endif
-
 }
 
 /* CCPM 120deg mixer ==========================================================
@@ -857,8 +806,13 @@ static void CCPM140mix(float pitch, float roll, float collective, float *sA, flo
  */
 static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 {
-    float elevGain,dcpGain,ROLL_Taileron,PITCH_Televator,YAW_Trudder,dcp,torqComp;
-    float TcollectFront,TcollectRear,ROLL_TaileronFront,ROLL_TaileronRear;
+    float elevGain, dcpGain;
+    float ROLL_Taileron;
+    float PITCH_Televator, PITCH_TelevatorR;
+    float YAW_Trudder;
+    float dcp, torqComp;
+    float TcollectFront,TcollectRear;
+    float ROLL_TaileronFront, ROLL_TaileronRear;
 
     // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
@@ -867,6 +821,7 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 
     ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
     PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * elevGain;
+    PITCH_TelevatorR = PITCH_Televator * pConfig->swashTiltRear;
     YAW_Trudder   = hfc.mixer_in[YAW]   * pConfig->RudRange;
 
     // Differential collective pitch calculation
@@ -874,8 +829,8 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     dcp      = PITCH_Televator * dcpGain;
     torqComp = dcp * pConfig->TorqCompMult;
 
-    TcollectFront = hfc.mixer_in[COLL] * pConfig->CollRange - dcp;
-    TcollectRear  = hfc.mixer_in[COLL] * pConfig->CollRange + dcp;
+    TcollectFront = hfc.mixer_in[COLL] * pConfig->CollRange - dcp * pConfig->dcpFront;
+    TcollectRear  = hfc.mixer_in[COLL] * pConfig->CollRange + dcp * pConfig->dcpRear;
 
     ROLL_TaileronFront = ROLL_Taileron + YAW_Trudder + torqComp;
     ROLL_TaileronRear  = ROLL_Taileron - YAW_Trudder - torqComp;
@@ -898,9 +853,9 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
         servo_node_pwm[1].servo_out[3] = 0 + TcollectFront + PITCH_Televator;                                                 // cFrontServo
 
         // Rear Servo
-        servo_node_pwm[2].servo_out[1] = 0 - TcollectRear  + (pConfig->CcpmMixer * PITCH_Televator) + ROLL_TaileronRear;    // aRearServo
-        servo_node_pwm[2].servo_out[2] = 0 + TcollectRear  - (pConfig->CcpmMixer * PITCH_Televator) + ROLL_TaileronRear;    // bRearServo
-        servo_node_pwm[2].servo_out[3] = 0 + TcollectRear  + PITCH_Televator;
+        servo_node_pwm[2].servo_out[1] = 0 - TcollectRear  + (pConfig->CcpmMixer * PITCH_TelevatorR) + ROLL_TaileronRear;    // aRearServo
+        servo_node_pwm[2].servo_out[2] = 0 + TcollectRear  - (pConfig->CcpmMixer * PITCH_TelevatorR) + ROLL_TaileronRear;    // bRearServo
+        servo_node_pwm[2].servo_out[3] = 0 + TcollectRear  + PITCH_TelevatorR;
 
     }
     else {
@@ -962,7 +917,7 @@ static void MixerQuad()
     hfc.servos_out[4] += hfc.mixer_in[YAW];			//cw
 
 //    if ((hfc.print_counter&0x7ff)==2)
-//        serial.printf("%d %d %d %d\n", (int)(servos_out[0]*1000),(int)(servos_out[1]*1000),(int)(servos_out[2]*1000),(int)(servos_out[3]*1000));
+//        debug_print("%d %d %d %d\n", (int)(servos_out[0]*1000),(int)(servos_out[1]*1000),(int)(servos_out[2]*1000),(int)(servos_out[3]*1000));
 
 
     //Keep motors from turning off once armed
@@ -1130,11 +1085,6 @@ static void ServoMixer(void)
     {
         servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO];                        // Link Live Throttle on Front Servo output 0
         servo_node_pwm[2].servo_out[0] = hfc.mixer_in[THRO] + pConfig->RearRpmTrim; // Link Live Throttle on Rear Servo output 0
-#ifdef PR_DEBUG
-        if ((hfc.print_counter %1000) == 0) {
-            serial.printf("Front pwm %f, Rear pwm %f\r\n", servo_node_pwm[1].servo_out[0], servo_node_pwm[2].servo_out[0]);
-        }
-#endif
         MixerTandem(&servo_node_pwm[0]);
     }
 }
@@ -1171,11 +1121,6 @@ static inline void ProcessStickInputs(FlightControlData *hfc, float dT)
                         v = 0;
                 }
                 hfc->ctrl_out[RAW][channel] = v;
-#ifdef PR_DEBUG
-                if ((hfc->print_counter&0xff)==2) {
-                    serial.printf("ProcessStickInputs::  hfc->ctrl_out[RAW][channel %d] = %f\r\n", channel, hfc->ctrl_out[RAW][channel]);
-                }
-#endif
             }
         }
     }
@@ -1226,11 +1171,13 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
 
             if (init_ok) {
-                PRINTs(str, (char*)"");
-                myLcd.SetLine(3, str, 0);
+                if (init_warning == 0) {
+                    PRINTs(str, (char*)"");
+                    myLcd.SetLine(3, str, 0);
 
-                PRINTs(str, (char*)"");
-                myLcd.SetLine(4, str, 0);
+                    PRINTs(str, (char*)"");
+                    myLcd.SetLine(4, str, 0);
+                }
 
                 if(!hfc->throttle_armed) {
                     PRINTs(str, (char*)"NEXT       ARM");
@@ -1449,14 +1396,14 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                     sPRINTd(str, (char*)"COMPASS P:%d",
                             (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    serial.printf("check i_pitch = %d\r\n",
+                    debug_print("check i_pitch = %d\r\n",
                             (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                 }
                 else if(i_roll != -1 ) {
                     sPRINTd(str, (char*)"COMPASS R:%d",
                             (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    serial.printf("check i_roll = %d\r\n",
+                    debug_print("check i_roll = %d\r\n",
                             (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                 }
 
@@ -1551,7 +1498,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
 
 /*static void CheckRangeAndSetD(double *pvalue, double value, double vmin, double vmax)
 {
-//  serial.printf("%f\r\n", value);
+//  debug_print("%f\r\n", value);
     if (!pvalue || value>vmax || value<vmin)
         return;
     *pvalue = value;
@@ -1559,7 +1506,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
 
 static bool CheckRangeAndSetF(float *pvalue, float value, float vmin, float vmax)
 {
-//  serial.printf("%f\r\n", value);
+//  debug_print("%f\r\n", value);
     if (!pvalue || value>vmax || value<vmin)
         return false;
     *pvalue = value;
@@ -1642,7 +1589,7 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             /* initialize it only for the first time */
             if (hfc->waypoint_type != WAYPOINT_LANDING) {
                 telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, 10);
-//                serial.printf("%f %f\r\n", item->value1.i/10000000.0f, item->value2.i/10000000.0f);
+//                debug_print("%f %f\r\n", item->value1.i/10000000.0f, item->value2.i/10000000.0f);
             }
         }
     }
@@ -2101,15 +2048,11 @@ static float CalcMinAboveGroundAlt(float speed)
     return alt;
 }
 
-
+// TODO::SP: This needs to ensure when in servoRaw that the throttle
+// CANNOT be engaged When ARMED!
 static void ServoUpdateRAW(float dT)
 {
     char xbus_new_values = xbus.NewValues(dT);
-#ifdef PR_DEBUG
-    if ((hfc.print_counter&0xff)==2) {
-        serial.printf("xbus_new_values=%d\r\n", xbus_new_values);
-    }
-#endif
 
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
@@ -2121,15 +2064,6 @@ static void ServoUpdateRAW(float dT)
     else if (!hfc.throttle_armed) {
         hfc.throttle_value = -pConfig->Stick100range;
     }
-
-#ifdef PR_DEBUG
-    if ((hfc.print_counter % 1000)==0) {
-    	serial.printf("full_auto[%d], hfc.throttle_armed[%d], auto_throttle[%d]\r\n",
-                hfc.full_auto, hfc.throttle_armed, hfc.auto_throttle   );
-
-    	serial.printf("hfc.throttle_value = %f\r\n", hfc.throttle_value);
-    }
-#endif
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
     hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
@@ -2173,22 +2107,26 @@ static void ServoUpdateRAW(float dT)
     hfc.mixer_in[ROLL]  = hfc.ctrl_out[RAW][ROLL];
     hfc.mixer_in[YAW]   = hfc.ctrl_out[RAW][YAW];
     hfc.mixer_in[COLL]  = hfc.ctrl_out[RAW][COLL];
-    hfc.mixer_in[THRO]  = hfc.ctrl_out[RAW][THRO];
 
-#ifdef PR_DEBUG
-    if ((hfc.print_counter&0xff)==2) {
-        serial.printf("hfc.mixer_in[P:%f, R:%f, Y:%f, C:%f, T:%f\r\n",
-                hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[YAW], hfc.mixer_in[COLL], hfc.mixer_in[THRO]);
+    if (hfc.throttle_armed) {
+        hfc.mixer_in[THRO]  = hfc.ctrl_out[RAW][THRO];
     }
-#endif
+    else {
+        hfc.mixer_in[THRO]  = 1000; // ensure throttle is off
+    }
 
     ServoMixer();
 
     if (pConfig->ccpm_type == MIXERTANDEM) {
-        WriteToServoNodes(pConfig->num_servo_nodes);
+        WriteToServoNodeServos(pConfig->num_servo_nodes);
     }
     else {
-        WriteToServos();
+        if (pConfig->power_node) {
+            WriteToPowerNodeServos();
+        }
+        else if (pConfig->fcm_servo) {
+            WriteToFcmServos();
+        }
     }
 }
 
@@ -2202,8 +2140,8 @@ static void ServoUpdate(float dT)
 //    float throttle_prev = hfc.ctrl_out[RAW][THRO];
 
     hfc.altitude_lidar = hfc.altitude_lidar_raw * AngleCompensation;
-//    serial.printf("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
-//    serial.printf("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
+//    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
+//    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
     if (!hfc.full_auto && !hfc.throttle_armed)
     	hfc.auto_throttle = false;
@@ -2215,7 +2153,7 @@ static void ServoUpdate(float dT)
 
 
 //    if (!(hfc.print_counter&0x3f))
-//    	serial.printf("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
+//    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
 //    if (!hfc.full_auto)
@@ -2334,7 +2272,7 @@ static void ServoUpdate(float dT)
     	}
 
         SetControlMode();
-//        serial.printf("Full auto %d Auto Throttle %d\r\n", hfc.full_auto, hfc.auto_throttle);
+//        debug_print("Full auto %d Auto Throttle %d\r\n", hfc.full_auto, hfc.auto_throttle);
     }
 
     /* 11us low pass stick input to soften the response */
@@ -2381,13 +2319,7 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[RATE][ROLL]   = hfc.ctrl_out[RAW][ROLL]*hfc.PRstick_rate   + hfc.pid_RollAngle.COofs;
         hfc.ctrl_out[ANGLE][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.PRstick_angle  + hfc.pid_RollSpeed.COofs;
         hfc.ctrl_out[RAW][ROLL]   += hfc.pid_RollRate.COofs;
-#ifdef PR_DEBUG
-        if ((hfc.print_counter&0xff)==2) {
-            for (int i=0; i < 2; i++) {
-                serial.printf("New Values[mode %d]: P[%f], R[%f]\r\n", i, hfc.ctrl_out[i][PITCH], hfc.ctrl_out[i][ROLL]);
-            }
-        }
-#endif
+
 //        hfc.ctrl_out[SPEED][PITCH] =-hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed;
 //        hfc.ctrl_out[SPEED][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed;
     }
@@ -2414,20 +2346,12 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[RATE][YAW]  = yaw_rate_ctrl;
         hfc.ctrl_out[RAW][YAW]  += hfc.pid_YawRate.COofs;
 
-#ifdef PR_DEBUG
-        if ((hfc.print_counter&0xff)==2) {
-            serial.printf("New Values: RateY[%f], RawY[%f]\r\n", hfc.ctrl_out[RATE][YAW], hfc.ctrl_out[RAW][YAW]);
-        }
-#endif
-    
+
         /* do not add offsets to RAW above, apply gain to RAW, added offset to RAW,
         ** clip RAW using rate PID limits */
         hfc.ctrl_out[RAW][COLL]  = hfc.ctrl_out[RAW][COLL] * pConfig->control_gains[COLL];
         hfc.ctrl_out[RAW][COLL] += hfc.pid_CollVspeed.COofs;
     }
-
-//    if (!(hfc.print_counter&0x1f))
-//        serial.printf("%+5.3f %+5.3f %4.2f\n", xbus.valuesf[XBUS_THRO], hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL]);
 
     /* processes staged waypoints - takeoff, landing, ... */
     ProcessFlightMode(&hfc);
@@ -2446,7 +2370,7 @@ static void ServoUpdate(float dT)
         float PathSpeedR;
 
         distance_to_ref = DistanceCourse(hfc.positionLatLon[0], hfc.positionLatLon[1], hfc.waypoint_pos[0], hfc.waypoint_pos[1], &course_to_ref);
-//        serial.printf("dist %4.1f \r\n", distance_to_ref);
+//        debug_print("dist %4.1f \r\n", distance_to_ref);
         /* error handling: do nothing if distance over 100k */
         if (distance_to_ref>100000)
           distance_to_ref = 0;
@@ -2571,7 +2495,7 @@ static void ServoUpdate(float dT)
             float altitude = hfc.waypoint_pos_prev[2] * a + hfc.waypoint_pos[2] * (1-a);
             hfc.ctrl_out[POS][COLL] = altitude;
 //            if (!(hfc.print_counter&0x3f))
-//                serial.printf("D2T %4.1f SDdist %4.1f old %5.1f new %5.1f a %4.2f curr %5.1f\r\n", distance_to_ref, hfc.waypoint_STdist, hfc.waypoint_pos_prev[2], hfc.waypoint_pos[2], a, altitude);
+//                debug_print("D2T %4.1f SDdist %4.1f old %5.1f new %5.1f a %4.2f curr %5.1f\r\n", distance_to_ref, hfc.waypoint_STdist, hfc.waypoint_pos_prev[2], hfc.waypoint_pos[2], a, altitude);
         }
         else
             hfc.ctrl_out[POS][COLL] = hfc.waypoint_pos[2];
@@ -2613,17 +2537,17 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[PITCH]>=CTRL_MODE_SPEED || hfc.control_mode[ROLL]>=CTRL_MODE_SPEED)
     {
 //      if (!(hfc.print_counter&0x1f))
-//        serial.printf("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
+//        debug_print("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
       /* rotate E/N speed PID I-terms into current R/F */
       if (hfc.rw_cfg.wind_compensation)
       {
           Rotate(hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.IMUorient[YAW], &hfc.pid_RollSpeed.Ie, &hfc.pid_PitchSpeed.Ie);
 //          if (!(hfc.print_counter&0x1f))
-//             serial.printf("1 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
+//             debug_print("1 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
       }
 
 //      if (!(hfc.print_counter&0x1f))
-//        serial.printf("%4.1f %4.1f   ", hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
+//        debug_print("%4.1f %4.1f   ", hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
       
       /* if previous mode was below SPEED, reset PIDs to be bumpless */
       if ((control_mode_prev[PITCH]<CTRL_MODE_SPEED && !pConfig->ctrl_mode_inhibit[PITCH]) || (control_mode_prev[ROLL]<CTRL_MODE_SPEED && !pConfig->ctrl_mode_inhibit[ROLL]))
@@ -2662,25 +2586,25 @@ static void ServoUpdate(float dT)
           hfc.pid_PitchCruise.COofs = angle;
           hfc.ctrl_out[ANGLE][PITCH] = -PID_P_Acc(&hfc.pid_PitchCruise, hfc.ctrl_out[SPEED][PITCH], hfc.speedHeliRFU[1], dT, false, false); // speed forward
 //          if (!(hfc.print_counter&0x3f))
-//              serial.printf("S %f A %f out %f\n", hfc.ctrl_out[SPEED][PITCH], angle, hfc.ctrl_out[ANGLE][PITCH]);
+//              debug_print("S %f A %f out %f\n", hfc.ctrl_out[SPEED][PITCH], angle, hfc.ctrl_out[ANGLE][PITCH]);
       }
       else
           hfc.ctrl_out[ANGLE][PITCH] = -PID(&hfc.pid_PitchSpeed, hfc.ctrl_out[SPEED][PITCH], hfc.speedHeliRFU[1], dT); // speed forward
 
       hfc.ctrl_out[ANGLE][ROLL]  =  PID(&hfc.pid_RollSpeed,  hfc.ctrl_out[SPEED][ROLL],  hfc.speedHeliRFU[0], dT); // speed right
 //      if (!(hfc.print_counter&0x1f))
-//          serial.printf("cS %5.3f mS %5.3f a %5.2f i %f\n", hfc.ctrl_out[SPEED][ROLL], hfc.speedHeliRFU[0], hfc.ctrl_out[ANGLE][ROLL], hfc.pid_RollSpeed.Ie);
+//          debug_print("cS %5.3f mS %5.3f a %5.2f i %f\n", hfc.ctrl_out[SPEED][ROLL], hfc.speedHeliRFU[0], hfc.ctrl_out[ANGLE][ROLL], hfc.pid_RollSpeed.Ie);
 
       /* rotate back R/F I-terms to E/N */
       if (hfc.rw_cfg.wind_compensation)
       {
           Rotate(hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie, -hfc.IMUorient[YAW], &hfc.speed_Iterm_E, &hfc.speed_Iterm_N);
 //          if (!(hfc.print_counter&0x1f))
-//             serial.printf("2 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
+//             debug_print("2 E %f N %f R %f P %f\n", hfc.speed_Iterm_E, hfc.speed_Iterm_N, hfc.pid_RollSpeed.Ie, hfc.pid_PitchSpeed.Ie);
           hfc.speed_Iterm_E_lp = (hfc.speed_Iterm_E + hfc.speed_Iterm_E_lp*4095)/4096;
           hfc.speed_Iterm_N_lp = (hfc.speed_Iterm_N + hfc.speed_Iterm_N_lp*4095)/4096;
 //          if (!(hfc.print_counter&0x3f))
-//              serial.printf("%f %f %f %f\n", hfc.speed_Iterm_E_lp, hfc.speed_Iterm_E, hfc.speed_Iterm_N_lp, hfc.speed_Iterm_N);
+//              debug_print("%f %f %f %f\n", hfc.speed_Iterm_E_lp, hfc.speed_Iterm_E, hfc.speed_Iterm_N_lp, hfc.speed_Iterm_N);
       }
       
       /* pitch-roll mixing to prevent side slip */
@@ -2734,7 +2658,7 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[RATE][ROLL]  = PID(&hfc.pid_RollAngle,  hfc.ctrl_out[ANGLE][ROLL],  hfc.IMUorient[ROLL]*R2D,  dT);
     }
 
-//    serial.printf("%d %5.1f %5.1f\r\n", pr_control_mode, roll_angle, roll_rate);
+//    debug_print("%d %5.1f %5.1f\r\n", pr_control_mode, roll_angle, roll_rate);
 
     if (hfc.control_mode[PITCH]>=CTRL_MODE_RATE)
     {    
@@ -2742,11 +2666,6 @@ static void ServoUpdate(float dT)
       if (control_mode_prev[PITCH]<CTRL_MODE_RATE)
                     PID_SetForEnable(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], hfc.ctrl_out[RAW][PITCH]);
       hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], dT);
-#ifdef PR_DEBUG
-      if ((hfc.print_counter&0xff)==2) {
-          serial.printf("New Values1: RawPitch[%f]\r\n", hfc.ctrl_out[RAW][PITCH]);
-      }
-#endif
     }
     else
       hfc.ctrl_out[RAW][PITCH] = ClipMinMax(hfc.ctrl_out[RAW][PITCH], hfc.pid_PitchRate.COmin, hfc.pid_PitchRate.COmax);
@@ -2757,11 +2676,6 @@ static void ServoUpdate(float dT)
       if (control_mode_prev[ROLL]<CTRL_MODE_RATE)
                    PID_SetForEnable(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  hfc.ctrl_out[RAW][ROLL]);
       hfc.ctrl_out[RAW][ROLL] = PID(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  dT);
-#ifdef PR_DEBUG
-      if ((hfc.print_counter&0xff)==2) {
-          serial.printf("New Values1: RawRoll[%f]\r\n", hfc.ctrl_out[RAW][ROLL]);
-      }
-#endif
     }
     else
       hfc.ctrl_out[RAW][ROLL] = ClipMinMax(hfc.ctrl_out[RAW][ROLL], hfc.pid_RollRate.COmin, hfc.pid_RollRate.COmax);
@@ -2783,11 +2697,6 @@ static void ServoUpdate(float dT)
       if (control_mode_prev[YAW]<CTRL_MODE_RATE)
                   PID_SetForEnable(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], hfc.ctrl_out[RAW][YAW]);
       hfc.ctrl_out[RAW][YAW] = PID(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], dT);
-#ifdef PR_DEBUG
-      if ((hfc.print_counter&0xff)==2) {
-          serial.printf("New Values1: RawYaw[%f]\r\n", hfc.ctrl_out[RAW][YAW]);
-      }
-#endif
     }
     else
       hfc.ctrl_out[RAW][YAW] = ClipMinMax(hfc.ctrl_out[RAW][YAW], hfc.pid_YawRate.COmin, hfc.pid_YawRate.COmax);
@@ -2836,7 +2745,7 @@ static void ServoUpdate(float dT)
 		hfc.pid_CollAlt.COmin = vspeedmin;
 
 //        if (!(hfc.print_counter&0x3f))
-//            serial.printf("Mode %s currA %4.1f  ctrlA %4.1f alt %4.1f ctrlalt %4.1f\r\n", hfc.LidarCtrlMode ? "Lidar" : "baro ", CurrAltitude, CtrlAltitude, hfc.altitude, hfc.ctrl_out[POS][COLL]);
+//            debug_print("Mode %s currA %4.1f  ctrlA %4.1f alt %4.1f ctrlalt %4.1f\r\n", hfc.LidarCtrlMode ? "Lidar" : "baro ", CurrAltitude, CtrlAltitude, hfc.altitude, hfc.ctrl_out[POS][COLL]);
 
         if (control_mode_prev[COLL]<CTRL_MODE_POSITION)
         {
@@ -2857,12 +2766,12 @@ static void ServoUpdate(float dT)
     	  SetSpeedAcc(&hfc.ctrl_out[SPEED][COLL], hfc.ctrl_vspeed_3d, pConfig->landing_vspeed_acc, dT);
       if (control_mode_prev[COLL]<CTRL_MODE_SPEED)
       {
-//		serial.printf("vspeed = %f   GPS = %f  manual = %f\r\n", hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
+//		debug_print("vspeed = %f   GPS = %f  manual = %f\r\n", hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
     	  PID_SetForEnable(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
       }
 
       hfc.ctrl_out[RAW][COLL] = PID(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], dT);
-//          serial.printf("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
+//          debug_print("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
     }
     else
     {
@@ -2901,11 +2810,7 @@ static void ServoUpdate(float dT)
             hfc.ctrl_out[RAW][PITCH] = 0;
             hfc.ctrl_out[RAW][ROLL]  = 0;
             hfc.ctrl_out[RAW][YAW]   = 0;
-#ifdef PR_DEBUG
-      if ((hfc.print_counter&0xff)==2) {
-          serial.printf("SETTING to 0\r\n");
-      }
-#endif
+
         }
     }
 
@@ -2932,20 +2837,22 @@ static void ServoUpdate(float dT)
 
 //    Rotate2D(&hfc.mixer_in[ROLL], &hfc.mixer_in[PITCH], pConfig->RollPitchAngle); // this would interfeer with SetSpeedAcc() just above
 
-#ifdef PR_DEBUG
-    if ((hfc.print_counter&0xff)==2) {
-        serial.printf("hfc.mixer_in[P:%f, R:%f, Y:%f, C:%f, T:%f\r\n",
-                hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[YAW], hfc.mixer_in[COLL], hfc.mixer_in[THRO]);
-    }
-#endif
-
     ServoMixer();
 
     if (pConfig->ccpm_type == MIXERTANDEM) {
-        WriteToServoNodes(pConfig->num_servo_nodes);
+        WriteToServoNodeServos(pConfig->num_servo_nodes);
     }
     else {
-        WriteToServos();
+        if (pConfig->power_node) {
+            WriteToPowerNodeServos();
+        }
+        else {
+            WriteToFcmServos();
+        }
+    }
+
+    if (FCMLinkLive) {
+        ProcessFcmLinkLive();
     }
 
     Playlist_ProcessBottom(&hfc, retire_waypoint);
@@ -3063,7 +2970,6 @@ static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_S
   return energy;
 }
 
-// TODO::SP: Where do/should we call this in FC2?
 static void UpdateBatteryStatus(float dT)
 {
     T_Power *p = &hfc.power;
@@ -3182,7 +3088,7 @@ static void UpdateLidar(int node_id, unsigned char *pdata)
 static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
 {
     float *data= (float *)pdata;
-    static int update = 0;
+    static int new_data_mask = 0;
 
     // TODO::SP: Only taking Castle Link from Servo Node id 1 at present
     if (node_id > 0) {
@@ -3193,42 +3099,52 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
         case AVIDRONE_MSGID_CASTLE_0:
             castle_link_live[node_id].battery_voltage = *data++;
             castle_link_live[node_id].ripple_voltage = *data;
+            new_data_mask |= (1 << 0);
             break;
         case AVIDRONE_MSGID_CASTLE_1:
             castle_link_live[node_id].current = *data++;
             castle_link_live[node_id].output_power = *data;
+            new_data_mask |= (1 << 1);
             break;
         case AVIDRONE_MSGID_CASTLE_2:
             castle_link_live[node_id].throttle = *data++;
             castle_link_live[node_id].rpm = *data;
+            new_data_mask |= (1 << 2);
             break;
         case AVIDRONE_MSGID_CASTLE_3:
             castle_link_live[node_id].bec_voltage = *data++;
             castle_link_live[node_id].bec_current = *data;
+            new_data_mask |= (1 << 3);
             break;
         case AVIDRONE_MSGID_CASTLE_4:
             castle_link_live[node_id].temperature = *(float *)data;
-            update = 1;
+            new_data_mask |= (1 << 4);
             break;
         default:
             break;
     }
 
-    if (update) {
+    if (new_data_mask == 0x1F) {
+        new_data_mask = 0;
+
         hfc.power.Iaux   = castle_link_live[node_id].bec_current;
         // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
         hfc.power.Iesc   = (castle_link_live[node_id].current + 3* hfc.power.Iesc ) * 0.25f;
+        hfc.power.Iesc = ClipMinMax(hfc.power.Iesc, 0, hfc.power.Iesc);
         hfc.power.Vmain  = (castle_link_live[node_id].battery_voltage + 3* hfc.power.Vmain) * 0.25f;
+
         hfc.power.Vesc   = hfc.power.Vmain;
         hfc.power.Vservo = castle_link_live[node_id].bec_voltage;
-        hfc.power.Vaux   = castle_link_live[node_id].bec_voltage;
+        hfc.power.Vservo = ClipMinMax(hfc.power.Vservo, 0, hfc.power.Vservo);
 
+        hfc.power.Vaux   = castle_link_live[node_id].bec_voltage;
+        hfc.power.Vaux   = ClipMinMax(hfc.power.Vaux, 0, hfc.power.Vaux);
         if (!pConfig->rpm_sensor) {
             hfc.RPM = (castle_link_live[node_id].rpm / pConfig->gear_ratio / pConfig->motor_poles);
         }
 
         hfc.esc_temp = castle_link_live[node_id].temperature;
-        update = 0;
+        canbus_livelink_avail = 1;
     }
 }
 
@@ -3358,48 +3274,19 @@ static void can_handler(void)
     }
 }
 
-//TODO::SP: CHECK!!!!
-#if 0
-static void SendPowerCtrl(void)
-{
-    CANMessage msgo;
-
-    hfc.power.power_esc = hfc.throttle_armed;
-    hfc.power.power_armed_led = hfc.throttle_armed;
-
-    if ((hfc.print_counter&0x3f) == 5) {
-		msgo.len = 4;
-		msgo.type   = CANData;
-		msgo.format = CANStandard;
-		msgo.id     = AVICAN_POWER_SWITCHES;
-		msgo.data[0] = hfc.power.power_esc 		? 0x5b : 0;
-		msgo.data[1] = hfc.power.power_servo 	? 0x9e : 0;
-		msgo.data[2] = hfc.power.power_aux12v 	? 0xd6 : 0;
-		msgo.data[3] = hfc.power.power_armed_led ? 0xca : 0;
-
-		if (!can.write(msgo)) {
-		    hfc.stats.can_power_tx_failed = true;
-//			serial.printf("Failed to send CAN AVICAN_POWER_SWITCHES msg\r\n");
-		}
-    }
-}
-#endif
-
+// TODO::SP: Either extend or remove this..
 static void ProcessStats(void)
 {
     if ((hfc.print_counter&0x7ff)==6)
     {
         if (hfc.stats.can_power_tx_failed)
         {
-            //serial.printf("Failed to send AVICAN_POWER_SWITCHES msg\r\n");
             hfc.stats.can_power_tx_errors++;
             hfc.stats.can_power_tx_failed = false;
         }
 
         if (write_canbus_error > 0) {
-#if defined(DEBUG)
-           // serial.printf("CAN write failed messages[%d]\r\n", write_canbus_error);
-#endif
+            debug_print("CAN write failed messages[%d]\r\n", write_canbus_error);
             hfc.stats.can_servo_tx_errors = write_canbus_error;
         }
     }
@@ -3413,7 +3300,7 @@ static void Lidar_Process(FlightControlData *hfc)
     /* 1us/mm */
     unsigned int time = hfc->lidar_fall;
     unsigned int d = time - hfc->lidar_rise;
-//    serial.printf("fall %d %d\r\n", time, d);
+//    debug_print("fall %d %d\r\n", time, d);
     if (pConfig->ground_sensor==GROUND_SENSOR_LIDAR)
     {
         if (d>100000)
@@ -3427,7 +3314,7 @@ static void Lidar_Process(FlightControlData *hfc)
             d = min(40000, max(0, d-pConfig->lidar_offset));
             alt = d*0.001f;
             hfc->altitude_lidar_raw = (alt + 3*hfc->altitude_lidar_raw)*0.25f;
-    //        serial.printf("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
+    //        debug_print("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
         }
         else
             hfc->altitude_lidar_raw = 40;
@@ -3435,7 +3322,7 @@ static void Lidar_Process(FlightControlData *hfc)
     else if (pConfig->ground_sensor==GROUND_SENSOR_SONAR)
     {
         hfc->altitude_lidar_raw = d * 0.0001724137931f - pConfig->lidar_offset*0.001f; // 5.8us/mm
-//        serial.printf("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
+//        debug_print("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
     }
     hfc->lidar_pulse = false;
 }
@@ -3640,34 +3527,6 @@ static void CompassCalibration(void)
         // TODO::SP: Error handling...?
         SaveCompassCalibration(&hfc.compass_cal);
         hfc.comp_calibrate = NO_COMP_CALIBRATE;
-
-#if 0
-        FILE *fh;
-
-        fh = fopen("/local/compass.txt", "w");
-        if (fh)
-        {
-#if defined(DEBUG)
-            serial.printf("max[x] = %3d \t min[x] = %3d \t range[x] = %3d \r\n",hfc.compassMax[0], hfc.compassMin[0],mag_range[0]);
-            serial.printf("max[y] = %3d \t min[y] = %3d \t range[y] = %3d \r\n",hfc.compassMax[1], hfc.compassMin[1],mag_range[1]);
-            serial.printf("max[z] = %3d \t min[z] = %3d \t range[z] = %3d \r\n",hfc.compassMax[2], hfc.compassMin[2],mag_range[2]);
-#endif
-            fserial.printf(fh, "ofs \t %f \t %f \t %f \r\n", pConfig->comp_ofs[0], pConfig->comp_ofs[1], pConfig->comp_ofs[2]);
-            serial.printf     ("ofs \t %f \t %f \t %f \r\n", pConfig->comp_ofs[0], pConfig->comp_ofs[1], pConfig->comp_ofs[2]);
-            fserial.printf(fh, "gains \t %f \t %f \t %f \r\n", pConfig->comp_gains[0], pConfig->comp_gains[1], pConfig->comp_gains[2]);
-            serial.printf     ("gains \t %f \t %f \t %f \r\n", pConfig->comp_gains[0], pConfig->comp_gains[1], pConfig->comp_gains[2]);
-            fserial.printf(fh, "max \t %d \t %d \t %d \r\n", hfc.compassMax[0], hfc.compassMax[1], hfc.compassMax[2]);
-            serial.printf     ("max \t %d \t %d \t %d \r\n", hfc.compassMax[0], hfc.compassMax[1], hfc.compassMax[2]);
-            fserial.printf(fh, "min \t %d \t %d \t %d \r\n", hfc.compassMin[0], hfc.compassMin[1], hfc.compassMin[2]);
-            serial.printf     ("min \t %d \t %d \t %d \r\n", hfc.compassMin[0], hfc.compassMin[1], hfc.compassMin[2]);
-            fclose(fh);
-            wait_ms(1000);
-        }
-
-
-        hfc.comp_calibrate = NO_COMP_CALIBRATE;
-        serial.printf("Done Calibration\r\n");
-#endif
     }
 
 }
@@ -3687,7 +3546,7 @@ void do_control()
     Buttons();
 
     if (!mpu.readMotion7f_finish(accRaw, gyroRaw, &hfc.gyro_temperature)) {
-        //serial.printf("MPU timeout\n");
+        //debug_print("MPU timeout\n");
     }
 
     ticks = Ticks_us_minT(LOOP_PERIOD, &utilization);   // defines loop time in uS
@@ -3711,7 +3570,7 @@ void do_control()
     }
 
     if (!(hfc.print_counter&0x3f)) {
-         // serial.printf("util %4.1f%\r\n", hfc.cpu_utilization_lp);
+         // debug_print("util %4.1f%\r\n", hfc.cpu_utilization_lp);
     }
 
     /* copy and clear the new data flag set by GPS to a new variable to avoid a race */
@@ -3720,8 +3579,8 @@ void do_control()
 
     //if (hfc.gps_new_data) {
         //if ((hfc.print_counter %500) == 0) {
-            //printf("GPS[%d]\r\n", gps_msg);
-    		//printf("GPS: lat[%d]:lon[%d], latf[%f]:lonf[%f], latD[%f]:lonD[%f]\r\n",
+            //debug_print("GPS[%d]\r\n", gps_msg);
+    		//debug_print("GPS: lat[%d]:lon[%d], latf[%f]:lonf[%f], latD[%f]:lonD[%f]\r\n",
             //         gps.gps_data_.lat, gps.gps_data_.lon, gps.gps_data_.latF, gps.gps_data_.lonF,
             //         gps.gps_data_.latD, gps.gps_data_.lonD);
         //}
@@ -3740,11 +3599,11 @@ void do_control()
                 hfc.compass_heading_lp = hfc.compass_heading;
             }
             else {
-                /*hfc.compass_heading_lp = LP_16_Wrap180(hfc.compass_heading, hfc.compass_heading_lp); */
+                // hfc.compass_heading_lp = LP_16_Wrap180(hfc.compass_heading, hfc.compass_heading_lp);
                 hfc.compass_heading_lp = LP_Wrap180(hfc.compass_heading, hfc.compass_heading_lp, pConfig->heading_avgs);
             }
 
-            /* serial.printf("Comp: %+5.1f %+5.1f\r\n", hfc.compass_heading, hfc.compass_heading_lp); */
+            // debug_print("Comp: %+5.1f %+5.1f\r\n", hfc.compass_heading, hfc.compass_heading_lp);
             CompassCalibration();
         }
     }
@@ -3766,8 +3625,8 @@ void do_control()
 
     		//    hfc.baro_altitude_raw_lp = (hfc.baro_altitude_raw + 7*hfc.baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
     		//    hfc.baro_vspeed          = (hfc.baro_altitude_raw_lp - baro_altitude_raw_prev)/hfc.baro_dT;
-    		//    serial.printf("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", hfc.baro_temperature, hfc.baro_pressure, hfc.baro_altitude_raw, hfc.baro_altitude_raw_lp, hfc.baro_vspeed, hfc.baro_dT);
-    		//    serial.printf("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", hfc.IMUspeedGroundENU[2], hfc.altitude, hfc.baro_altitude_rawLP4, hfc.baro_altitude_raw_lp);
+    		//    debug_print("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", hfc.baro_temperature, hfc.baro_pressure, hfc.baro_altitude_raw, hfc.baro_altitude_raw_lp, hfc.baro_vspeed, hfc.baro_dT);
+    		//    debug_print("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", hfc.IMUspeedGroundENU[2], hfc.altitude, hfc.baro_altitude_rawLP4, hfc.baro_altitude_raw_lp);
 
     		hfc.baro_dT = 0;
     	}
@@ -3791,7 +3650,7 @@ void do_control()
     }
 
     Get_Orientation(hfc.SmoothAcc, hfc.accFilt, dT);
-    //serial.printf("%+5.2f %+5.2f %+5.2f   %+5.2f %+5.2f %+5.2f\n", gyroRaw[PITCH], gyroRaw[ROLL], gyroRaw[YAW], hfc.gyroFilt[PITCH], hfc.gyroFilt[ROLL], hfc.gyroFilt[YAW]);
+    //debug_print("%+5.2f %+5.2f %+5.2f   %+5.2f %+5.2f %+5.2f\n", gyroRaw[PITCH], gyroRaw[ROLL], gyroRaw[YAW], hfc.gyroFilt[PITCH], hfc.gyroFilt[ROLL], hfc.gyroFilt[YAW]);
 
     MadgwickAHRSupdateIMU(dT, (hfc.gyro[ROLL])*D2R, (hfc.gyro[YAW])*D2R, (hfc.gyro[PITCH])*D2R, 0,0,0);
 
@@ -3802,16 +3661,16 @@ void do_control()
         hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.compass_heading_lp,                hfc.IMUorient[YAW]*R2D,   dT);
         /*
         if (!(hfc.print_counter & 0x3ff)) {
-            serial.printf("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
+            debug_print("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
             hfc.gyroOfs[PITCH],   hfc.gyroOfs[ROLL], hfc.gyroOfs[YAW],
             hfc.IMUorient[PITCH], hfc.IMUorient[ROLL], hfc.IMUorient[YAW],
             hfc.SmoothAcc[PITCH]*R2D - hfc.IMUorient[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D - hfc.IMUorient[ROLL]*R2D, hfc.compass_heading_lp - hfc.IMUorient[YAW]*R2D);
-            serial.printf("Ofs %+6.3f %+6.3f %+6.3f  Gyro %+6.3f %+6.3f %+6.3f Err %+6.3f %+6.3f %+6.3f\r\n", hfc.gyroOfs[0], hfc.gyroOfs[1],
+            debug_print("Ofs %+6.3f %+6.3f %+6.3f  Gyro %+6.3f %+6.3f %+6.3f Err %+6.3f %+6.3f %+6.3f\r\n", hfc.gyroOfs[0], hfc.gyroOfs[1],
                               hfc.gyroOfs[2], hfc.gyro_lp_disp[0], hfc.gyro_lp_disp[1], hfc.gyro_lp_disp[2], hfc.SmoothAcc[PITCH]*R2D - hfc.IMUorient[PITCH]*R2D,
                               hfc.SmoothAcc[ROLL]*R2D - hfc.IMUorient[ROLL]*R2D, hfc.compass_heading_lp - hfc.IMUorient[YAW]*R2D);
-            serial.printf("IMU %+6.3f %+6.3f %+6.3f SmAcc %+6.3f %+6.3f %+6.3f Com %+6.3f %+6.3f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D,
+            debug_print("IMU %+6.3f %+6.3f %+6.3f SmAcc %+6.3f %+6.3f %+6.3f Com %+6.3f %+6.3f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D,
                           hfc.IMUorient[YAW]*R2D, hfc.SmoothAcc[PITCH]*R2D, hfc.SmoothAcc[ROLL]*R2D, hfc.SmoothAcc[YAW]*R2D, hfc.compass_heading_lp, hfc.compass_heading);
-            serial.printf("%+8.5f %+5.1f %+5.1f %f %f\r\n", hfc.gyroOfs[0], hfc.SmoothAcc[PITCH]*R2D, hfc.IMUorient[PITCH]*R2D, hfc.pid_IMU[PITCH].Kp, hfc.pid_IMU[PITCH].Ki);
+            debug_print("%+8.5f %+5.1f %+5.1f %f %f\r\n", hfc.gyroOfs[0], hfc.SmoothAcc[PITCH]*R2D, hfc.IMUorient[PITCH]*R2D, hfc.pid_IMU[PITCH].Kp, hfc.pid_IMU[PITCH].Ki);
         }
         */
         OrientResetCounter();
@@ -3863,13 +3722,13 @@ void do_control()
 
     /*
     if (!(hfc.print_counter & 0x3f)) {
-        serial.printf("Z %+5.3f UR %+5.3f Uhp %+5.3f speed %+5.3f\r\n", hfc.accHeliRFU[2], accGroundU, hfc.accGroundUhp, hfc.speedGroundU);
+        debug_print("Z %+5.3f UR %+5.3f Uhp %+5.3f speed %+5.3f\r\n", hfc.accHeliRFU[2], accGroundU, hfc.accGroundUhp, hfc.speedGroundU);
     }
     if (!(hfc.print_counter & 0x3f)) {
-        serial.printf("E %+5.2f N %+5.2f U %+5.2f\n", hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
+        debug_print("E %+5.2f N %+5.2f U %+5.2f\n", hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
     }
     if (!(hfc.print_counter & 0x3f)) {
-        serial.printf("E %+5.3f N %+5.3f U %+5.3f  E %+5.3f N %+5.3f U %+5.3f\n", hfc.accGroundENUhp[0], hfc.accGroundENUhp[1], hfc.accGroundENUhp[2], hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
+        debug_print("E %+5.3f N %+5.3f U %+5.3f  E %+5.3f N %+5.3f U %+5.3f\n", hfc.accGroundENUhp[0], hfc.accGroundENUhp[1], hfc.accGroundENUhp[2], hfc.IMUspeedGroundENU[0], hfc.IMUspeedGroundENU[1], hfc.IMUspeedGroundENU[2]);
     }
     */
 
@@ -3884,7 +3743,7 @@ void do_control()
     hfc.accUp += hfc.accGroundENUhp[2]*9.81f;
     if (!(hfc.print_counter & 0x7)) {
         hfc.accUp/=8;
-        serial.printf("T %d acc %+5.3f vs %+5.3f altIMU %5.3f altB %5.3f\n", hfc.time_ms, hfc.accUp, hfc.IMUspeedGroundENU[2], hfc.altitude_baro, hfc.baro_altitude_raw);
+        debug_print("T %d acc %+5.3f vs %+5.3f altIMU %5.3f altB %5.3f\n", hfc.time_ms, hfc.accUp, hfc.IMUspeedGroundENU[2], hfc.altitude_baro, hfc.baro_altitude_raw);
         hfc.accUp = 0;
     }*/
 
@@ -3937,7 +3796,7 @@ void do_control()
         //hfc.altitude = hfc.altitude_gps;
 
         hfc.gps_to_home[0] = DistanceCourse(latitude, longitude, hfc.home_pos[0], hfc.home_pos[1], &hfc.gps_to_home[1]);
-        //serial.printf("D %4.1f C %+5.1f  \r\n", hfc.gps_to_ref[0], hfc.gps_to_ref[1]);
+        //debug_print("D %4.1f C %+5.1f  \r\n", hfc.gps_to_ref[0], hfc.gps_to_ref[1]);
 
         /* if we have fix and a new position data, run the gradient descent algo
         ** to bring baro-altitude in sync with gps altitude */
@@ -3956,7 +3815,7 @@ void do_control()
                 hfc.altitude_ofs +=  dTGPS * (hfc.altitude_gps - hfc.altitude) / hfc.AltitudeBaroGPSblend;
                 /* decay the initial blending factor into the final value */
                 hfc.AltitudeBaroGPSblend = min(hfc.AltitudeBaroGPSblend+dTGPS, pConfig->AltitudeBaroGPSblend_final);
-                //serial.printf("%8d\t%5.3f\t%f\t%f\t%f\t%f\t%f\r\n", time_ms, dTGPS, hfc.AltitudeBaroGPSblend, hfc.altitude_ofs, hfc.altitude_baro, hfc.altitude_gps, hfc.altitude);
+                //debug_print("%8d\t%5.3f\t%f\t%f\t%f\t%f\t%f\r\n", time_ms, dTGPS, hfc.AltitudeBaroGPSblend, hfc.altitude_ofs, hfc.altitude_baro, hfc.altitude_gps, hfc.altitude);
             }
         }
       
@@ -3967,13 +3826,13 @@ void do_control()
 
         hfc.gps_heading  = gps.gps_data_.courseC;
         hfc.gps_speed    = gps.gps_data_.HspeedC;
-        //serial.printf("GPS s/c %5.1f C %+5.1f  COOR s/c %5.1f C %+5.1f\r\n", gps_speed, gps_heading, hfc.gps_speed, hfc.gps_heading);
+        //debug_print("GPS s/c %5.1f C %+5.1f  COOR s/c %5.1f C %+5.1f\r\n", gps_speed, gps_heading, hfc.gps_speed, hfc.gps_heading);
       
         /* split GPS speed into east and north components */
         hfc.GPSspeedGroundENU[0] = gps.gps_data_.speedENU[0];
         hfc.GPSspeedGroundENU[1] = gps.gps_data_.speedENU[1];
         hfc.GPSspeedGroundENU[2] = gps.gps_data_.speedENU[2];
-        //serial.printf("GPS time %d %f %f %f\n", hfc.time_ms, gps.gps_data_.speedENU[0], gps.gps_data_.speedENU[1], gps.gps_data_.speedENU[2]);
+        //debug_print("GPS time %d %f %f %f\n", hfc.time_ms, gps.gps_data_.speedENU[0], gps.gps_data_.speedENU[1], gps.gps_data_.speedENU[2]);
     }
 
     PrintOrient();
@@ -3995,8 +3854,8 @@ void do_control()
     if ((hfc.print_counter&0x3ff)==7 && !telem.IsTypeInQ(TELEMETRY_SYSTEM)) {
         telem.Generate_System2(time_ms);
         telem.AddMessage((unsigned char*)&hfc.telemSystem2, sizeof(T_Telem_System2), TELEMETRY_SYSTEM, 5);
-        //serial.printf("%d %d\n", hfc.ticks_max, GetTime_ms());
-        perf_printf();
+        //debug_print("%d %d\n", hfc.ticks_max, GetTime_ms());
+        //perf_printf();
         hfc.ticks_max = 0;
     }
   
@@ -4041,11 +3900,6 @@ void do_control()
 
     hfc.telem_ctrl_time += ticks;	// in uS
 
-    //TODO::SP: Validate...
-    //if (!pConfig->power_node) {
-    //    SendPowerCtrl();
-    //}
-
     telem.Update();
 
     if (hfc.display_mode != DISPLAY_SPLASH) {
@@ -4074,10 +3928,13 @@ void do_control()
        PowerNodeHeartbeat(pConfig->num_power_nodes);
    }
 
-   // TODO::SP: Remove this, debug code only
-   //if (pConfig->num_servo_nodes > 0) {
-   //    ServoHeartbeat(pConfig->num_servo_nodes);
-   //}
+   if ((hfc.print_counter % 100) == 0) {
+       // Every 100ms update battery status, if new data available
+       if (canbus_livelink_avail){
+           UpdateBatteryStatus(dT);
+           canbus_livelink_avail = 0;
+       }
+   }
 
     hfc.gps_new_data = false;
     hfc.print_counter++;
@@ -4102,12 +3959,13 @@ static void RPM_rise(void)
     hfc.rpm_pulse = true;
 }
 
-static void Servos_Init(FlightControlData *hfc)
+static void Servos_Init(void)
 {
+    // TODO::SP: Prob don't need to support RPM sensor moving forward....
     if (pConfig->rpm_sensor) {
         if ((pConfig->ccpm_type==CCPM_HEX || pConfig->ccpm_type==CCPM_QUAD
                         || pConfig->ccpm_type==CCPM_OCTO ) && pConfig->fcm_servo) {
-            //serial.printf("Cannot use RPM sensor on multicopter when servo's driven from FCM\n");
+            //debug_print("Cannot use RPM sensor on multicopter when servo's driven from FCM\n");
         }
         else {
             rpm = new InterruptIn(p21);
@@ -4118,45 +3976,45 @@ static void Servos_Init(FlightControlData *hfc)
         }
     }
     else {
-        servoX = new PwmOut(p21);
+        FCM_SERVO_CH6 = new PwmOut(p21);
     }
 
-    if (pConfig->linklive) {
-        servoTman = new DigitalInOut(p26);
-        servoTman->output();
-        servoTman->write(1);
-        hfc->servoT_counter = 0;
+    if (pConfig->fcm_linklive_enable) {
+        FCMLinkLive = new DigitalInOut(p26);
+        FCMLinkLive->output();
+        FCMLinkLive->write(1);
+        hfc.fcm_linkLive_counter = 0;
         linklive  = new InterruptIn(p26);
     }
     else {
-        servoTpwm = new PwmOut(p26);
+        FCM_SERVO_CH1 = new PwmOut(p26);
     }
 
     if (pConfig->fcm_servo) {
-        if (servoX) {
-          servoX->period_us(pConfig->pwm_period);
+        if (FCM_SERVO_CH6) {
+          FCM_SERVO_CH6->period_us(pConfig->pwm_period);
         }
 
-        servoC.period_us(pConfig->pwm_period);
-        servoY.period_us(pConfig->pwm_period);
-        servoP.period_us(pConfig->pwm_period);
-        servoR.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH5.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH4.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH3.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH2.period_us(pConfig->pwm_period);
 
-        if (servoTpwm) {
-            servoTpwm->period_us(pConfig->pwm_period);
+        if (FCM_SERVO_CH1) {
+            FCM_SERVO_CH1->period_us(pConfig->pwm_period);
         }
 
-        if (servoX) {
-          servoX->pulsewidth_us(1500);
+        if (FCM_SERVO_CH6) {
+          FCM_SERVO_CH6->pulsewidth_us(1500);
         }
 
-        servoC.pulsewidth_us(1500);
-        servoY.pulsewidth_us(1500);
-        servoP.pulsewidth_us(1500);
-        servoR.pulsewidth_us(1500);
+        FCM_SERVO_CH5.pulsewidth_us(1500);
+        FCM_SERVO_CH4.pulsewidth_us(1500);
+        FCM_SERVO_CH3.pulsewidth_us(1500);
+        FCM_SERVO_CH2.pulsewidth_us(1500);
 
-        if (servoTpwm) {
-            servoTpwm->pulsewidth_us(1000);
+        if (FCM_SERVO_CH1) {
+            FCM_SERVO_CH1->pulsewidth_us(1000);
         }
     }
 }
@@ -4193,7 +4051,7 @@ static void ProcessUserCmnds(char c)
 
         led1 = led2 = led3 = led4 = 1;
 
-        serial.printf("OK");
+        usb_print("OK");
 
         // Wait for Load Type - config
         serial.scanf("%19s", request);
@@ -4210,7 +4068,7 @@ static void ProcessUserCmnds(char c)
                 volatile int rx = serial._getc();
             }
 
-            serial.printf("ACK");	// Informs Host to start transfer
+            usb_print("ACK");	// Informs Host to start transfer
 
             while (!have_config) {}
 
@@ -4221,7 +4079,7 @@ static void ProcessUserCmnds(char c)
                     == crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)))) {
 
                 if (SaveNewConfig() == 0) {
-                    serial.printf("ACK");	// Informs Host, all done
+                    usb_print("ACK");	// Informs Host, all done
 
                     FCM_NOTIFY_CFG_UPDATED();
 
@@ -4230,11 +4088,11 @@ static void ProcessUserCmnds(char c)
                     NVIC_SystemReset();
                 }
                 else {
-                    serial.printf("NACK");	// Informs Host, Error
+                    usb_print("NACK");	// Informs Host, Error
                 }
             }
             else {
-                serial.printf("NACK");	// Informs Host, Error
+                usb_print("NACK");	// Informs Host, Error
             }
         }
         else if (strcmp(request, "config_dlload") == 0) {
@@ -4256,12 +4114,12 @@ static void ProcessUserCmnds(char c)
         }
         else {
             // Unknown command
-            serial.printf("NACK");
+            usb_print("NACK");
         }
     }
     else if (c == 'C') {
         // Calibrate requested
-        serial.printf("OK");
+        usb_print("OK");
 
         int timeout = CAN_TIMEOUT;
         CANMessage can_tx_message;
@@ -4281,10 +4139,10 @@ static void ProcessUserCmnds(char c)
             }
 
             if (!can_power_coeff) {
-                serial.printf("ERROR");
+                usb_print("ERROR");
             }
             else {
-                serial.printf("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
+                usb_print("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
             }
             can_power_coeff = 0;
         }
@@ -4323,42 +4181,42 @@ static void ProcessUserCmnds(char c)
             }
 
             if (!can_power_coeff) {
-                serial.printf("ERROR");
+                usb_print("ERROR");
             }
             else {
-                serial.printf("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
+                usb_print("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
             }
             can_power_coeff = 0;
         }
     }
-    else if (c == 'A') {
-        // Audit system
+    else if (c == 'M') {
+        // System Manifest
         IAP iap;
         int *fcm_serial_num;
         fcm_serial_num = iap.read_serial();
 
-        serial.printf("Type[FCM], Node[%d], Version[%02x:%02x:%02x],  SERIAL[%08x:%08x:%08x:%08x]\r\n",
+        usb_print("Type[FCM], Node[%d], Version[%02x:%02x:%02x],  SERIAL[%08x:%08x:%08x:%08x]\r\n",
                             DEFAULT_NODE_ID, MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION,
                             fcm_serial_num[0], fcm_serial_num[1], fcm_serial_num[2], fcm_serial_num[3]);
 
-        serial.printf("\r\nCANBus Board Info..\r\n");
+        usb_print("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
-            serial.printf("Type[ SN], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
+            usb_print("Type[ SN], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
                         board_info[PN_SN][i].serial_number2, board_info[PN_SN][i].serial_number1, board_info[PN_SN][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_gps_nodes; i++) {
-            serial.printf("Type[GPS], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
+            usb_print("Type[GPS], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
                         board_info[PN_GPS][i].serial_number2, board_info[PN_GPS][i].serial_number1, board_info[PN_GPS][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_power_nodes; i++) {
-            serial.printf("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
+            usb_print("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
                         board_info[PN_PWR][i].serial_number2, board_info[PN_PWR][i].serial_number1, board_info[PN_PWR][i].serial_number0);
-            serial.printf("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
+            usb_print("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
         }
     }
 }
@@ -4444,11 +4302,11 @@ void ProcessButtonSelection()
 			}
 
 			hfc.comp_calibrate = COMP_CALIBRATING;
-			//serial.printf("Starting Compass Calibration\r\n");
+			//debug_print("Starting Compass Calibration\r\n");
         }
         else {
         	hfc.comp_calibrate = COMP_CALIBRATE_DONE;
-        	//serial.printf("Compass Calibration Finished\r\n");
+        	//debug_print("Compass Calibration Finished\r\n");
         }
     }
 }
@@ -4487,9 +4345,9 @@ static void PrintOrient()
     char *pstr = str;
   
     if (!(hfc.display_mode == DISPLAY_SPLASH) && (hfc.print_counter&0x1f) == 8 ) {
-        //serial.printf("P %+5.1f R %+5.1f Y %+5.1f    ", SmoothAcc[PITCH]*R2D, SmoothAcc[ROLL]*R2D, SmoothAcc[YAW]*R2D);
-        //serial.printf("P %+5.1f R %+5.1f Y %+5.1f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D, hfc.IMUorient[YAW]*R2D);
-        //serial.printf("P %+5.1f R %+5.1f Y %+5.1f\r\n", gBfiltered[PITCH], gBfiltered[ROLL], gBfiltered[YAW]);
+        //debug_print("P %+5.1f R %+5.1f Y %+5.1f    ", SmoothAcc[PITCH]*R2D, SmoothAcc[ROLL]*R2D, SmoothAcc[YAW]*R2D);
+        //debug_print("P %+5.1f R %+5.1f Y %+5.1f\r\n", hfc.IMUorient[PITCH]*R2D, hfc.IMUorient[ROLL]*R2D, hfc.IMUorient[YAW]*R2D);
+        //debug_print("P %+5.1f R %+5.1f Y %+5.1f\r\n", gBfiltered[PITCH], gBfiltered[ROLL], gBfiltered[YAW]);
         pstr+= PRINTf(pstr, hfc.IMUorient[PITCH]*R2D, 1, 1, 0);
         *pstr++ = ' ';
 
@@ -4718,7 +4576,7 @@ static void PowerNodeHeartbeat(int num_power_nodes)
     }
 }
 
-// TODO::SP: Remove - Just for Debug....
+// NOTE::SP: Remove - Just for Debug....
 static void ServoHeartbeat(int num_servo_nodes)
 {
     CANMessage can_tx_message;
@@ -4951,6 +4809,9 @@ static int InitCanbusNodes(void)
   */
 int main()
 {
+
+    debug_print("hello\r\n");
+
     led1 = 1;
 
     spi.frequency(4000000);
@@ -4981,6 +4842,9 @@ int main()
             sprintf(str_temp, "REQ VER: %d", CONFIG_VERSION);
             myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "VERSION ERROR", str_temp);
         }
+        else if (cfg_result == -3) {
+            myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "ERROR", "SIZE");
+        }
         else {
             myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
         }
@@ -5008,16 +4872,18 @@ int main()
                 mpu_init = mpu.init(EXTERNAL, MPU6050_DLPF_BW_188, pConfig->force_gyro_acc_defaults);
             }
 
-            if (mpu_init == 1) {
-                if (!mpu.is_ok()) {
+            init_ok = 1;
+            if (mpu_init <= 0) {
+                if (mpu_init == -1) {
+                    // On failing eeprom, calibration values will be set to default. This is not
+                    // therefore a hard error and we continue.
+                    myLcd.ShowError("Failed to initialize IMU\n", "IMU", "EEPROM ERROR", "");
+                    init_warning = 1;
+                }
+                else if (mpu_init == -2) {
                     myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
                     init_ok = 0;
                 }
-            }
-            else {
-                // Continue on, but using defaults
-                // Flash Turn on LED perhaps..
-                //myLcd.ShowError("Failed to Read IMU Cal\n", "WARNING", "IMU READ CAL", "FAILED");
             }
         }
 
@@ -5052,7 +4918,7 @@ int main()
         telem.Initialize(&hfc, pConfig);
         telemetry.baud(pConfig->telem_baudrate);
 
-        Servos_Init(&hfc);
+        Servos_Init();
 
         if (pConfig->LidarFromServo == 0) {
             hfc.lidar_rise = GetTime_us();

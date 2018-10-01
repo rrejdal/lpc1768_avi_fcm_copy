@@ -1,5 +1,6 @@
 #include "BMP180.h"
 #include "utils.h"
+#include "defines.h"
 
 #define BMP180_ID   0x55
 #define BMP280_ID   0x58
@@ -92,7 +93,7 @@ bool BMPx80::Init()
     if(c == BMP180_ID)
     {
         Calibration180();
-        printf("BMP180 calibration complete...\n\r");
+        debug_print("BMP180 calibration complete...\n\r");
         bmp = BMP_180;
         return true;
     }
@@ -103,11 +104,11 @@ bool BMPx80::Init()
     if(c == BMP280_ID)
     {
         Calibration280();
-        printf("BMP280 calibration complete...\n\r");
+        debug_print("BMP280 calibration complete...\n\r");
         bmp = BMP_280;
         return true;
     }
-    printf("No BMP detected\r\n");
+    debug_print("No BMP detected\r\n");
     return false;
 }
 
@@ -334,16 +335,16 @@ bool BMPx80::GetTPA(float dT, float *pTemp, float *pPress, float *pAlt)
             temp = (temp * 5 + 128) >> 8;
             temperature = ((float)temp)*0.01f;
 
-    //            printf("dig_T = 0x%x, 0x%x, 0x%x  ", dig_T1, dig_T2, dig_T3);
-    //            printf("%d %d %d %d  ", temp_raw, var1t, var2t, temp);
-    //            printf("temp %f\n", temperature);
+    //            debug_print("dig_T = 0x%x, 0x%x, 0x%x  ", dig_T1, dig_T2, dig_T3);
+    //            debug_print("%d %d %d %d  ", temp_raw, var1t, var2t, temp);
+    //            debug_print("temp %f\n", temperature);
 
             uint32_t press_raw = (rawData[0] << 12) | (rawData[1] << 4) | (rawData[2] >> 4);
 
             int32_t var1, var2;
             uint32_t press;
 
-//            printf("0x%x, 0x%x, 0x%x  ", rawData[3], rawData[4], rawData[5]);
+//            debug_print("0x%x, 0x%x, 0x%x  ", rawData[3], rawData[4], rawData[5]);
 
             var1 = (t_fine >> 1) - 64000;
             var2 = (((var1 >> 2) * (var1 >> 2)) >> 11) * dig_P6;
@@ -378,7 +379,7 @@ bool BMPx80::GetTPA(float dT, float *pTemp, float *pPress, float *pAlt)
                 *pTemp  = temperature;
                 *pPress = pressure;
                 *pAlt   = altitude;
-//                printf("T %f P %f A %f\n", temperature, pressure, altitude);
+//                debug_print("T %f P %f A %f\n", temperature, pressure, altitude);
             }
 
             state = STATE_PRESS_STARTED;

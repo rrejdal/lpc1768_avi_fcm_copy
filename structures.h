@@ -646,7 +646,7 @@ typedef struct ConfigurationData {
     int  fcm_servo;
     int  power_node;
     int  rpm_sensor;
-    int  linklive;
+    int  fcm_linklive_enable;
     int  gps_vspeed;
     int  ground_sensor;
     int  imu_internal;
@@ -799,6 +799,9 @@ typedef struct ConfigurationData {
     float V2Energy[36];
 
     int force_gyro_acc_defaults;
+    float dcpFront;
+    float dcpRear;
+    float swashTiltRear;
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
@@ -1004,7 +1007,7 @@ typedef struct
     char rpm_pulse;                     // signal from RPM interrupt
     char lidar_pulse;
     char gps_alt_initialized;           // altitude has been intialized by GPS
-    unsigned char servoT_counter;       // counter for producing throttle PWM
+    unsigned char fcm_linkLive_counter;       // counter for producing throttle PWM
     unsigned char linklive_item;        // 1 reset, 2 calib, 3 vol, ...
     char pid_params_changed;            // indicates that PID params have been updated in flight
     unsigned char landing_sites_num;	// number of uploaded landing sites

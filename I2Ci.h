@@ -1,4 +1,5 @@
 #include "mbed.h"
+#include "defines.h"
 
 #ifndef _I2CI_H_
 #define _I2CI_H_

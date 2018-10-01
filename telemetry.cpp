@@ -6,6 +6,7 @@
 #include "HMC5883L.h"
 #include "pGPS.h"
 #include "IMU.h"
+#include "defines.h"
 
 extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern void ResetIterms(void);
@@ -148,7 +149,7 @@ void TelemSerial::AddInputByte(char ch)
 {
     T_TelemUpHdr *hdr;
 
-//  printf("Telem c=%d\r\n", ch);
+//  debug_print("Telem c=%d\r\n", ch);
     
     /* if full, just clear it */
     if (telem_recv_bytes >= TELEM_BUFFER_SIZE) {
@@ -186,9 +187,9 @@ void TelemSerial::AddInputByte(char ch)
     /* still did not find it, this case should never happen */
     if (telem_recv_buffer[0]!=0x47)
     {
-//        printf("NSC: %2d ", telem_recv_bytes);
+//        debug_print("NSC: %2d ", telem_recv_bytes);
 //        for (i=0; i<8; i++) printf("%02x ", telem_recv_buffer[i]);
-//        printf("\r\n");
+//        debug_print("\r\n");
         telem_recv_bytes = 0;
         return;
     }
@@ -211,7 +212,7 @@ void TelemSerial::AddInputByte(char ch)
     	if (crc8!=hdr->crc8)
     	{
     		telem_recv_buffer[0] = 0;
-//            printf("Wrong hdr CRC\r\n");
+//            debug_print("Wrong hdr CRC\r\n");
     		return;
 
     	}
@@ -219,19 +220,19 @@ void TelemSerial::AddInputByte(char ch)
 	if (hdr->type>=TELEMETRY_LAST_MSG_TYPE)
 	{
 		telem_recv_buffer[0] = 0;
-//            printf("Wrong msg type %d\r\n", hdr->type);
+//            debug_print("Wrong msg type %d\r\n", hdr->type);
 		return;
 	}
 	if (hdr->type==TELEMETRY_COMMANDS5 && hdr->len>18)
 	{
 		telem_recv_buffer[0] = 0;
-//            printf("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
+//            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
 		return;
 	}
 	if (hdr->type==TELEMETRY_PROFILE_CMD && hdr->len>(sizeof(T_Telem_Profile8)-8-1))
 	{
 		telem_recv_buffer[0] = 0;
-//            printf("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
+//            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
 		return;
 	}
 
@@ -258,7 +259,7 @@ void TelemSerial::AddInputByte(char ch)
         }
     }
 
-//    printf("Telem Msg type=%d\r\n", hdr->type);
+//    debug_print("Telem Msg type=%d\r\n", hdr->type);
     
     if (hdr->type==TELEMETRY_PARAMETERS4)
     {
@@ -315,7 +316,7 @@ void TelemSerial::AddInputByte(char ch)
             
             if (hfc->playlist_items != 21*msg->page)
             {
-//                printf("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
+//                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
                 hfc->playlist_items = 21*msg->page;
             }
             if ((hfc->playlist_items+msg->lines) <= PLAYLIST_SIZE)
@@ -329,7 +330,7 @@ void TelemSerial::AddInputByte(char ch)
             hfc->tcpip_org_len  = hdr->len;
             hfc->tcpip_user1    = hfc->playlist_items;
             hfc->tcpip_user2    = PLAYLIST_SIZE;
-//            printf("new playlist item\r\n");
+//            debug_print("new playlist item\r\n");
         }
         telem_good_messages++;
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
@@ -356,7 +357,7 @@ void TelemSerial::AddInputByte(char ch)
             hfc->streaming_samples  = 120 / hfc->streaming_channels;
             hfc->streaming_sample   = 0;       // current sample
             // msg->stream_period;
-//            printf("Streaming ch %d s %d \r\n", hfc->streaming_channels, hfc->streaming_samples);
+//            debug_print("Streaming ch %d s %d \r\n", hfc->streaming_channels, hfc->streaming_samples);
         }
 
         if (msg->profile_enable)
@@ -371,7 +372,7 @@ void TelemSerial::AddInputByte(char ch)
             hfc->profile_period        = msg->profile_period;           // test period (Tt) in ms
             hfc->profile_delta         = msg->profile_delta;            // control value (dC) in % of stick
             hfc->profile_mode = PROFILING_START;
-//            printf("profiling started channel %d level %d lag %d period %d delta %d\r\n",
+//            debug_print("profiling started channel %d level %d lag %d period %d delta %d\r\n",
 //                    hfc->profile_ctrl_variable, hfc->profile_ctrl_level, hfc->profile_lag, hfc->profile_period, hfc->profile_delta);
         }        
         
@@ -398,7 +399,7 @@ void TelemSerial::AddInputByte(char ch)
 
 		if (hfc->landing_sites_num != 15*msg->page)
 		{
-//                printf("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
+//                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
 			hfc->landing_sites_num = 15*msg->page;
 		}
 		if ((hfc->landing_sites_num+msg->lines) <= LANDING_SITES)
@@ -412,7 +413,7 @@ void TelemSerial::AddInputByte(char ch)
 		hfc->tcpip_org_len  = hdr->len;
 		hfc->tcpip_user1    = hfc->landing_sites_num;
 		hfc->tcpip_user2    = LANDING_SITES;
-//            printf("new playlist item\r\n");
+//            debug_print("new playlist item\r\n");
 
 		telem_good_messages++;
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
@@ -536,7 +537,7 @@ void TelemSerial::Generate_System2(int time_ms)
     float WspeedN = WinSpeedEst(WangleN);
     float Wspeed = sqrtf(WspeedN*WspeedN + WspeedE*WspeedE);
     float Wcour = 0;
-//    printf("%f %f\r\n", WangleE, WangleN);
+//    debug_print("%f %f\r\n", WangleE, WangleN);
 
     fixC = gps_data.fix;
 
@@ -572,6 +573,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->telem_start_code_searches = telem_start_code_searches;
     msg->flight_time_left	= ClipMinMax(hfc->power.flight_time_left, 0, 65535);
     msg->power.Iaux			= min(255, (int)(hfc->power.Iaux*32+0.5f));	// 0-8A		*32
+
     msg->power.Iesc			= min(4095, (int)(hfc->power.Iesc*64+0.5f));	// 0-64V	*64
     msg->power.Vaux			= min(1023, (int)(hfc->power.Vaux*64+0.5f));	// 0-16V	*64
     msg->power.Vesc			= min(4095, (int)(hfc->power.Vesc*64+0.5f));	// 0-64V	*64
@@ -603,7 +605,12 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->gyro_offsets[0]   = Float32toFloat16(hfc->gyroOfs[PITCH]);
     msg->gyro_offsets[1]   = Float32toFloat16(hfc->gyroOfs[ROLL]);
     msg->gyro_offsets[2]   = Float32toFloat16(hfc->gyroOfs[YAW]);
-    msg->esc_temp          = Float32toFloat16(pConfig->linklive ? hfc->esc_temp : hfc->gyro_temp_lp);
+    if (pConfig->fcm_linklive_enable || pConfig->num_servo_nodes) {
+        msg->esc_temp = Float32toFloat16(hfc->esc_temp);
+    }
+    else {
+        msg->esc_temp = Float32toFloat16(hfc->gyro_temp_lp);
+    }
 
     InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
@@ -678,7 +685,7 @@ int TelemSerial::Generate_Streaming(void)
             msg->stream_info |= 0x10;
             hfc->profile_mode = PROFILING_OFF;
             hfc->streaming_enable = false;
-//            printf("profiling done\r\n");
+//            debug_print("profiling done\r\n");
         }
     }
     for (i=0; i<hfc->streaming_channels; i++)
@@ -707,7 +714,7 @@ void TelemSerial::Generate_Msg2Ground(void)
 
 void TelemSerial::SaveValuesForAbort(void)
 {
-//	printf("Saved values for abort\r\n");
+//	debug_print("Saved values for abort\r\n");
     hfc->ctrl_initial[THRO]  = xbus.valuesf[XBUS_THR_LV];
     hfc->ctrl_initial[PITCH] = xbus.valuesf[XBUS_PITCH];
     hfc->ctrl_initial[ROLL]  = xbus.valuesf[XBUS_ROLL];
@@ -787,7 +794,7 @@ float TelemSerial::CalcFTWPlimit(char gps_in_cruise)
 
 void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire)
 {
-//    printf("Telemetry_SetWaypoint %f %f\r\n", lat, lon);
+//    debug_print("Telemetry_SetWaypoint %f %f\r\n", lat, lon);
     /* store stick values for an abort, only the first the waypoint mode is turned on */
     unsigned char source;
     float Sx, Sy, Tx, Ty;
@@ -844,7 +851,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
 
     /* distance to the next waypoint */
     hfc->waypoint_STdist = DistanceCourse(hfc->waypoint_pos_prev[0], hfc->waypoint_pos_prev[1], hfc->waypoint_pos[0], hfc->waypoint_pos[1], &hfc->waypoint_STcourse);
-//    printf("S->T: dist = %4.1f, cour = %4.1f\r\n", hfc->waypoint_STdist, hfc->waypoint_STcourse);
+//    debug_print("S->T: dist = %4.1f, cour = %4.1f\r\n", hfc->waypoint_STdist, hfc->waypoint_STcourse);
     
     Sx = 0;
     Sy = 0;
@@ -852,8 +859,8 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     Ty = (float)(hfc->waypoint_pos[0] - hfc->waypoint_pos_prev[0]);
     Tx = Tx/DPM*COSfD(((float)hfc->waypoint_pos[0]));
     Ty = Ty/DPM;
-//    printf("S: %f %f\n", Sx, Sy);
-//    printf("T: %f %f\n", Tx, Ty);
+//    debug_print("S: %f %f\n", Sx, Sy);
+//    debug_print("T: %f %f\n", Tx, Ty);
     
     hfc->path_a = Ty-Sy;
     hfc->path_b = Sx-Tx;
@@ -884,7 +891,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
 bool TelemSerial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
 {
     float value = *((float*)pivalue);
-//  printf("%f\r\n", value);
+//  debug_print("%f\r\n", value);
     if (!pvalue || value>vmax || value<vmin) {
         return false;
     }
@@ -924,7 +931,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
     int wp_retire = false;
     float lat=0, lon=0, altitude=-9999;
 
-//    printf("ProcessParameters %d\r\n", params);
+//    debug_print("ProcessParameters %d\r\n", params);
 
     if (params>42)
         return false;
@@ -935,7 +942,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
         byte param = p->param;
         byte sub_param = p->sub_param;
         
-//        printf("i=%d param=%d sub=%d\r\n", i, param, sub_param);
+//        debug_print("i=%d param=%d sub=%d\r\n", i, param, sub_param);
 
         if (param==TELEM_PARAM_WAYPOINT)
         {
@@ -1294,9 +1301,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
 bool TelemSerial::CopyCommand(T_Telem_Commands5 *msg)
 {
     if (hfc->command.command != TELEM_CMD_NONE) {
-#if defined(DEBUG)
-        printf("Previous command not processed yet, overwriting it!!!!!!!!!! %d\r\n", hfc->command.command);
-#endif
+        //debug_print("Previous command not processed yet, overwriting it!!!!!!!!!! %d\r\n", hfc->command.command);
     }
 
     hfc->command.command = msg->command;
@@ -1682,15 +1687,6 @@ void TelemSerial::Arm(void)
 //        GyroCalibDynamic(hfc);
 }
 
-void TelemSerial::ResetMBED(void)
-{
-    // TODO::SP: FIX
-    /*
-    Save_PIDvalues();
-    mbed_interface_reset();
-    */
-}
-
 void TelemSerial::ProcessCommands(void)
 {
     byte cmd = hfc->command.command;
@@ -1699,7 +1695,7 @@ void TelemSerial::ProcessCommands(void)
     if (cmd==TELEM_CMD_NONE)
         return;
 
-//  printf("Command %d\r\n", cmd);
+//  debug_print("Command %d\r\n", cmd);
 
     if (cmd==TELEM_CMD_ARMING)
     {
@@ -1716,20 +1712,6 @@ void TelemSerial::ProcessCommands(void)
     {
         SetHome();
     }
-    // NOTE::SP: This is no longer used, removing....
-#if 0
-    else
-    if (cmd==TELEM_CMD_CALIBRATE)
-    {
-        if (!hfc->calibrate)
-        {
-#if defined(DEBUG)
-            printf("Calibrating.......\r\n");
-#endif
-            hfc->calibrate = CALIBRATE_SAMPLES;
-        }
-    }
-#endif
     else
     if (cmd==TELEM_CMD_JOYSTICK)
     {
@@ -1868,7 +1850,7 @@ void TelemSerial::ProcessCommands(void)
         else if (sub_cmd==LANDING_SITE)
         {
         	int site = FindNearestLandingSite();
-//        	printf("Landing at %d\r\n", site);
+//        	debug_print("Landing at %d\r\n", site);
         	if (site>=0)
         	{
         		float alt_ground = hfc->landing_sites[site].altitude - hfc->altitude_base + hfc->landing_sites[site].above_ground ;
@@ -1941,13 +1923,13 @@ void TelemSerial::ProcessCommands(void)
     else if (cmd==TELEM_CMD_RESET)
     {
         if (sub_cmd == RESET_SUBID) {
-            // TODO::SP: NOT APPLICABLE ON AVI FW
-            ResetMBED();
+            // NOTE::SP: Causes a MICRO Soft Reset
+            NVIC_SystemReset();
         }
     }
     else
     {
-//        printf("Unknown command: %d\r\n", cmd);
+//        debug_print("Unknown command: %d\r\n", cmd);
     }
     
     hfc->command.command = TELEM_CMD_NONE;
@@ -1989,12 +1971,11 @@ void TelemSerial::ResetIMU(bool print)
 
     /*mmri: just took out the carriage return so that gyrotemp
      * compensation output data is more easily read in .csv file*/
-#if defined(DEBUG)
-    if (print)
-        printf("PRY %+5.1f %+5.1f %+5.1f Ofs %+5.3f %+5.3f %+5.3f ===",
-                hfc->IMUorient[PITCH]*R2D, hfc->IMUorient[ROLL]*R2D, hfc->IMUorient[YAW]*R2D,
-                hfc->gyroOfs[0], hfc->gyroOfs[1], hfc->gyroOfs[2]);
-#endif
+    if (print) {
+       // debug_print("PRY %+5.1f %+5.1f %+5.1f Ofs %+5.3f %+5.3f %+5.3f ===",
+       //         hfc->IMUorient[PITCH]*R2D, hfc->IMUorient[ROLL]*R2D, hfc->IMUorient[YAW]*R2D,
+       //         hfc->gyroOfs[0], hfc->gyroOfs[1], hfc->gyroOfs[2]);
+    }
 
     Plane2Ground(hfc->accHeliRFU, hfc->IMUorient, accGroundENU);
 

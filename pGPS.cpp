@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "avican.h"
+#include "defines.h"
 
 GPS::GPS()
 {
@@ -106,7 +107,7 @@ void GPS::AddGpsData(int channel, int msg_id, char *msg)
     }
 
     if (new_data_mask == 0x1F) {
-        //printf("New Data in ch[%d]\r\n", channel);
+        //debug_print("New Data in ch[%d]\r\n", channel);
         gps_channel_[channel].new_data = 1;
         new_data_mask = 0;
     }
