@@ -494,15 +494,13 @@ static void WriteToFcmServos(void)
 
     // CH1 may have been re-purposed for link live
     if (FCM_SERVO_CH1) {
-        FCM_SERVO_CH1->pulsewidth_us((int)(1500.5f + pwm_values[4]*500));
+        FCM_SERVO_CH1->pulsewidth_us((int)(1500.5f + pwm_values[4] * 500));
     }
-
-    FCM_SERVO_CH1->pulsewidth_us(1200.0f);
 
     FCM_SERVO_CH2.pulsewidth_us((int)(1500.5f + pwm_values[1] * 500));
     FCM_SERVO_CH3.pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));
-    FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[2] *500));
-    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + pwm_values[3] *500));
+    FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[2] * 500));
+    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + pwm_values[3] * 500));
 
     // CH6 may have been re-purposed for rpm speed sense
     if (FCM_SERVO_CH6) {
@@ -4809,8 +4807,6 @@ static int InitCanbusNodes(void)
   */
 int main()
 {
-
-    debug_print("hello\r\n");
 
     led1 = 1;
 
