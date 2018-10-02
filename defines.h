@@ -17,6 +17,7 @@ extern USBSerial   serial;
             do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
 
 #define CONFIG_VERSION   9
+#define COMPASS_CAL_VERSION 1
 
 #define PC_BAUDRATE          115200
 #define GPS_BAUDRATE         38400

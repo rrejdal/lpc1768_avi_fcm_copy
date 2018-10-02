@@ -3419,6 +3419,7 @@ static void CompassCalibration(void)
     {
         return;
     }
+
     /*UPdate Max and Min compass readings on x,y,z axes.
      * - Always use new minimum value if in calibration mode, the assumption here
      *   is that the user knows only to calibrate in an area void of EM interference
@@ -3521,6 +3522,7 @@ static void CompassCalibration(void)
         }
 
         hfc.compass_cal.valid = 1;
+        hfc.compass_cal.version = COMPASS_CAL_VERSION;
 
         // TODO::SP: Error handling...?
         SaveCompassCalibration(&hfc.compass_cal);
@@ -4730,7 +4732,7 @@ void InitializeRuntimeData(void)
     // otherwise use defaults.
     const CompassCalibrationData *pCompass_cal = NULL;
 
-    if (LoadCompassCalibration(&pCompass_cal) != 0) {
+    if (LoadCompassCalibration(&pCompass_cal) == 0) {
         memcpy(&hfc.compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
     }
     else {

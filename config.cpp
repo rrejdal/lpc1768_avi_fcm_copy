@@ -41,7 +41,6 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 #define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
 
 // Compass Calibration Info
-#define MIN_COMPASS_CAL_VERSION 1
 #define FLASH_COMPASS_CAL_ADDR      FLASH_SECTOR_28
 #define FLASH_COMPASS_CAL_SECTOR    28
 #define FLASH_COMPASS_CAL_SECTORS   (1 - 1)
@@ -61,7 +60,7 @@ int LoadConfiguration(const ConfigData **pConfig)
     // Map fcm ConfigData structure onto the flash and validate its version
     ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if ((pConfigData->header.total_size == 0) || (pConfigData->header.total_size >= MAX_CONFIG_SIZE)) {
+    if ((pConfigData->header.total_size <= 0) || (pConfigData->header.total_size >= MAX_CONFIG_SIZE)) {
         return -3;
     }
 
@@ -72,7 +71,7 @@ int LoadConfiguration(const ConfigData **pConfig)
     	return -1;
     }
 
-    // If out version is > then the file version then we cannot process it.
+    // If our version is > then the file version then we cannot process it.
     if (CONFIG_VERSION > pConfigData->header.version) {
         return -2;
     }
@@ -90,7 +89,7 @@ int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal)
 {
     CompassCalibrationData *pCompass = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
 
-    if ((pCompass->version != MIN_COMPASS_CAL_VERSION) || !pCompass->valid) {
+    if ((COMPASS_CAL_VERSION > pCompass->version) || !pCompass->valid) {
         return -1;
     }
 
@@ -184,8 +183,8 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // Re-Write config with PID update values from Telemetry.
     ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if (pFlashConfigData->header.version != CONFIG_VERSION) {
-        return -1;
+    if (CONFIG_VERSION > pFlashConfigData->header.version) {
+        return -2;
     }
 
     if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
@@ -199,7 +198,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     }
 
     // copy config data from Flash to RAM
-    memcpy(pConfigData, pFlashConfigData, sizeof(ConfigData));
+    memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
 
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
@@ -207,7 +206,7 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // Recalculate checksum on file
     unsigned char *pData = (unsigned char *)pConfigData;
     pData += sizeof(ConfigurationDataHeader);
-    pConfigData->header.checksum = crc32b(pData, (sizeof(ConfigData) - sizeof(ConfigurationDataHeader)));
+    pConfigData->header.checksum = crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)));
 
     __disable_irq();
 
@@ -255,9 +254,12 @@ int SaveNewConfig(void)
     }
 
     // Validate its version
-    if (pConfigData->header.version != CONFIG_VERSION) {
-        return -1;
+    // If our version is > then the file version then we cannot process it.
+    if (CONFIG_VERSION > pConfigData->header.version) {
+        return -2;
     }
+
+    __disable_irq();
 
     // Erase existing file
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
@@ -277,6 +279,8 @@ int SaveNewConfig(void)
         return -1;
     }
 
+    __enable_irq();
+
     return 0;
 }
 
@@ -287,15 +291,19 @@ int SaveNewConfig(void)
   */
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
 {
-    CompassCalibrationData *pData = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
-
-    if (pData->version != MIN_COMPASS_CAL_VERSION) {
-        return -1;
-    }
-
     if (sizeof(CompassCalibrationData) > MAX_CONFIG_SIZE) {
         return -1;
     }
+
+    CompassCalibrationData *pCalData = (CompassCalibrationData *)&ram_config;
+    if (pCalData == NULL) {
+        return -1;
+    }
+
+    memset(pCalData, 0xFF, MAX_CONFIG_SIZE);
+    memcpy(pCalData, pCompass_cal, sizeof(CompassCalibrationData));
+
+    __disable_irq();
 
     // Erase...
     if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
@@ -311,9 +319,11 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
         return -1;
     }
 
-    if (iap.write((char *)pData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+    if (iap.write((char *)pCalData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
         return -1;
     }
+
+    __enable_irq();
 
     return 0;
 }
