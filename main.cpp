@@ -149,6 +149,7 @@ static int canbus_ack = 0;
 static int write_canbus_error = 0;
 static int can_power_coeff = 0;
 static int canbus_livelink_avail = 0;
+static int power_update_avail = 0;
 
 #define FCM_FATAL_ERROR() { \
     while(1) { \
@@ -3170,6 +3171,7 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
     hfc.power.Vmain = *(float *)pdata;
     pdata += 4;
     hfc.power.Iesc =  *(float *)pdata;
+    power_update_avail = 1;
 }
 
 static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
@@ -3930,9 +3932,10 @@ void do_control()
 
    if ((hfc.print_counter % 100) == 0) {
        // Every 100ms update battery status, if new data available
-       if (canbus_livelink_avail){
+       if (canbus_livelink_avail || power_update_avail){
            UpdateBatteryStatus(dT);
            canbus_livelink_avail = 0;
+           power_update_avail = 0;
        }
    }
 
