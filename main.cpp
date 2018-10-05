@@ -495,13 +495,13 @@ static void WriteToFcmServos(void)
 
     // CH1 may have been re-purposed for link live
     if (FCM_SERVO_CH1) {
-        FCM_SERVO_CH1->pulsewidth_us((int)(1500.5f + pwm_values[4] * 500));
+        FCM_SERVO_CH1->pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));
     }
 
     FCM_SERVO_CH2.pulsewidth_us((int)(1500.5f + pwm_values[1] * 500));
-    FCM_SERVO_CH3.pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));
-    FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[2] * 500));
-    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + pwm_values[3] * 500));
+    FCM_SERVO_CH3.pulsewidth_us((int)(1500.5f + pwm_values[2] * 500));
+    FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[3] * 500));
+    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + pwm_values[4] * 500));
 
     // CH6 may have been re-purposed for rpm speed sense
     if (FCM_SERVO_CH6) {
@@ -737,66 +737,55 @@ static void SetControlMode(void)
 }
 
 /* CCPM 120deg mixer ==========================================================
-** input: raw trottle, pitch and roll values
+** input: raw throttle, pitch and roll values
 ** output: servo signals A (at 6 o'clock) B (at 2 o'clock) and C (at 10 o'clock)
 ** value range: -/+ 0.571 corresponds to 100% stick */
-static void CCPM120mix(float pitch, float roll, float collective, float *sA, float *sB, float *sC)
+static void CCPM120mix(void)
 {
     /* collective */
-    float A = collective;
-    float B = collective;
-    float C = collective;
-//    float R;
-    
-    /* limit pitch roll such they together never exceed 100% */
-#if 0    // not supported since the limits have to go back to PID min/max
-    R = sqrtf(pitch*pitch + roll*roll);
-    if (R>0.571f)
-    {
-        pitch = pitch/R*0.571f;
-        roll  = roll/R*0.571f;
-    }
-#endif
-    
+    float A = hfc.mixer_in[COLL];
+    float B = hfc.mixer_in[COLL];
+    float C = hfc.mixer_in[COLL];
+
     /* roll */
-    B -= roll*0.8660254038f;//cos(30);
-    C += roll*0.8660254038f;//cos(30);
+    B -= hfc.mixer_in[ROLL] * 0.8660254038f; //cos(30);
+    C += hfc.mixer_in[ROLL] * 0.8660254038f; //cos(30);
     
     /* pitch */
-    A += pitch;
-    B -= pitch*0.5f;//sin(30);
-    C -= pitch*0.5f;//sin(30);
+    A += hfc.mixer_in[PITCH];
+    B -= hfc.mixer_in[PITCH] * 0.5f; //sin(30);
+    C -= hfc.mixer_in[PITCH] * 0.5f; //sin(30);
     
-    *sA = A;
-    *sB = B;
-    *sC = C;
+    hfc.servos_out[CCPM_A] = A;
+    hfc.servos_out[CCPM_B] = B;
+    hfc.servos_out[CCPM_C] = C;
 }
 
 /* CCPM 140deg mixer ==========================================================
-** input: raw trottle, pitch and roll values
+** input: raw throttle, pitch and roll values
 ** output: servo signals A (at 6 o'clock) B (at 2 o'clock) and C (at 10 o'clock)
 ** value range: -/+ 0.571 corresponds to 100% stick */
-static void CCPM140mix(float pitch, float roll, float collective, float *sA, float *sB, float *sC)
+static void CCPM140mix(void)
 {
     /* collective */
-    float A = collective;
-    float B = collective;
-    float C = collective;
-//    float R;
+    float A = hfc.mixer_in[COLL];
+    float B = hfc.mixer_in[COLL];
+    float C = hfc.mixer_in[COLL];
 
     /* roll */
-    B -= roll*0.8660254038f;//cos(30);
-    C += roll*0.8660254038f;//cos(30);
+    B -= hfc.mixer_in[ROLL] * 0.8660254038f; //cos(30);
+    C += hfc.mixer_in[ROLL] * 0.8660254038f; //cos(30);
 
     /* pitch */
-    A += pitch;
-    B -= pitch;
-    C -= pitch;
+    A += hfc.mixer_in[PITCH];
+    B -= hfc.mixer_in[PITCH];
+    C -= hfc.mixer_in[PITCH];
 
-    *sA = A;
-    *sB = B;
-    *sC = C;
+    hfc.servos_out[CCPM_A] = A;
+    hfc.servos_out[CCPM_B] = B;
+    hfc.servos_out[CCPM_C] = C;
 }
+
 /* Tandem Helicopter Mixer ====================================================
  ** input: collective, pitch and roll values
  ** input: XBUS channel 6 and 7 raw values
@@ -871,119 +860,100 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     }
 }
 
-/* QUAD Copter Mixer ==========================================================
- * Quad in X configuration.
- *
- *  1CW       0CCW
- *     \  ^  /
- *     /  |  \
- * 2CCW       3CW
- *
- * T, R, P, Y controls */
-static void MixerQuad()
+static inline void PreventMotorsOffInArmed(int num_motors)
 {
-    hfc.servos_out[0] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
-    hfc.servos_out[1] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
-    hfc.servos_out[2] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
-    hfc.servos_out[6] = 0;
-    hfc.servos_out[4] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
-    hfc.servos_out[7] = 0;
+    // Keep motors from turning off once armed
+    if ((hfc.throttle_armed && (hfc.throttle_value > -0.5f))
+                || (hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
 
-	if(hfc.throttle_value > 0.5 && hfc.throttle_armed)	// Geoff's LEDs
-	    hfc.servos_out[3] = 1;
-	else
-	    hfc.servos_out[3] = -1;
-
-    if (hfc.throttle_armed)								// Another one of Geoff's LEDs
-        hfc.servos_out[5] = 1;
-    else
-        hfc.servos_out[5] = -1;
-
-
-    hfc.servos_out[0] -= hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[1] += hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[2] += hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[4] -= hfc.mixer_in[ROLL]*0.5f;
-
-    hfc.servos_out[0] -= hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[1] -= hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[2] += hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[4] += hfc.mixer_in[PITCH]*0.5f;
-
-    hfc.servos_out[0] -= hfc.mixer_in[YAW];
-    hfc.servos_out[1] += hfc.mixer_in[YAW];			//cw
-    hfc.servos_out[2] -= hfc.mixer_in[YAW];
-    hfc.servos_out[4] += hfc.mixer_in[YAW];			//cw
-
-//    if ((hfc.print_counter&0x7ff)==2)
-//        debug_print("%d %d %d %d\n", (int)(servos_out[0]*1000),(int)(servos_out[1]*1000),(int)(servos_out[2]*1000),(int)(servos_out[3]*1000));
-
-
-    //Keep motors from turning off once armed
-    if ((hfc.throttle_armed && hfc.throttle_value>-0.5f) || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
-    {
-        int i;
-        for (i=0; i<8; i++){
-    	if(hfc.servos_out[i] < pConfig->throttle_multi_min)
-    	    hfc.servos_out[i] = pConfig->throttle_multi_min;
+        for (int i = 0; i < num_motors; i++) {
+            if(hfc.servos_out[i] < pConfig->throttle_multi_min) {
+                hfc.servos_out[i] = pConfig->throttle_multi_min;
+            }
         }
     }
 }
-/* Hex Copter Mixer ==========================================================
+
+/* Quad Mixer
+ *
+ *  3CW       0CCW
+ *     \  ^  /
+ *     /  |  \
+ * 2CCW       1CW
+ *
+ */
+static void MixerQuad(void)
+{
+    for (int i=0; i < 4; i++) {
+        hfc.servos_out[i] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    }
+
+    // 6 & 7 are Unused outputs
+    hfc.servos_out[6] = 0;
+    hfc.servos_out[7] = 0;
+
+    hfc.servos_out[0] += hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[1] += hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[2] -= hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[3] -= hfc.mixer_in[ROLL]*0.5f;
+
+    hfc.servos_out[0] -= hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[1] += hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[2] += hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[3] -= hfc.mixer_in[PITCH]*0.5f;
+
+    hfc.servos_out[0] += hfc.mixer_in[YAW];			//cw
+    hfc.servos_out[1] -= hfc.mixer_in[YAW];
+    hfc.servos_out[2] += hfc.mixer_in[YAW];			//cw
+    hfc.servos_out[3] -= hfc.mixer_in[YAW];
+
+    PreventMotorsOffInArmed(4);
+}
+
+/*
  * Hex layout as shown
  *
- *  2CCW     0CW
+ *  5CCW     0CW
  * 		\	/
- *  3CW-- | --1CCW
+ *  4CW-- | --1CCW
  *  	/	\
- *	5CCW     4CW
+ *	3CCW     2CW
  *
- * T, R, P, Y - controls */
+ */
 static void MixerHex(void)
 {
-    hfc.servos_out[0] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[1] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[2] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[3] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[4] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[5] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[6] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[7] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    for (int i=0; i < 6; i++) {
+        hfc.servos_out[i] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    }
 
-    hfc.servos_out[4] -= hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[1] -= hfc.mixer_in[ROLL];
+    // Channels 6 & 7 not used.
+    hfc.servos_out[6] = 0;
+    hfc.servos_out[7] = 0;
+
     hfc.servos_out[0] -= hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[2] += hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[3] += hfc.mixer_in[ROLL];
+    hfc.servos_out[1] -= hfc.mixer_in[ROLL];
+    hfc.servos_out[2] -= hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[3] += hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[4] += hfc.mixer_in[ROLL];
     hfc.servos_out[5] += hfc.mixer_in[ROLL]*0.5f;
     
     hfc.servos_out[0] -= hfc.mixer_in[PITCH]*0.866f;
-    hfc.servos_out[2] -= hfc.mixer_in[PITCH]*0.866f;
-    hfc.servos_out[4] += hfc.mixer_in[PITCH]*0.866f;
-    hfc.servos_out[5] += hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[2] += hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[3] += hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[5] -= hfc.mixer_in[PITCH]*0.866f;
     
-    hfc.servos_out[4] += hfc.mixer_in[YAW];		//cw
-    hfc.servos_out[3] += hfc.mixer_in[YAW];		//cw
-    hfc.servos_out[0] += hfc.mixer_in[YAW];		//cw
+    hfc.servos_out[0] += hfc.mixer_in[YAW];     //cw
     hfc.servos_out[1] -= hfc.mixer_in[YAW];
-    hfc.servos_out[2] -= hfc.mixer_in[YAW];
+    hfc.servos_out[2] += hfc.mixer_in[YAW];		//cw
+    hfc.servos_out[3] -= hfc.mixer_in[YAW];
+    hfc.servos_out[4] += hfc.mixer_in[YAW];		//cw
     hfc.servos_out[5] -= hfc.mixer_in[YAW];
 
-    //Keep motors from turning off once armed
-    if ((hfc.throttle_armed && hfc.throttle_value>-0.5f) || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
-    {
-        int i;
-        for (i=0; i<8; i++){
-    	if(hfc.servos_out[i] < pConfig->throttle_multi_min)
-    	    hfc.servos_out[i] = pConfig->throttle_multi_min;
-        }
-    }
+    PreventMotorsOffInArmed(6);
 }
 
-/* OCTO Copter Mixer ==========================================================
- * Octo in X configuration.  Servo[6] is location S4, Servo[7] is location S5
- * on the output of the FCM.
- * Other servos are output on the Servo Node
+
+/* Octo Mixer
  *
  *    7CCW     0CW
  *      \   ^  /
@@ -994,17 +964,12 @@ static void MixerHex(void)
  *      /       \
  *    4CW     3CCW
  *
- * T, R, P, Y controls */
+ */
 static void MixerOcto(void)
 {
-    hfc.servos_out[0] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[1] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[2] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[3] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[4] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[5] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[6] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
-    hfc.servos_out[7] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    for (int i=0; i < 8; i++) {
+        hfc.servos_out[i] = hfc.mixer_in[THRO]* pConfig->throttle_gain;
+    }
 
     hfc.servos_out[0] += hfc.mixer_in[PITCH];
     hfc.servos_out[1] += hfc.mixer_in[PITCH] * 0.414174f;
@@ -1033,58 +998,59 @@ static void MixerOcto(void)
     hfc.servos_out[6] += hfc.mixer_in[YAW];			//cw
     hfc.servos_out[7] -= hfc.mixer_in[YAW];
 
-    //Keep motors from turning off once armed
-    if ((hfc.throttle_armed && hfc.throttle_value>-0.5f) || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
-    {
-        int i;
-        for (i=0; i<8; i++){
-    	if(hfc.servos_out[i] < pConfig->throttle_multi_min)
-    	    hfc.servos_out[i] = pConfig->throttle_multi_min;
-        }
-    }
+    PreventMotorsOffInArmed(8);
 }
 
 static void ServoMixer(void)
 {
-    if (pConfig->ccpm_type == CCPM_NONE)
-    {
-        hfc.servos_out[THRO]  = hfc.mixer_in[THRO];
-        hfc.servos_out[PITCH] = hfc.mixer_in[PITCH];
-        hfc.servos_out[ROLL]  = hfc.mixer_in[ROLL];
-        hfc.servos_out[YAW]   = hfc.mixer_in[YAW];
-        hfc.servos_out[COLL]  = 0;
-    }
-    else if (pConfig->ccpm_type == CCPM_120)
-    {
-        hfc.servos_out[YAW]  = hfc.mixer_in[YAW];
-        hfc.servos_out[THRO] = hfc.mixer_in[THRO];
-        CCPM120mix(hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[COLL],
-                    &hfc.servos_out[CCPM_A], &hfc.servos_out[CCPM_B], &hfc.servos_out[CCPM_C]);
-    }
-    else if (pConfig->ccpm_type == CCPM_140)
-    {
-        hfc.servos_out[YAW] = hfc.mixer_in[YAW];
-        hfc.servos_out[THRO] = hfc.mixer_in[THRO];
-        CCPM140mix(hfc.mixer_in[PITCH], hfc.mixer_in[ROLL], hfc.mixer_in[COLL],
-                        &hfc.servos_out[CCPM_A], &hfc.servos_out[CCPM_B], &hfc.servos_out[CCPM_C]);
-    }
-    else if (pConfig->ccpm_type == CCPM_HEX)
-    {
-        MixerHex();
-    }
-    else if (pConfig->ccpm_type==CCPM_QUAD)
-    {
-        MixerQuad();
-    }
-    else if (pConfig->ccpm_type==CCPM_OCTO)
-    {
-        MixerOcto();
-    }
-    else if (pConfig->ccpm_type == MIXERTANDEM)
-    {
-        servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO];                        // Link Live Throttle on Front Servo output 0
-        servo_node_pwm[2].servo_out[0] = hfc.mixer_in[THRO] + pConfig->RearRpmTrim; // Link Live Throttle on Rear Servo output 0
-        MixerTandem(&servo_node_pwm[0]);
+    switch(pConfig->ccpm_type) {
+        case CCPM_NONE:
+                hfc.servos_out[THRO]  = hfc.mixer_in[THRO];
+                hfc.servos_out[PITCH] = hfc.mixer_in[PITCH];
+                hfc.servos_out[ROLL]  = hfc.mixer_in[ROLL];
+                hfc.servos_out[YAW]   = hfc.mixer_in[YAW];
+                hfc.servos_out[COLL]  = 0;
+            break;
+
+        case CCPM_120:
+                hfc.servos_out[YAW]  = hfc.mixer_in[YAW];
+                hfc.servos_out[THRO] = hfc.mixer_in[THRO];
+                CCPM120mix();
+            break;
+
+        case CCPM_140:
+                hfc.servos_out[YAW] = hfc.mixer_in[YAW];
+                hfc.servos_out[THRO] = hfc.mixer_in[THRO];
+                CCPM140mix();
+            break;
+
+        case CCPM_HEX:
+                MixerHex();
+            break;
+
+        case CCPM_QUAD:
+                MixerQuad();
+
+                // Throttle Armed LEDs on channel 4 and 5
+                // TODO::SP: Need a way of configuring this..
+                hfc.servos_out[4] = ((hfc.throttle_value > 0.5) && hfc.throttle_armed) ? 1 : -1;
+                hfc.servos_out[5] = hfc.throttle_armed ? 1 : -1;
+            break;
+
+        case CCPM_OCTO:
+                MixerOcto();
+            break;
+
+        case MIXERTANDEM:
+                // Link Live Throttle on Front Servo output 0
+                servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO];
+
+                // Link Live Throttle on Rear Servo output 0
+                servo_node_pwm[2].servo_out[0] = hfc.mixer_in[THRO] + pConfig->RearRpmTrim;
+                MixerTandem(&servo_node_pwm[0]);
+            break;
+        default:
+            break;
     }
 }
 
@@ -2837,6 +2803,7 @@ static void ServoUpdate(float dT)
 //    Rotate2D(&hfc.mixer_in[ROLL], &hfc.mixer_in[PITCH], pConfig->RollPitchAngle); // this would interfeer with SetSpeedAcc() just above
 
     ServoMixer();
+
 
     if (pConfig->ccpm_type == MIXERTANDEM) {
         WriteToServoNodeServos(pConfig->num_servo_nodes);
