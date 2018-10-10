@@ -2135,7 +2135,9 @@ static void ServoUpdate(float dT)
     char  control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT);
     bool retire_waypoint = false;
-    float AngleCompensation = COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D)) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D))));
+    float AngleCompensation = COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
+              * sqrt( 1 / (   COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) + COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
+                            - COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D))) ) );
 //    float throttle_prev = hfc.ctrl_out[RAW][THRO];
 
     hfc.altitude_lidar = hfc.altitude_lidar_raw * AngleCompensation;
