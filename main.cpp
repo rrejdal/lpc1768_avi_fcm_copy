@@ -373,8 +373,6 @@ static const short int LL2TEMP[128] = {
 -7156};
 
 signed short int pwm_values[MAX_NUMBER_SERVO_NODES][8];
-//static int servo_remap[8] = { 4, 1, 0, 2, 3, 5, 6, 7 };
-static int servo_remap[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 
 static void WriteToServoNodeServos(int num_servo_nodes)
 {
@@ -438,7 +436,7 @@ static void WriteToPowerNodeServos()
     float temp;
 
     for (int i=0; i < 8; i++) {
-        temp = hfc.servos_out[servo_remap[i]];
+        temp = hfc.servos_out[i];
 
         if (i < 6) {
             if (pConfig->servo_revert[i] & (1<<i)) {
