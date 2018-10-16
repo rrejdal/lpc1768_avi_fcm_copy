@@ -33,19 +33,15 @@
 #define PN_IMU  0x04
 #define PN_PWR  0x06
 
-// TODO::SP: Version should be read in at build time, for now its hard coded.
-#define MAJOR_VERSION 00
-#define MINOR_VERSION 00
-#define BUILD_VERSION 02
-
 // Engineering Test builds are marked as "X" builds
+// THIS IS PASSED IN FROM BUILD LINE WHEN USING ECLIPSE
 //#define BUILD_TYPE ""
-#define BUILD_TYPE "X"
+//#define BUILD_TYPE "X"
 
 #define xstr(s) str(s)
 #define str(s) #s
 
-#define FCM_VERSION (" VER:" xstr(MAJOR_VERSION) "." xstr(MINOR_VERSION) "." xstr(BUILD_VERSION) BUILD_TYPE)
+#define FCM_VERSION (" VER:" xstr(MAJOR_VERSION) "." xstr(MINOR_VERSION) "." xstr(BUILD_VERSION) xstr(BUILD_TYPE))
 
 extern const char * build_git_time;
 extern const char * build_git_sha;
