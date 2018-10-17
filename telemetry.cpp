@@ -1712,6 +1712,39 @@ void TelemSerial::ProcessCommands(void)
     {
         SetHome();
     }
+    if (cmd==TELEM_CMD_CALIBRATE)
+    {
+        if (sub_cmd == CALIBRATE_IMU)
+        {
+            if (!hfc->calibrate)
+            {
+                hfc->calibrate = CALIBRATE_SAMPLES;
+            }
+        }
+        else
+        if (sub_cmd == CALIBRATE_COMPASS)
+        {
+            int i = 0;
+
+            hfc->display_mode = DISPLAY_COMPASS;
+
+            hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
+            hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
+
+            for(i = 0; i < PITCH_COMP_LIMIT; i++)
+            {
+                hfc->comp_pitch_flags[i] = 0;
+            }
+
+            for(i = 0; i < ROLL_COMP_LIMIT; i++)
+            {
+                hfc->comp_roll_flags[i] = 0;
+            }
+
+            hfc->comp_calibrate = COMP_CALIBRATING;
+            //debug_print("Starting Compass Calibration\r\n");
+        }
+    }
     else
     if (cmd==TELEM_CMD_JOYSTICK)
     {

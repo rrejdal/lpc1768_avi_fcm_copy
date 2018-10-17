@@ -192,6 +192,9 @@
 #define IMURESET_GPS            0
 #define IMURESET_ALTITUDE       1
 
+#define CALIBRATE_IMU           0
+#define CALIBRATE_COMPASS       1
+
 /* control source, transition from RCradio to anything saves stick values */
 #define CTRL_SOURCE_RCRADIO     0
 #define CTRL_SOURCE_JOYSTICK    1
