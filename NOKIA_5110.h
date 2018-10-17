@@ -64,6 +64,7 @@ class NokiaLcd
         void Refresh();
         void ShowError(const char *str_cons, const char *l1, const char *l2, const char *l3);
         void ShowSplash(const char *l1, const char *l2, const char *l3);
+        void RefreshError(void);
     private:
         void ResetLcd();
         

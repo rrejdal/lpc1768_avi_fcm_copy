@@ -177,6 +177,7 @@ static void PrintOrient();
 static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
 
+
 float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
 {
   int i;
@@ -1131,15 +1132,17 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
     {
         if ((hfc->print_counter&0xff)==2)
         {
-            myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
+            myLcd.SetLine(0, AVIDRONE_SPLASH, false);
+            myLcd.SetLine(1, AVIDRONE_FCM_SPLASH, false);
+            myLcd.SetLine(2, FCM_VERSION, false);
 
             if (init_ok) {
                 if (init_warning == 0) {
-                    PRINTs(str, (char*)"");
-                    myLcd.SetLine(3, str, 0);
-
-                    PRINTs(str, (char*)"");
-                    myLcd.SetLine(4, str, 0);
+                    myLcd.SetLine(3, "", 0);
+                    myLcd.SetLine(4, "", 0);
+                }
+                else {
+                    myLcd.RefreshError();
                 }
 
                 if(!hfc->throttle_armed) {
@@ -3136,6 +3139,7 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 {
     hfc.power.Vmain = *(float *)pdata;
+    hfc.power.Vesc = hfc.power.Vmain;
     pdata += 4;
     hfc.power.Iesc =  *(float *)pdata;
     power_update_avail = 1;
@@ -3871,9 +3875,7 @@ void do_control()
 
     telem.Update();
 
-    if (hfc.display_mode != DISPLAY_SPLASH) {
-        myLcd.Update();
-    }
+    myLcd.Update();
 
     ProcessStats();
 

@@ -144,6 +144,10 @@ const char FONT_6x6[570] = //should be 564 total char
  0x10, 0x08, 0x18, 0x10, 0x08, 0x00, // ~   94
 };
  
+static char lcd_error_1[14];
+static char lcd_error_2[14];
+static char lcd_error_3[14];
+
 NokiaLcd::NokiaLcd(SPI *spi, PinName dc, PinName sce, PinName rst)
 {
     LcdSpi = spi;
@@ -353,6 +357,8 @@ void NokiaLcd::Bitmap(const char *bmap, int bmap_len, int DispX, int DispY)
         SendData((char)0);
 }
 
+// NOTE::SP: THIS CAUSES A DELAY of 3ms in Processing time
+// YOU HAVE BEEN WARNED!
 void NokiaLcd::Refresh()
 {
     Update();
@@ -370,6 +376,10 @@ void NokiaLcd::ShowSplash(const char *l1, const char *l2, const char *l3)
 
 void NokiaLcd::ShowError(const char *str_cons, const char *l1, const char *l2, const char *l3)
 {
+    sprintf(&lcd_error_1[0], "%s", l1);
+    sprintf(&lcd_error_2[0], "%s", l2);
+    sprintf(&lcd_error_3[0], "%s", l3);
+
     debug_print("\r\n=== ERROR ========================================\r\n");
     debug_print(str_cons);
     debug_print("\r\n=== ERROR ========================================\r\n");
@@ -380,4 +390,10 @@ void NokiaLcd::ShowError(const char *str_cons, const char *l1, const char *l2, c
     //SetLine(4, (char*)"               ", false);
     //SetLine(5, (char*)"               ", false);
     Refresh();
+}
+
+void NokiaLcd::RefreshError(void)
+{
+    SetLine(3, &lcd_error_1[0], 0);
+    SetLine(4, &lcd_error_2[0], 0);
 }
