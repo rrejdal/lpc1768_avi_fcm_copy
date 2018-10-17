@@ -590,6 +590,7 @@ typedef struct
 
 typedef struct
 {
+    float   dT;
 	float 	Vmain;
 	float	Vaux;
 	float	Vservo;

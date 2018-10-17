@@ -3885,28 +3885,31 @@ void do_control()
         Lidar_Process(&hfc);
     }
 
-   RPM_Process();
+    RPM_Process();
 
-   telem.ProcessInputBytes(telemetry);
+    telem.ProcessInputBytes(telemetry);
 
-   AutoReset();
+    AutoReset();
 
-   if (pConfig->num_gps_nodes > 0) {
-       GpsHeartbeat(pConfig->num_gps_nodes);
-   }
+    if (pConfig->num_gps_nodes > 0) {
+        GpsHeartbeat(pConfig->num_gps_nodes);
+    }
 
-   if (pConfig->num_power_nodes > 0) {
-       PowerNodeHeartbeat(pConfig->num_power_nodes);
-   }
+    if (pConfig->num_power_nodes > 0) {
+        PowerNodeHeartbeat(pConfig->num_power_nodes);
+    }
 
-   if ((hfc.print_counter % 100) == 0) {
-       // Every 100ms update battery status, if new data available
-       if (canbus_livelink_avail || power_update_avail){
-           UpdateBatteryStatus(dT);
-           canbus_livelink_avail = 0;
-           power_update_avail = 0;
-       }
-   }
+    hfc.power.dT += dT;
+
+    if ((hfc.print_counter % 100) == 0) {
+        // Every 100ms update battery status, if new data available
+        if (canbus_livelink_avail || power_update_avail){
+            UpdateBatteryStatus(hfc.power.dT);
+            hfc.power.dT = 0;
+            canbus_livelink_avail = 0;
+            power_update_avail = 0;
+        }
+    }
 
     hfc.gps_new_data = false;
     hfc.print_counter++;
