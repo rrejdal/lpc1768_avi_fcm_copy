@@ -936,10 +936,10 @@ static void MixerHex(void)
     hfc.servos_out[4] += hfc.mixer_in[ROLL];
     hfc.servos_out[5] += hfc.mixer_in[ROLL]*0.5f;
     
-    hfc.servos_out[0] -= hfc.mixer_in[PITCH]*0.866f;
-    hfc.servos_out[2] += hfc.mixer_in[PITCH]*0.866f;
-    hfc.servos_out[3] += hfc.mixer_in[PITCH]*0.866f;
-    hfc.servos_out[5] -= hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[0] += hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[2] -= hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[3] -= hfc.mixer_in[PITCH]*0.866f;
+    hfc.servos_out[5] += hfc.mixer_in[PITCH]*0.866f;
     
     hfc.servos_out[0] += hfc.mixer_in[YAW];     //cw
     hfc.servos_out[1] -= hfc.mixer_in[YAW];
@@ -2807,7 +2807,6 @@ static void ServoUpdate(float dT)
 
     ServoMixer();
 
-
     if (pConfig->ccpm_type == MIXERTANDEM) {
         WriteToServoNodeServos(pConfig->num_servo_nodes);
     }
@@ -2818,6 +2817,15 @@ static void ServoUpdate(float dT)
         else {
             WriteToFcmServos();
         }
+    }
+
+    if (pConfig->power_node || pConfig->can_servo) {
+        // NOTE::SP: HACK OF THE DAY 18-10-2018
+        // WHEN USING A POWER NODE (HEX/OCTO AIRFRAMES) STILL NEED TO
+        // DRIVE ARMED LED, BUT THIS IS ON THE FCM. HARDCODING OUTPUT
+        // 6 ON FCM FOR THIS LED.
+        float led_pwm = hfc.throttle_armed ? 1 : -1;
+        FCM_SERVO_CH6->pulsewidth_us((int)(1500.5f + led_pwm * 500));
     }
 
     if (FCMLinkLive) {
@@ -3965,10 +3973,15 @@ static void Servos_Init(void)
         FCM_SERVO_CH1 = new PwmOut(p26);
     }
 
+    // NOTE::SP: HACK OF THE DAY 18-10-2018
+    // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 6
+    // FOR USE WITH ARMED LED
+    if (FCM_SERVO_CH6) {
+        FCM_SERVO_CH6->period_us(pConfig->pwm_period);
+        FCM_SERVO_CH6->pulsewidth_us(1500);
+    }
+
     if (pConfig->fcm_servo) {
-        if (FCM_SERVO_CH6) {
-          FCM_SERVO_CH6->period_us(pConfig->pwm_period);
-        }
 
         FCM_SERVO_CH5.period_us(pConfig->pwm_period);
         FCM_SERVO_CH4.period_us(pConfig->pwm_period);
@@ -3977,10 +3990,6 @@ static void Servos_Init(void)
 
         if (FCM_SERVO_CH1) {
             FCM_SERVO_CH1->period_us(pConfig->pwm_period);
-        }
-
-        if (FCM_SERVO_CH6) {
-          FCM_SERVO_CH6->pulsewidth_us(1500);
         }
 
         FCM_SERVO_CH5.pulsewidth_us(1500);
@@ -4278,10 +4287,6 @@ void ProcessButtonSelection()
 
 			hfc.comp_calibrate = COMP_CALIBRATING;
 			//debug_print("Starting Compass Calibration\r\n");
-        }
-        else {
-        	hfc.comp_calibrate = COMP_CALIBRATE_DONE;
-        	//debug_print("Compass Calibration Finished\r\n");
         }
     }
 }
