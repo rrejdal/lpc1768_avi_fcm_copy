@@ -691,6 +691,7 @@ typedef struct ConfigurationData {
     float landing_vspeed;
     float landing_appr_speed;
     int   lidar_offset;
+    int   lidar_avgs;
 
     int   battery_cells;
     int   battery_capacity;
@@ -1124,6 +1125,9 @@ typedef struct
 typedef union {
   unsigned char msg[4];
   unsigned int lidarCount;
+  float alt;
+  float alt_prev;
+  int   new_data_rdy;
 } T_lidar;
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat

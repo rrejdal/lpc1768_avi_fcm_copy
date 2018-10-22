@@ -3049,17 +3049,60 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
 
 static void UpdateLidar(int node_id, unsigned char *pdata)
 {
-    float alt;
-
-    // TODO::SP: Always Taking Node1 Lidar - need to look at both
-    if (node_id > 0) {
-        return;
-    }
+    float alt = 0;
+    unsigned int pulse = 0;
+    int data_cnt = 0;
+    int check_data = 0;
+    int num_valid_data = 0;
 
     lidarPayload[node_id].lidarCount = *(uint32_t *)pdata;
-    unsigned int pulse = min(MAX_LIDAR_PULSE, max(0, (lidarPayload[node_id].lidarCount - pConfig->lidar_offset)));
-    alt = pulse * 0.001f;
-    hfc.altitude_lidar_raw = (alt + 3*hfc.altitude_lidar_raw)*0.25f;
+    lidarPayload[node_id].alt_prev = lidarPayload[node_id].alt;
+    pulse = min(MAX_LIDAR_PULSE, max(0, (lidarPayload[node_id].lidarCount - pConfig->lidar_offset)));
+    lidarPayload[node_id].alt = pulse * 0.001f;
+
+    lidarPayload[node_id].new_data_rdy++;
+
+    // Check if we've received data from all lidars
+    for (int i = 0; i < MAX_NUM_LIDAR; i++) {
+        // if the new_data_rdy > 1 then that means one of the
+        // lidars didn't send data and we will use the lidar
+        // data that is working.
+        if (lidarPayload[i].new_data_rdy > 1 ) {
+            check_data = 1;
+            break;
+        }
+        else if (lidarPayload[i].new_data_rdy > 0 ) {
+            data_cnt++;
+        }
+    }
+
+    if (data_cnt == MAX_NUM_LIDAR) {
+        check_data = 1;
+    }
+
+    if (check_data == 1) {
+        // Lidar data comes in at 50 Hz, every 0.02s, a change in alitude of
+        // 0.2m in 0.02s = 10 m/s, the drone should to be ascending that fast.
+        // Only use the lidar that has new data ready.
+        for (int i = 0; i < MAX_NUM_LIDAR; i++) {
+            if ( (ABS(lidarPayload[i].alt - lidarPayload[i].alt_prev) < 0.2f)
+              && (lidarPayload[i].new_data_rdy > 0 ) ) {
+                num_valid_data++;
+                alt += lidarPayload[i].alt;
+            }
+
+            // always reset data ready flag for all lidars
+            lidarPayload[i].new_data_rdy = 0;
+        }
+    }
+
+    // Only valid data gets put into the running average
+    if ( num_valid_data > 0 ) {
+        alt /= num_valid_data;
+        hfc.altitude_lidar_raw = ( alt + ((float)pConfig->lidar_avgs - 1.0f)*hfc.altitude_lidar_raw )
+                                / (float)pConfig->lidar_avgs;
+    }
+
 }
 
 static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
