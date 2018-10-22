@@ -3068,9 +3068,9 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
     static int new_data_mask = 0;
 
     // TODO::SP: Only taking Castle Link from Servo Node id 1 at present
-    if (node_id > 0) {
-        return;
-    }
+//    if (node_id > 0) {
+//        return;
+//    }
 
     switch (message_id) {
         case AVIDRONE_MSGID_CASTLE_0:
@@ -3104,23 +3104,45 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
     if (new_data_mask == 0x1F) {
         new_data_mask = 0;
 
-        hfc.power.Iaux   = castle_link_live[node_id].bec_current;
-        // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
-        hfc.power.Iesc   = (castle_link_live[node_id].current + 3* hfc.power.Iesc ) * 0.25f;
-        hfc.power.Iesc = ClipMinMax(hfc.power.Iesc, 0, hfc.power.Iesc);
-        hfc.power.Vmain  = (castle_link_live[node_id].battery_voltage + 3* hfc.power.Vmain) * 0.25f;
+        float Iaux     = 0;
+        float Iesc     = 0;
+        float Vmain    = 0;
+        float Vbec     = 0;
+        float RPM      = 0;
+        float esc_temp = 0;
 
-        hfc.power.Vesc   = hfc.power.Vmain;
-        hfc.power.Vservo = castle_link_live[node_id].bec_voltage;
-        hfc.power.Vservo = ClipMinMax(hfc.power.Vservo, 0, hfc.power.Vservo);
-
-        hfc.power.Vaux   = castle_link_live[node_id].bec_voltage;
-        hfc.power.Vaux   = ClipMinMax(hfc.power.Vaux, 0, hfc.power.Vaux);
-        if (!pConfig->rpm_sensor) {
-            hfc.RPM = (castle_link_live[node_id].rpm / pConfig->gear_ratio / pConfig->motor_poles);
+        for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
+            Iaux     += castle_link_live[i].bec_current;
+            Iesc     += castle_link_live[i].current;
+            Vmain    += castle_link_live[i].battery_voltage;
+            Vbec     += castle_link_live[i].bec_voltage;
+            RPM      += castle_link_live[i].rpm;
+            esc_temp += castle_link_live[node_id].temperature;
         }
 
-        hfc.esc_temp = castle_link_live[node_id].temperature;
+        Vmain    /= MAX_NUM_CASTLE_LINKS;
+        Vbec     /= MAX_NUM_CASTLE_LINKS;
+        RPM      /= MAX_NUM_CASTLE_LINKS;
+        esc_temp /= MAX_NUM_CASTLE_LINKS;
+
+        // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
+        hfc.power.Iaux   = Iaux;
+        hfc.power.Iesc   = (Iesc + 3* hfc.power.Iesc ) * 0.25f;
+        hfc.power.Iesc   = ClipMinMax(hfc.power.Iesc, 0, hfc.power.Iesc);
+
+        hfc.power.Vmain  = (Vmain + 3* hfc.power.Vmain) * 0.25f;
+        hfc.power.Vesc   = hfc.power.Vmain;
+
+        hfc.power.Vservo = Vbec;
+        hfc.power.Vservo = ClipMinMax(hfc.power.Vservo, 0, hfc.power.Vservo);
+
+        hfc.power.Vaux   = Vbec;
+        hfc.power.Vaux   = ClipMinMax(hfc.power.Vaux, 0, hfc.power.Vaux);
+
+        if (!pConfig->rpm_sensor) {
+            hfc.RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
+        }
+
         canbus_livelink_avail = 1;
     }
 }
