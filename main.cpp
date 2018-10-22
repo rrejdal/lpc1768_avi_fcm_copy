@@ -4628,7 +4628,7 @@ void InitializeRuntimeData(void)
 
     PID_Init(&hfc.pid_IMU[0],     pConfig->imu_pid_params, 1, 0);
     PID_Init(&hfc.pid_IMU[1],     pConfig->imu_pid_params, 1, 0);
-    PID_Init(&hfc.pid_IMU[2],     pConfig->imu_pid_params, 1, 0);
+    PID_Init(&hfc.pid_IMU[2],     pConfig->imu_yaw_pid_params, 1, 0);
 
     PID_P_Acc_Init(&hfc.pid_YawAngle,    pConfig->yawangle_pid_params,    1, true); // enable deceleration
     PID_P_Acc_Init(&hfc.pid_CollAlt,     pConfig->collalt_pid_params,     0, true); // same acc and dec

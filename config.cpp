@@ -161,6 +161,9 @@ static void UpdatePIDconfig(ConfigData *pConfigData, FlightControlData *fcm_data
     UpdatePIDconfigValues(pConfigData->imu_pid_params,
                               fcm_data->pid_IMU[0].Kp, fcm_data->pid_IMU[0].Ki, fcm_data->pid_IMU[0].Kd);
 
+    UpdatePIDconfigValues(pConfigData->imu_yaw_pid_params,
+                              fcm_data->pid_IMU[2].Kp, fcm_data->pid_IMU[2].Ki, fcm_data->pid_IMU[2].Kd);
+
     UpdatePDconfigValues(pConfigData->yawangle_pid_params, fcm_data->pid_YawAngle.Kp, fcm_data->pid_YawAngle.Kd);
 
     UpdatePDconfigValues(pConfigData->collalt_pid_params, fcm_data->pid_CollAlt.Kp, fcm_data->pid_CollAlt.Kd);

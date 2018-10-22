@@ -1257,21 +1257,24 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             {
                 CheckRangeAndSetF(&hfc->pid_IMU[0].Kp, p->data, -100, 100);
                 CheckRangeAndSetF(&hfc->pid_IMU[1].Kp, p->data, -100, 100);
-                CheckRangeAndSetF(&hfc->pid_IMU[2].Kp, p->data, -100, 100);
+//                CheckRangeAndSetF(&hfc->pid_IMU[2].Kp, p->data, -100, 100);
+                // TODO ??: Yuri to add GCS command for changing IMU PIDs for YAW
+                //          separately from PITCH and ROLL since PITCH and ROLL use
+                //          accelerometer and gyro while YAW uses compass and gyro.
             }
             else
             if (sub_param==TELEM_PARAM_PID_IMU_I)
             {
                 CheckRangeAndSetF(&hfc->pid_IMU[0].Ki, p->data, -100, 100);
                 CheckRangeAndSetF(&hfc->pid_IMU[1].Ki, p->data, -100, 100);
-                CheckRangeAndSetF(&hfc->pid_IMU[2].Ki, p->data, -100, 100);
+//                CheckRangeAndSetF(&hfc->pid_IMU[2].Ki, p->data, -100, 100);
             }
             else
             if (sub_param==TELEM_PARAM_PID_IMU_D)
             {
                 CheckRangeAndSetF(&hfc->pid_IMU[0].Kd, p->data, -100, 100);
                 CheckRangeAndSetF(&hfc->pid_IMU[1].Kd, p->data, -100, 100);
-                CheckRangeAndSetF(&hfc->pid_IMU[2].Kd, p->data, -100, 100);
+//                CheckRangeAndSetF(&hfc->pid_IMU[2].Kd, p->data, -100, 100);
             }
         }
     }
