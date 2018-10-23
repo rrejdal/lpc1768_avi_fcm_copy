@@ -2018,7 +2018,7 @@ static float CalcMinAboveGroundAlt(float speed)
 // CANNOT be engaged When ARMED!
 static void ServoUpdateRAW(float dT)
 {
-    char xbus_new_values = xbus.NewValues(dT);
+    char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.waypoint_stage);
 
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
@@ -2100,7 +2100,7 @@ static void ServoUpdateRAW(float dT)
 static void ServoUpdate(float dT)
 {
     char  control_mode_prev[4] = {0,0,0,0};
-    char xbus_new_values = xbus.NewValues(dT);
+    char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.waypoint_stage);
     bool retire_waypoint = false;
     float AngleCompensation = COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
               * sqrt( 1 / (   COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) + COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))

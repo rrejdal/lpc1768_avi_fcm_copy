@@ -76,7 +76,7 @@ class XBus
         int             good_packets;               // number of received good packets
         int             bad_packets;                // number of received bad packets
 //        char            NewValues(char sBus_enable, float dT);        // returns 0- no new, 1-new, 2-timeout
-        char            NewValues(float dT);        // returns 0- no new, 1-new, 2-timeout
+        char            NewValues(float dT, unsigned char throttle_armed, unsigned char waypoint_stage);        // returns 0- no new, 1-new, 2-timeout
         void			ConfigRx();
 
         bool            receiving;                  // true if data being received
