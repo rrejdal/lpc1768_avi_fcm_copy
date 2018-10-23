@@ -691,7 +691,7 @@ typedef struct ConfigurationData {
     float landing_vspeed;
     float landing_appr_speed;
     int   lidar_offset;
-    int   lidar_avgs;
+//    int   lidar_avgs;
 
     int   battery_cells;
     int   battery_capacity;

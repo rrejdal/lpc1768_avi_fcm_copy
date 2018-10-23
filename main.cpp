@@ -3099,8 +3099,7 @@ static void UpdateLidar(int node_id, unsigned char *pdata)
     // Only valid data gets put into the running average
     if ( num_valid_data > 0 ) {
         alt /= num_valid_data;
-        hfc.altitude_lidar_raw = ( alt + ((float)pConfig->lidar_avgs - 1.0f)*hfc.altitude_lidar_raw )
-                                / (float)pConfig->lidar_avgs;
+        hfc.altitude_lidar_raw = ( alt + 3.0f*hfc.altitude_lidar_raw ) * 0.25f;
     }
 
 }
