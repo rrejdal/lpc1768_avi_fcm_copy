@@ -329,9 +329,9 @@
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.release.050068423" moduleId="org.eclipse.cdt.core.settings" name="Release">
 				<macros>
 					<stringMacro name="majorver" type="VALUE_TEXT" value="01"/>
-					<stringMacro name="minorver" type="VALUE_TEXT" value="00"/>
-					<stringMacro name="buildtype" type="VALUE_TEXT" value="B"/>
-					<stringMacro name="buildver" type="VALUE_TEXT" value="04"/>
+					<stringMacro name="minorver" type="VALUE_TEXT" value="01"/>
+					<stringMacro name="buildtype" type="VALUE_TEXT" value="X"/>
+					<stringMacro name="buildver" type="VALUE_TEXT" value="00"/>
 				</macros>
 				<externalSettings/>
 				<extensions>

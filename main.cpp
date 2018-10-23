@@ -4268,6 +4268,8 @@ static void ProcessUserCmnds(char c)
                         board_info[PN_PWR][i].serial_number2, board_info[PN_PWR][i].serial_number1, board_info[PN_PWR][i].serial_number0);
             usb_print("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
         }
+
+        usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
     }
 }
 
