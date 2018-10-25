@@ -4356,6 +4356,10 @@ void ProcessButtonSelection()
 			hfc.comp_calibrate = COMP_CALIBRATING;
 			//debug_print("Starting Compass Calibration\r\n");
         }
+        else {
+            hfc.comp_calibrate = COMP_CALIBRATE_DONE;
+            //debug_print("Compass Calibration Finished\r\n");
+        }
     }
 }
 
