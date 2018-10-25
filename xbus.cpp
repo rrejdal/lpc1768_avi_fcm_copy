@@ -26,6 +26,16 @@ XBus::XBus(PinName rx) : serial(NC, rx)
     for (i=1; i<MAX_XBUS_SERVOS; i++) valuesf[i] = 0;
     for (i=0; i<MAX_XBUS_SERVOS; i++) revert[i]  = 0;
     revert[1] = 1; revert[2] = 1; revert[3] = 1;
+
+    //valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
+    valuesf[1] = 0;         // XBUS_ROLL, 0 side speed
+    valuesf[2] = 0;         // XBUS_PITCH, 0 forward speed
+    valuesf[3] = 0;         // XBUS_YAW, 0 heading change
+    valuesf[4] = -0.571f;   // XBUS_THR_SW, altitude hold
+    valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
+    valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
+    valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
+
 }
 
 XBus::~XBus(void)
@@ -252,7 +262,8 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
         timeouts++;
         // NOTE::SP: This is only done when we are armed and flying.
         // TODO::SP: THIS NEEDS TO ALSO WORK FOR VARIBALE PITCH UAVs (HELIs)
-        if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY)) {
+        if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY))
+        {
             valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
             valuesf[1] = 0;			// XBUS_ROLL, 0 side speed
             valuesf[2] = 0;			// XBUS_PITCH, 0 forward speed
