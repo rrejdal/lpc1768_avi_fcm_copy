@@ -1234,7 +1234,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
     }
     else if (hfc->display_mode == DISPLAY_XBUS)
     {
-        if (xbus_new_values)
+        if ((hfc->print_counter&0x7f)==2)
         {
         	sPRINTdd(str, (char*)"1:%4d  2:%4d", (int)(xbus.valuesf[0]*1000+0.5),(int)(xbus.valuesf[1]*1000+0.5));
             myLcd.SetLine(0, str, 0);
@@ -1244,7 +1244,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.SetLine(2, str, 0);
             sPRINTdd(str, (char*)"7:%4d  8:%4d", (int)(xbus.valuesf[6]*1000+0.5),(int)(xbus.valuesf[7]*1000+0.5));
             myLcd.SetLine(3, str, 0);
-          	sPRINTdd(str, (char*)"XBUS %d/%d", xbus.good_packets, xbus.bad_packets);
+          	sPRINTddd(str, (char*)"XB %d/%d/%d", xbus.sbus_flag_errors, xbus.bad_packets, xbus.timeouts);
            	myLcd.SetLineX(0, 4, str, 0);
         }
     }
@@ -2018,7 +2018,7 @@ static float CalcMinAboveGroundAlt(float speed)
 // CANNOT be engaged When ARMED!
 static void ServoUpdateRAW(float dT)
 {
-    char xbus_new_values = xbus.NewValues(dT);
+    char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
@@ -2099,25 +2099,34 @@ static void ServoUpdateRAW(float dT)
 /* TODO::??: Fix AngleCompensation calculation and if its use is valid */
 static void ServoUpdate(float dT)
 {
-    char  control_mode_prev[4] = {0,0,0,0};
-    char xbus_new_values = xbus.NewValues(dT);
+    //if((hfc.print_counter %1000) == 0) {
+    //    debug_print("FA[%d], AT[%d], TH[%f], FTM[%d], CV[%f]\r\n", hfc.full_auto, hfc.auto_throttle,
+    //                                hfc.throttle_value, hfc.fixedThrottleMode, hfc.collective_value);
+    //}
+
+    char control_mode_prev[4] = {0,0,0,0};
+    char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
     bool retire_waypoint = false;
     float AngleCompensation = COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
-              * sqrt( 1 / (   COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) + COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
-                            - COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D))) ) );
+                                      * sqrt(1 / (COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) + COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
+                                      - COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))));
+
 //    float throttle_prev = hfc.ctrl_out[RAW][THRO];
 
     hfc.altitude_lidar = hfc.altitude_lidar_raw * AngleCompensation;
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-    if (!hfc.full_auto && !hfc.throttle_armed)
+    if (!hfc.full_auto && !hfc.throttle_armed) {
     	hfc.auto_throttle = false;
+    }
     
-    if (!hfc.auto_throttle)
+    if (!hfc.auto_throttle) {
     	hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
-    else if (!hfc.throttle_armed)
+    }
+    else if (!hfc.throttle_armed) {
     	hfc.throttle_value = -pConfig->Stick100range;
+    }
 
 
 //    if (!(hfc.print_counter&0x3f))
@@ -2202,7 +2211,7 @@ static void ServoUpdate(float dT)
                 ResetIterms();
         	}
         	// check if lever is raised to top to start machine
-        	if(hfc.fixedThrottleMode == THROTTLE_IDLE && hfc.throttle_value > 0.5)
+        	if(hfc.fixedThrottleMode == THROTTLE_IDLE && hfc.throttle_value > 0.5f)
         	{
         		hfc.fixedThrottleCap =  xbus.valuesf[XBUS_THRO];  	// capture midstick value
 				hfc.collective_value = -0.571;
@@ -2211,6 +2220,11 @@ static void ServoUpdate(float dT)
         	else if(hfc.fixedThrottleMode == THROTTLE_IDLE)
         	{
         		hfc.collective_value = -0.571;
+        	}
+
+        	if (xbus.valuesf[XBUS_THR_LV] < -0.5f) {
+        	    hfc.fixedThrottleMode = THROTTLE_IDLE;
+        	    hfc.collective_value = -0.571;
         	}
         }
     	else
@@ -2247,8 +2261,9 @@ static void ServoUpdate(float dT)
     ProcessStickInputs(&hfc, dT);
 
     /* throttle control */
-    if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
-      hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)*pConfig->throttle_values[1]+pConfig->throttle_values[0];     // set by channel 6
+    if (pConfig->throttle_ctrl == PROP_VARIABLE_PITCH) {
+        hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)*pConfig->throttle_values[1]+pConfig->throttle_values[0];     // set by channel 6
+    }
 
     /* performs logging and automatic profiling control */
     Profiling_Process(&hfc, pConfig);
