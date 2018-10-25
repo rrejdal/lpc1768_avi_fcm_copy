@@ -196,7 +196,7 @@ unsigned char CalcCRC8(unsigned char *buffer, int  length)
 
 // returns 0- no new, 1-new, 2-timeout
 //char XBus::NewValues(char sBus_enable, float dT)
-char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char waypoint_stage)
+char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode)
 {
     time_since_last_good += dT;
     /* if new packet arrived in the meantime, reset counters and indicate success */
@@ -227,7 +227,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char waypo
     		if ((sbusFrame.frame.flags & SBUS_FLAG_SIGNAL_LOSS) || (sbusFrame.frame.flags & SBUS_FLAG_FAILSAFE_ACTIVE))
             {
                 receiving = false;
-                bad_packets++;
+                sbus_flag_errors++;
             }
             else
             {
@@ -247,22 +247,21 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char waypo
         	return XBUS_NEW_VALUES;
     }
     /* check if timeout value has been reached */
-    if (time_since_last_good>=XBUS_TIMEOUT_VALUE)
+    else if (time_since_last_good > XBUS_TIMEOUT_VALUE)
     {
-    	valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
-    	valuesf[1] = 0;			// XBUS_ROLL, 0 side speed
-    	valuesf[2] = 0;			// XBUS_PITCH, 0 forward speed
-    	valuesf[3] = 0;			// XBUS_YAW, 0 heading change
-    	valuesf[4] = -0.571f;	// XBUS_THR_SW, altitude hold
-
-    	// Only set throttle if armed and in the air, otherwise we can auto-spool unexpectedly when on the
-    	// ground - which is bad for everyone!
-    	if (!throttle_armed && (waypoint_stage > FM_TAKEOFF_ARM)) {
-    	    valuesf[5] = 0.571f;	// XBUS_THR_LV, full throttle
-    	    valuesf[6] = 0.571f;	// XBUS_CTRLMODE_SW, full auto mode
-    	}
-
-    	valuesf[7] = -0.571f;	// XBUS_MODE_SW, speed mode
+        timeouts++;
+        // NOTE::SP: This is only done when we are armed and flying.
+        // TODO::SP: THIS NEEDS TO ALSO WORK FOR VARIBALE PITCH UAVs (HELIs)
+        if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY)) {
+            valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
+            valuesf[1] = 0;			// XBUS_ROLL, 0 side speed
+            valuesf[2] = 0;			// XBUS_PITCH, 0 forward speed
+            valuesf[3] = 0;			// XBUS_YAW, 0 heading change
+            valuesf[4] = -0.571f;	// XBUS_THR_SW, altitude hold
+            valuesf[5] = 0.571f;	// XBUS_THR_LV, full throttle
+            valuesf[6] = 0.571f;	// XBUS_CTRLMODE_SW, full auto mode
+            valuesf[7] = -0.571f;	// XBUS_MODE_SW, speed mode
+        }
         time_since_last_good = 0;
         receiving = false;
         no_prev_signal = true;

@@ -1587,6 +1587,7 @@ void TelemSerial::Disarm(void)
 	hfc->waypoint_type   = WAYPOINT_NONE;
 	hfc->playlist_status = PLAYLIST_STOPPED;
 	hfc->LidarCtrlMode   = false;
+	hfc->fixedThrottleMode = THROTTLE_IDLE;
 
 	// TODO::SP: Error handling on Flash write error??
 	if (hfc->pid_params_changed) {

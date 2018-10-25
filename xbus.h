@@ -12,7 +12,7 @@
 #define XBUS_TIMEOUT        2
 #define XBUS_NEW_VALUES_1ST 3	// first good data after no data
 
-#define XBUS_TIMEOUT_VALUE  0.05f       // 50ms
+#define XBUS_TIMEOUT_VALUE  0.100f       // 100ms
 
 // Sbus transmitter
 #define SBUS_FRAME_SIZE         25
@@ -75,8 +75,10 @@ class XBus
         unsigned char   revert[MAX_XBUS_SERVOS];    // true will revert channel polarity
         int             good_packets;               // number of received good packets
         int             bad_packets;                // number of received bad packets
+        int             timeouts;                // number of timeout conditions
+        int             sbus_flag_errors;       // number of error conditions reported from sbus flags
 //        char            NewValues(char sBus_enable, float dT);        // returns 0- no new, 1-new, 2-timeout
-        char            NewValues(float dT, unsigned char throttle_armed, unsigned char waypoint_stage);        // returns 0- no new, 1-new, 2-timeout
+        char            NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode);        // returns 0- no new, 1-new, 2-timeout
         void			ConfigRx();
 
         bool            receiving;                  // true if data being received
