@@ -816,13 +816,22 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     dcp      = PITCH_Televator * dcpGain;
     torqComp = dcp * pConfig->TorqCompMult;
 
-    TcollectFront = hfc.mixer_in[COLL] * pConfig->CollRange - dcp * pConfig->dcpFront;
-    TcollectRear  = hfc.mixer_in[COLL] * pConfig->CollRange + dcp * pConfig->dcpRear;
+    if (pConfig->ModelSelect == 1) {
+        // E6TL
+        TcollectFront = hfc.mixer_in[COLL] * pConfig->CollRange - dcp * pConfig->dcpFront;
+        TcollectRear  = hfc.mixer_in[COLL] * pConfig->CollRange + dcp * pConfig->dcpRear;
+    }
+    else {
+        // 210TL
+        TcollectFront = hfc.mixer_in[COLL] * pConfig->CollRange + dcp * pConfig->dcpFront;
+        TcollectRear  = hfc.mixer_in[COLL] * pConfig->CollRange - dcp * pConfig->dcpRear;
+    }
 
     ROLL_TaileronFront = ROLL_Taileron + YAW_Trudder + torqComp;
     ROLL_TaileronRear  = ROLL_Taileron - YAW_Trudder - torqComp;
 
-    //         Servo map on helicopter
+    //         Servo map on Tandem
+    // NOTE::SP: Check MAPPING to HARDWARE
     //    Front(Node 1)               Rear(Node 2)
     //   B(3)                             B(3)
     //       C(4)   <---------------  C(4)
@@ -848,14 +857,14 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     else {
         // Selection for 210T
         // Front Servo
-        servo_node_pwm[1].servo_out[1] = 0 + ROLL_TaileronFront - (pConfig->CcpmMixer * PITCH_Televator) + TcollectFront;   // aFrontServo
-        servo_node_pwm[1].servo_out[2] = 0 + ROLL_TaileronFront + (pConfig->CcpmMixer * PITCH_Televator) - TcollectFront;   // bFrontServo
-        servo_node_pwm[1].servo_out[3] = 0 + TcollectFront + PITCH_Televator;                                                 // cFrontServo
+        servo_node_pwm[1].servo_out[1] = 0 + ROLL_TaileronFront + (pConfig->CcpmMixer * PITCH_Televator) + TcollectFront;   // aFrontServo
+        servo_node_pwm[1].servo_out[2] = 0 + ROLL_TaileronFront - (pConfig->CcpmMixer * PITCH_Televator) - TcollectFront;   // bFrontServo
+        servo_node_pwm[1].servo_out[3] = 0 + TcollectFront - PITCH_Televator;                                                 // cFrontServo
 
         // Rear Servo
-        servo_node_pwm[2].servo_out[1] = 0 + TcollectRear  - (pConfig->CcpmMixer * PITCH_Televator) - ROLL_TaileronRear;    // aRearServo
-        servo_node_pwm[2].servo_out[2] = 0 - TcollectRear  + (pConfig->CcpmMixer * PITCH_Televator) - ROLL_TaileronRear;    // bRearServo
-        servo_node_pwm[2].servo_out[3] = 0 - TcollectRear  - PITCH_Televator;                                                 // cRearServo
+        servo_node_pwm[2].servo_out[1] = 0 - TcollectRear  - (pConfig->CcpmMixer * PITCH_TelevatorR) - ROLL_TaileronRear;    // aRearServo
+        servo_node_pwm[2].servo_out[2] = 0 + TcollectRear  + (pConfig->CcpmMixer * PITCH_TelevatorR) - ROLL_TaileronRear;    // bRearServo
+        servo_node_pwm[2].servo_out[3] = 0 - TcollectRear  + PITCH_TelevatorR;
     }
 }
 
@@ -2096,14 +2105,8 @@ static void ServoUpdateRAW(float dT)
     }
 }
 
-/* TODO::??: Fix AngleCompensation calculation and if its use is valid */
 static void ServoUpdate(float dT)
 {
-    //if((hfc.print_counter %1000) == 0) {
-    //    debug_print("FA[%d], AT[%d], TH[%f], FTM[%d], CV[%f]\r\n", hfc.full_auto, hfc.auto_throttle,
-    //                                hfc.throttle_value, hfc.fixedThrottleMode, hfc.collective_value);
-    //}
-
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
     bool retire_waypoint = false;
