@@ -3062,6 +3062,13 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
     }
 }
 
+
+/* ***************************************************************************
+ * Multiple Lidars Supported. Can now hold lidar history of LIDAR_HISTORY_SIZE.
+ * Every node (pwr, servo, or fcm) that has a connected lidar must have a different
+ * node_ID (pwr node_id different from servo node_id different from FCM node_id).
+ * FCM node_id is set to MAX_NUM_LIDAR-1 in Lidar_Process().
+ * ******************************************************************************/
 static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
 {
     float alt_avg = 0;
@@ -3071,14 +3078,22 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
     int num_valid_data = 0;
     int index = 0;
 
+    // Apply Lidar offset, limit the reading between 0 and MAX_LIDAR_PULSE
     pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
 
+    //lidarData.alt[] is a circular buffer such that
+    //lidarData.alt[i-1] is 0.02 seconds behind lidarData.alt[i] since
+    //the lidar data rate is 50Hz.
+    //lidarData.i_current is the index of the current location in
+    //the lidarData.alt[] circular buffer.
+    //This code updates the location of the circular buffer.
     lidarData[node_id].i_current++;
     if (lidarData[node_id].i_current >= LIDAR_HISTORY_SIZE) {
         lidarData[node_id].i_current -= LIDAR_HISTORY_SIZE;
     }
-
     lidarData[node_id].alt[lidarData[node_id].i_current] = pulse * 0.001f;
+
+    //Flag to indicate that we got a lidar reading from the associated node.
     lidarData[node_id].new_data_rdy++;
 
 
