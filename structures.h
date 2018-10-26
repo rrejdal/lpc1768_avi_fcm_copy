@@ -273,6 +273,7 @@
 #define COMP_CALIBRATING        1
 #define COMP_CALIBRATE_DONE     2
 
+#define LIDAR_HISTORY_SIZE      10
 
 typedef struct /* size 10bytes */
 {
@@ -1122,13 +1123,11 @@ typedef struct
     T_Servo servo[4];
 } T_Servos;
 
-typedef union {
-  unsigned char msg[4];
-  unsigned int lidarCount;
-  float alt;
-  float alt_prev;
-  int   new_data_rdy;
-} T_lidar;
+typedef struct {
+    float alt[LIDAR_HISTORY_SIZE];
+    int   i_current;
+    int   new_data_rdy;
+} Lidar_Data;
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
  * 					  AVICAN_POWER_VALUES2 all uint16 Vservo, Vaux12V, dTms_adc, adc_count */

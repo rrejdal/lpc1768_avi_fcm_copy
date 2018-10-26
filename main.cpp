@@ -119,7 +119,7 @@ const ConfigData *pConfig = NULL;
 #define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
 #define COMPASS_SEL_MASK(x)     ((x) << 2)
 
-static T_lidar lidarPayload[MAX_NUM_LIDAR];
+Lidar_Data lidarData[MAX_NUM_LIDAR];
 #define MAX_LIDAR_PULSE 40000   // 40m max range; 10us/cm PWM
 
 typedef struct {
@@ -3062,31 +3062,36 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
     }
 }
 
-static void UpdateLidar(int node_id, unsigned char *pdata)
+static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
 {
-    float alt = 0;
+    float alt_avg = 0;
     unsigned int pulse = 0;
     int data_cnt = 0;
     int check_data = 0;
     int num_valid_data = 0;
+    int index = 0;
 
-    lidarPayload[node_id].lidarCount = *(uint32_t *)pdata;
-    lidarPayload[node_id].alt_prev = lidarPayload[node_id].alt;
-    pulse = min(MAX_LIDAR_PULSE, max(0, (lidarPayload[node_id].lidarCount - pConfig->lidar_offset)));
-    lidarPayload[node_id].alt = pulse * 0.001f;
+    pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
 
-    lidarPayload[node_id].new_data_rdy++;
+    lidarData[node_id].i_current++;
+    if (lidarData[node_id].i_current >= LIDAR_HISTORY_SIZE) {
+        lidarData[node_id].i_current -= LIDAR_HISTORY_SIZE;
+    }
+
+    lidarData[node_id].alt[lidarData[node_id].i_current] = pulse * 0.001f;
+    lidarData[node_id].new_data_rdy++;
+
 
     // Check if we've received data from all lidars
     for (int i = 0; i < MAX_NUM_LIDAR; i++) {
         // if the new_data_rdy > 1 then that means one of the
         // lidars didn't send data and we will use the lidar
         // data that is working.
-        if (lidarPayload[i].new_data_rdy > 1 ) {
+        if (lidarData[i].new_data_rdy > 1 ) {
             check_data = 1;
             break;
         }
-        else if (lidarPayload[i].new_data_rdy > 0 ) {
+        else if (lidarData[i].new_data_rdy > 0 ) {
             data_cnt++;
         }
     }
@@ -3096,28 +3101,49 @@ static void UpdateLidar(int node_id, unsigned char *pdata)
     }
 
     if (check_data == 1) {
-        // Lidar data comes in at 50 Hz, every 0.02s, a change in alitude of
-        // 0.2m in 0.02s = 10 m/s, the drone should to be ascending that fast.
-        // Only use the lidar that has new data ready.
+        // loop through each lidar
         for (int i = 0; i < MAX_NUM_LIDAR; i++) {
-            if ( (ABS(lidarPayload[i].alt - lidarPayload[i].alt_prev) < 0.2f)
-              && (lidarPayload[i].new_data_rdy > 0 ) ) {
-                num_valid_data++;
-                alt += lidarPayload[i].alt;
+            int current = lidarData[i].i_current;
+            int history_pass = 1;
+            index = current - 1;
+
+            //check the current lidar reading with the 10 previous values before
+            for(int j = 0; j < LIDAR_HISTORY_SIZE; j++) {
+                if (index < 0) {
+                    index = 9;
+                }
+
+                if (lidarData[i].new_data_rdy > 0) {
+                    // Lidar data comes in at 50 Hz, every 0.02s, a change in altitude of
+                    // 0.2m in 0.02s = 10 m/s, the drone should not be ascending that fast.
+                    // Every entry in lidarData[i].alt[] is 0.02s apart.
+                    if ( (lidarData[i].alt[index] != 9999)
+                      && (ABS(lidarData[i].alt[current] - lidarData[i].alt[index]) >= (0.2f*(i+1))) ) {
+                        lidarData[i].alt[current] = 9999;
+                        history_pass = 0;
+                        break;
+                    }
+                }
+                index--;
             }
 
+            if ((history_pass == 1) && (lidarData[i].new_data_rdy > 0) ) {
+                alt_avg += lidarData[i].alt[current];
+                num_valid_data++;
+            }
             // always reset data ready flag for all lidars
-            lidarPayload[i].new_data_rdy = 0;
+            lidarData[i].new_data_rdy = 0;
         }
     }
 
     // Only valid data gets put into the running average
     if ( num_valid_data > 0 ) {
-        alt /= num_valid_data;
+        alt_avg /= num_valid_data;
 //        hfc.altitude_lidar_raw = ( alt + ((float)pConfig->lidar_avgs - 1.0f)*hfc.altitude_lidar_raw )
 //                                / (float)pConfig->lidar_avgs;
-        hfc.altitude_lidar_raw = ( alt + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
+        hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
     }
+
 
 }
 
@@ -3263,7 +3289,7 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
-                UpdateLidar(node_id, pdata);
+                UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -3305,7 +3331,7 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_PWR_MSGID_LIDAR) {
-                UpdateLidar(node_id, pdata);
+                UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_PWR_MSGID_CASTLE_0) && (message_id <= AVIDRONE_PWR_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -3360,31 +3386,40 @@ static void Lidar_Process(FlightControlData *hfc)
     /* 1us/mm */
     unsigned int time = hfc->lidar_fall;
     unsigned int d = time - hfc->lidar_rise;
-//    debug_print("fall %d %d\r\n", time, d);
-    if (pConfig->ground_sensor==GROUND_SENSOR_LIDAR)
-    {
-        if (d>100000)
-            hfc->lidar_counter=0;
-        else
-            hfc->lidar_counter++;
 
-        if (d<=100000 && hfc->lidar_counter>=10)
-        {
-            float alt;
-            d = min(40000, max(0, d-pConfig->lidar_offset));
-            alt = d*0.001f;
-            hfc->altitude_lidar_raw = (alt + 3*hfc->altitude_lidar_raw)*0.25f;
-    //        debug_print("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
-        }
-        else
-            hfc->altitude_lidar_raw = 40;
-    }
-    else if (pConfig->ground_sensor==GROUND_SENSOR_SONAR)
-    {
-        hfc->altitude_lidar_raw = d * 0.0001724137931f - pConfig->lidar_offset*0.001f; // 5.8us/mm
-//        debug_print("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
-    }
+    // in this case the octo runs using power node and FCM.
+    // FCM will use a node_id = 2 - 1 = 1, while
+    // the power node uses a node_id = 1 -1 = 0
+    UpdateLidar(MAX_NUM_LIDAR-1,d);
     hfc->lidar_pulse = false;
+
+    return;
+//
+////    debug_print("fall %d %d\r\n", time, d);
+//    if (pConfig->ground_sensor==GROUND_SENSOR_LIDAR)
+//    {
+//        if (d>100000)
+//            hfc->lidar_counter=0;
+//        else
+//            hfc->lidar_counter++;
+//
+//        if (d<=100000 && hfc->lidar_counter>=10)
+//        {
+//            float alt;
+//            d = min(40000, max(0, d-pConfig->lidar_offset));
+//            alt = d*0.001f;
+//            hfc->altitude_lidar_raw = (alt + 3*hfc->altitude_lidar_raw)*0.25f;
+//    //        debug_print("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
+//        }
+//        else
+//            hfc->altitude_lidar_raw = 40;
+//    }
+//    else if (pConfig->ground_sensor==GROUND_SENSOR_SONAR)
+//    {
+//        hfc->altitude_lidar_raw = d * 0.0001724137931f - pConfig->lidar_offset*0.001f; // 5.8us/mm
+////        debug_print("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
+//    }
+//    hfc->lidar_pulse = false;
 }
 
 static void RPM_Process(void)
@@ -4985,7 +5020,7 @@ int main()
 
         Servos_Init();
 
-        if (pConfig->LidarFromServo == 0) {
+        if ( (pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0) ) {
             hfc.lidar_rise = GetTime_us();
             lidar.fall(&Lidar_fall);
             lidar.rise(&Lidar_rise);
