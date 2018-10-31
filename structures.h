@@ -1175,7 +1175,7 @@ typedef struct {
     float   bec_voltage;
     float   bec_current;
     float   temperature;
-    float   new_data_mask;
+    int     new_data_mask;
 } CastleLinkLive;
 
 typedef struct {
