@@ -282,3 +282,17 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
     else
         return XBUS_NO_NEW_VALUES;
 }
+
+void XBus::InitXbusValues()
+{
+    if(sbus_enabled == 0) {
+        for (int i=0; i < servos; i++)
+        {
+            valuesf[i] = -0.571f;
+
+            if (revert[i]) {
+                valuesf[i] = -valuesf[i];
+            }
+        }
+    }
+}

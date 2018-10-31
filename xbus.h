@@ -80,6 +80,7 @@ class XBus
 //        char            NewValues(char sBus_enable, float dT);        // returns 0- no new, 1-new, 2-timeout
         char            NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode);        // returns 0- no new, 1-new, 2-timeout
         void			ConfigRx();
+        void            InitXbusValues(void);
 
         bool            receiving;                  // true if data being received
     

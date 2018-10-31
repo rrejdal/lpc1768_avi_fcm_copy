@@ -809,6 +809,12 @@ typedef struct ConfigurationData {
     float dcpRear;
     float swashTiltRear;
 
+    float elevator_gain;
+    float dcp_gain;
+    float throttle_offset;
+
+    int disable_pre_flight;
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
@@ -842,6 +848,10 @@ typedef struct
     float landing_wind_threshold;
     int battery_capacity;
     float WindTableScale;
+
+    float elevator_gain;
+    float dcp_gain;
+    float throttle_offset;
     //float gyro_ofs[3];
 } ModifiableConfigData;
 

@@ -16,7 +16,7 @@ extern USBSerial   serial;
 #define usb_print(fmt, ...) \
             do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
 
-#define CONFIG_VERSION   9
+#define CONFIG_VERSION   10
 #define COMPASS_CAL_VERSION 1
 
 #define PC_BAUDRATE          115200
@@ -113,7 +113,8 @@ extern USBSerial   serial;
 #define DISPLAY_COMPASS       9
 #define DISPLAY_CALIB         10
 #define DISPLAY_WAYPOINT      11
-#define DISPLAY_PAGES         12
+#define DISPLAY_ENG           12
+#define DISPLAY_PAGES         13
 
 #define FLY_ALL_SENSORS 0
 #define FLY_NO_COMPASS  1

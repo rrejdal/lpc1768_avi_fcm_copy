@@ -1117,7 +1117,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->rw_cfg.AngleCollMixing, p->data, 0, 2);
             else
             if (sub_param==TELEM_PARAM_CTRL_THR_OFFSET)
-                CheckRangeAndSetF(&hfc->throttle_offset, p->data, -1, 1);
+                CheckRangeAndSetF(&hfc->rw_cfg.throttle_offset, p->data, -1, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_LIMIT)
                 CheckRangeAndSetF(&hfc->rw_cfg.cruise_speed_limit, p->data, 0, 100);
@@ -1337,6 +1337,10 @@ void TelemSerial::SendMsgToGround(int msg_id)
 /* returns true when everything is ok, false otherwise */
 char TelemSerial::PreFlightChecks(void)
 {
+    if (pConfig->disable_pre_flight) {
+        return true;
+    }
+
     int gps_error;
 
 	// Resetting IMU before pre-flight check, to deal with noisy compass type
@@ -1589,6 +1593,8 @@ void TelemSerial::Disarm(void)
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
 
+	xbus.InitXbusValues();
+
 	// TODO::SP: Error handling on Flash write error??
 	if (hfc->pid_params_changed) {
 		SavePIDUpdates(hfc);
@@ -1675,7 +1681,7 @@ void TelemSerial::Arm(void)
         return;
     }
 
-    /* cannot arm in manual mode unless explicitely allowed */
+    /* cannot arm in manual mode unless explicitly allowed */
     if (hfc->control_mode[PITCH]==CTRL_MODE_MANUAL && !pConfig->AllowArmInManual)
     {
         SendMsgToGround(MSG2GROUND_ARMING_MODE);

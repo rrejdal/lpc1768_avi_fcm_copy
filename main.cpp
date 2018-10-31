@@ -793,7 +793,6 @@ static void CCPM140mix(void)
  */
 static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 {
-    float elevGain, dcpGain;
     float ROLL_Taileron;
     float PITCH_Televator, PITCH_TelevatorR;
     float YAW_Trudder;
@@ -803,17 +802,17 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 
     // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
-    elevGain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
-    dcpGain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
+    hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
+    hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
 
     ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
-    PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * elevGain;
+    PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * hfc.rw_cfg.elevator_gain;
     PITCH_TelevatorR = PITCH_Televator * pConfig->swashTiltRear;
     YAW_Trudder   = hfc.mixer_in[YAW]   * pConfig->RudRange;
 
     // Differential collective pitch calculation
     // Torque compensation due to dcp and elevator
-    dcp      = PITCH_Televator * dcpGain;
+    dcp      = PITCH_Televator * hfc.rw_cfg.dcp_gain;
     torqComp = dcp * pConfig->TorqCompMult;
 
     if (pConfig->ModelSelect == 1) {
@@ -1051,10 +1050,15 @@ static void ServoMixer(void)
 
         case MIXERTANDEM:
                 // Link Live Throttle on Front Servo output 0
-                servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO];
+                if (hfc.throttle_value > 0.5f) {
+                    servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
+                }
+                else {
+                    servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO];
+                }
 
                 // Link Live Throttle on Rear Servo output 0
-                servo_node_pwm[2].servo_out[0] = hfc.mixer_in[THRO] + pConfig->RearRpmTrim;
+                servo_node_pwm[2].servo_out[0] = servo_node_pwm[1].servo_out[0] + pConfig->RearRpmTrim;
                 MixerTandem(&servo_node_pwm[0]);
             break;
         default:
@@ -1456,6 +1460,21 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.SetLine(3, str, 0);
             sPRINTd(str, (char*)"Cour: %ddeg", (int)head);
             myLcd.SetLine(4, str, 0);
+        }
+    }
+    else if (hfc->display_mode == DISPLAY_ENG)
+    {
+        // Misc LCD Display page for Engineering purposes
+        if ((hfc->print_counter & 0xff) == 2) {
+            sPRINTf(str, (char*)"EleG:%+1.4f", hfc->rw_cfg.elevator_gain);
+            myLcd.SetLine(0, str, 0);
+
+            sPRINTf(str, (char*)"DcpG:%+1.4f", hfc->rw_cfg.dcp_gain);
+            myLcd.SetLine(1, str, 0);
+
+            myLcd.SetLine(2, "", 0);
+            myLcd.SetLine(3, "", 0);
+            myLcd.SetLine(4, "", 0);
         }
     }
     else
@@ -2023,21 +2042,55 @@ static float CalcMinAboveGroundAlt(float speed)
     return alt;
 }
 
-// TODO::SP: This needs to ensure when in servoRaw that the throttle
-// CANNOT be engaged When ARMED!
+// Use to test Servo Update without processing sensor data
 static void ServoUpdateRAW(float dT)
 {
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
+#if 0
+    if ((hfc.print_counter %500) == 0) {
+        debug_print("Xbus");
+        for (int i=0; i < 16; i++) {
+            debug_print("[%d]=%f ", i, xbus.valuesf[i]);
+            if (i == 7) {
+                debug_print("\r\n");
+            }
+        }
+        debug_print("\r\n");
+
+        // full_auto, auto_throttle, ctrl_source, fixedThrottleMode, throttle_value, collective_value
+        debug_print("FA[%d] AT[%d] CS[%d] FTM[%d] TV[%f] CV[%f]\r\n",
+                        hfc.full_auto, hfc.auto_throttle, hfc.ctrl_source,
+                        hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value);
+
+        debug_print("RAW Servo out : ");
+        for (int i=0; i < 5; i++) {
+            debug_print("[%f] ", servo_node_pwm[1].servo_out[i]);
+        }
+
+        debug_print("\r\npwm values : ");
+        for (int i=0; i < 5; i++) {
+            debug_print("[%d] ", pwm_values[0][i]);
+        }
+
+        debug_print("\r\n\r\n");
+    }
+#endif
+
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
+        hfc.collective_value = xbus.valuesf[XBUS_THRO];
+    }
+    else {
+        hfc.collective_value = 0;
     }
 
     if (!hfc.auto_throttle) {
-        hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
+        hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
     }
     else if (!hfc.throttle_armed) {
         hfc.throttle_value = -pConfig->Stick100range;
+        hfc.fixedThrottleMode = THROTTLE_IDLE;
     }
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
@@ -2046,16 +2099,6 @@ static void ServoUpdateRAW(float dT)
     hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
     hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
 
-    if(!hfc.throttle_armed) {
-        hfc.fixedThrottleMode = THROTTLE_IDLE;
-    }
-
-    if (!hfc.full_auto && !hfc.auto_throttle) {
-        hfc.collective_value = xbus.valuesf[XBUS_THRO];
-    }
-    else {
-        hfc.collective_value = 0;
-    }
 
     if (xbus_new_values) {
         if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
@@ -2064,31 +2107,67 @@ static void ServoUpdateRAW(float dT)
         SetControlMode();
     }
 
+    telem.ProcessCommands();
+
     ProcessStickInputs(&hfc, dT);
 
-    /* throttle control */
-    //TODO::SP: Check where throttle_values come from i.e from modifiable data?
     if (pConfig->throttle_ctrl == PROP_VARIABLE_PITCH) {
-          hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)*pConfig->throttle_values[1]+pConfig->throttle_values[0];     // set by channel 6
+        hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)
+                                                * pConfig->throttle_values[1] + pConfig->throttle_values[0];
     }
-
 
     Display_Process(&hfc, xbus_new_values, dT);
 
     hfc.collective_raw_curr = hfc.ctrl_out[RAW][COLL];
-    hfc.ctrl_out[RAW][THRO] += hfc.throttle_offset;
+    hfc.ctrl_out[RAW][THRO] += hfc.rw_cfg.throttle_offset;
 
     hfc.mixer_in[PITCH] = hfc.ctrl_out[RAW][PITCH];
     hfc.mixer_in[ROLL]  = hfc.ctrl_out[RAW][ROLL];
     hfc.mixer_in[YAW]   = hfc.ctrl_out[RAW][YAW];
     hfc.mixer_in[COLL]  = hfc.ctrl_out[RAW][COLL];
 
-    if (hfc.throttle_armed) {
-        hfc.mixer_in[THRO]  = hfc.ctrl_out[RAW][THRO];
+    if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+        hfc.ctrl_out[RAW][THRO] = hfc.ctrl_out[RAW][COLL];
+
+        // if lever is low, set throttle to minimum and everything else to 0
+        // to prevent any prop from accidental spinning because of PIDs
+        if (hfc.throttle_value < -0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL] < CTRL_MODE_SPEED && hfc.collective_value < -0.50f)
+                || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))) {
+
+            if (hfc.throttle_armed && hfc.throttle_value > -0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF
+                    && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
+
+                ResetIterms();
+                hfc.ctrl_out[RAW][THRO] = -pConfig->Stick100range;
+                hfc.ctrl_out[RAW][PITCH] = 0;
+                hfc.ctrl_out[RAW][ROLL]  = 0;
+                hfc.ctrl_out[RAW][YAW]   = 0;
+            }
+        }
     }
-    else {
-        hfc.mixer_in[THRO]  = 1000; // ensure throttle is off
+
+    if (pConfig->ctrl_mode_inhibit[THRO] || !hfc.throttle_armed) {
+        // Sets to Minimum Throttle
+        hfc.ctrl_out[RAW][THRO] = pConfig->throttle_values[0];
     }
+
+    if (pConfig->ctrl_mode_inhibit[PITCH]) {
+        hfc.ctrl_out[RAW][PITCH] = hfc.pid_PitchRate.COofs;
+    }
+
+    if (pConfig->ctrl_mode_inhibit[ROLL]) {
+        hfc.ctrl_out[RAW][ROLL] = hfc.pid_RollRate.COofs;
+    }
+
+    if (pConfig->ctrl_mode_inhibit[YAW]) {
+        hfc.ctrl_out[RAW][YAW] = hfc.pid_YawRate.COofs;
+    }
+
+    if (pConfig->ctrl_mode_inhibit[COLL]) {
+        hfc.ctrl_out[RAW][COLL] = hfc.pid_CollVspeed.COofs;
+    }
+
+    hfc.mixer_in[THRO]  = hfc.ctrl_out[RAW][THRO];
 
     ServoMixer();
 
@@ -2109,6 +2188,37 @@ static void ServoUpdate(float dT)
 {
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
+
+#if 0
+    if ((hfc.print_counter %500) == 0) {
+        debug_print("Xbus");
+        for (int i=0; i < 16; i++) {
+            debug_print("[%d]=%f ", i, xbus.valuesf[i]);
+            if (i == 7) {
+                debug_print("\r\n");
+            }
+        }
+        debug_print("\r\n");
+
+        // full_auto, auto_throttle, ctrl_source, fixedThrottleMode, throttle_value, collective_value
+        debug_print("FA[%d] AT[%d] CS[%d] FTM[%d] TV[%f] CV[%f]\r\n",
+                        hfc.full_auto, hfc.auto_throttle, hfc.ctrl_source,
+                        hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value);
+
+        debug_print("Servo out : ");
+        for (int i=0; i < 5; i++) {
+            debug_print("[%f] ", servo_node_pwm[1].servo_out[i]);
+        }
+
+        debug_print("\r\npwm values : ");
+        for (int i=0; i < 5; i++) {
+            debug_print("[%d] ", pwm_values[0][i]);
+        }
+
+        debug_print("\r\n\r\n");
+    }
+#endif
+
     bool retire_waypoint = false;
     float AngleCompensation = COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
                                       * sqrt(1 / (COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) + COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
@@ -2120,49 +2230,49 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-    if (!hfc.full_auto && !hfc.throttle_armed) {
-    	hfc.auto_throttle = false;
-    }
-    
-    if (!hfc.auto_throttle) {
-    	hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
-    }
-    else if (!hfc.throttle_armed) {
-    	hfc.throttle_value = -pConfig->Stick100range;
-    }
+    if (hfc.throttle_armed) {
+        if (!hfc.full_auto) {
+            hfc.auto_throttle = false;
+        }
 
+        if (!hfc.auto_throttle) {
+            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+        }
+    }
+    else {
+        hfc.throttle_value = -pConfig->Stick100range;
+    }
 
 //    if (!(hfc.print_counter&0x3f))
 //    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
+
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
-//    if (!hfc.full_auto)
-    {
-		if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK)
-		{
-			hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
-			hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
-			hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
-			hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
-		}
-		else
-		{
-			hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
-			hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
-			hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
-			hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
-			if (hfc.joystick_new_values)
-			{
-				xbus_new_values = XBUS_NEW_VALUES;
-				hfc.joystick_new_values = 0;
-			}
-			else
-				xbus_new_values = XBUS_NO_NEW_VALUES;
-		}
+    if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
+        hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
+        hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
+        hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
+        hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
     }
+    else {
+        hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
+        hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
+        hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
+        hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
+
+        if (hfc.joystick_new_values) {
+            xbus_new_values = XBUS_NEW_VALUES;
+            hfc.joystick_new_values = 0;
+        }
+        else {
+            xbus_new_values = XBUS_NO_NEW_VALUES;
+        }
+    }
+
     // RVW throttle stick to collective logic section
-    if(!hfc.throttle_armed)
+    if(!hfc.throttle_armed) {
     	hfc.fixedThrottleMode = THROTTLE_IDLE;		//  set to follow lever
+    }
 
     if (!hfc.full_auto && !hfc.auto_throttle)
     {
@@ -2239,41 +2349,36 @@ static void ServoUpdate(float dT)
     {
     	hfc.collective_value = 0;
     }
+
     control_mode_prev[PITCH] = hfc.control_mode[PITCH];
     control_mode_prev[ROLL]  = hfc.control_mode[ROLL];
     control_mode_prev[YAW]   = hfc.control_mode[YAW];
     control_mode_prev[COLL]  = hfc.control_mode[COLL];
     
-    /* process command queue here */
     telem.ProcessCommands();
 
     Playlist_ProcessTop(&hfc);
     
-    /* check for a new control mode */
-    if (xbus_new_values)
-    {
-    	if (xbus_new_values==XBUS_NEW_VALUES_1ST) {
+    if (xbus_new_values) {
+    	if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
     		telem.SaveValuesForAbort();
     	}
 
         SetControlMode();
-//        debug_print("Full auto %d Auto Throttle %d\r\n", hfc.full_auto, hfc.auto_throttle);
     }
 
-    /* 11us low pass stick input to soften the response */
     ProcessStickInputs(&hfc, dT);
 
-    /* throttle control */
     if (pConfig->throttle_ctrl == PROP_VARIABLE_PITCH) {
-        hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)*pConfig->throttle_values[1]+pConfig->throttle_values[0];     // set by channel 6
+        hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)
+                                        * pConfig->throttle_values[1] + pConfig->throttle_values[0];
     }
 
-    /* performs logging and automatic profiling control */
-    Profiling_Process(&hfc, pConfig);
+    //Profiling_Process(&hfc, pConfig);
 
-    if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK)
+    if (hfc.ctrl_source == CTRL_SOURCE_RCRADIO || hfc.ctrl_source == CTRL_SOURCE_JOYSTICK)
     {
-        if (hfc.ctrl_source==CTRL_SOURCE_JOYSTICK)
+        if (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK)
         {
           if (hfc.joy_PRmode)
           {
@@ -2306,16 +2411,16 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[ANGLE][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.PRstick_angle  + hfc.pid_RollSpeed.COofs;
         hfc.ctrl_out[RAW][ROLL]   += hfc.pid_RollRate.COofs;
 
-//        hfc.ctrl_out[SPEED][PITCH] =-hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed;
-//        hfc.ctrl_out[SPEED][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed;
+        // hfc.ctrl_out[SPEED][PITCH] =-hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed;
+        // hfc.ctrl_out[SPEED][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed;
     }
     
-    /* set heading to the IMU's heading for throttle stick below -0.55, kind of like Landed mode detection */
-    if (hfc.throttle_value<-0.55f)
-        hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D; 
+    // set heading to the IMU's heading for throttle stick below -0.55, kind of like Landed mode detection
+    if (hfc.throttle_value < -0.55f) {
+        hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
+    }
 
-    if (hfc.ctrl_source!=CTRL_SOURCE_AUTO3D)
-    {
+    if (hfc.ctrl_source != CTRL_SOURCE_AUTO3D) {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
@@ -2332,48 +2437,47 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[RATE][YAW]  = yaw_rate_ctrl;
         hfc.ctrl_out[RAW][YAW]  += hfc.pid_YawRate.COofs;
 
-
-        /* do not add offsets to RAW above, apply gain to RAW, added offset to RAW,
-        ** clip RAW using rate PID limits */
+        // do not add offsets to RAW above, apply gain to RAW, added offset to RAW,
+        // clip RAW using rate PID limits
         hfc.ctrl_out[RAW][COLL]  = hfc.ctrl_out[RAW][COLL] * pConfig->control_gains[COLL];
         hfc.ctrl_out[RAW][COLL] += hfc.pid_CollVspeed.COofs;
     }
 
-    /* processes staged waypoints - takeoff, landing, ... */
+    // processes staged waypoints - takeoff, landing, ... etc
     ProcessFlightMode(&hfc);
 
-    /* push control to display */
-    /* 2, 0, 45us */
     Display_Process(&hfc, xbus_new_values, dT);
     
-    /* horizontal position */
-    if (hfc.control_mode[PITCH]==CTRL_MODE_POSITION || hfc.control_mode[ROLL]==CTRL_MODE_POSITION)
-    {
+    // horizontal position
+    if (hfc.control_mode[PITCH] == CTRL_MODE_POSITION || hfc.control_mode[ROLL] == CTRL_MODE_POSITION) {
         float distance_to_ref;
         float D2T_clipped;
         float course_to_ref;
         float speed;
         float PathSpeedR;
 
-        distance_to_ref = DistanceCourse(hfc.positionLatLon[0], hfc.positionLatLon[1], hfc.waypoint_pos[0], hfc.waypoint_pos[1], &course_to_ref);
-//        debug_print("dist %4.1f \r\n", distance_to_ref);
+        distance_to_ref = DistanceCourse(hfc.positionLatLon[0], hfc.positionLatLon[1],
+                                            hfc.waypoint_pos[0], hfc.waypoint_pos[1], &course_to_ref);
+        // debug_print("dist %4.1f \r\n", distance_to_ref);
+
         /* error handling: do nothing if distance over 100k */
-        if (distance_to_ref>100000)
-          distance_to_ref = 0;
+        if (distance_to_ref > 100000) {
+            distance_to_ref = 0;
+        }
 
         /* keep track of the minimum distance to the next waypoint */
-        if ( distance_to_ref < hfc.distance2WP_min)
+        if ( distance_to_ref < hfc.distance2WP_min) {
             hfc.distance2WP_min = distance_to_ref;
+        }
             
         hfc.gps_to_waypoint[0] = distance_to_ref;
         hfc.gps_to_waypoint[1] = course_to_ref;
 
         D2T_clipped = hfc.waypoint_type==WAYPOINT_FLYTHROUGH ? 1000 : distance_to_ref;
 
-        /* reset on the first time position mode is turned on */
-        if (control_mode_prev[PITCH]<CTRL_MODE_POSITION)
-        {
-          /* not sure if this needed any more since RC radio cannot set WP any more */
+        // reset on the first time position mode is turned on
+        if (control_mode_prev[PITCH] < CTRL_MODE_POSITION) {
+          // not sure if this needed any more since RC radio cannot set WP any more
           if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO) {
               telem.SetWaypoint(hfc.positionLatLon[0], hfc.positionLatLon[1], -9999, WAYPOINT_GOTO, 0);
           }
@@ -2384,15 +2488,14 @@ static void ServoUpdate(float dT)
           hfc.speedCtrlPrevEN[1] = 0;
         }
 
-        speed = PID_P_Acc(&hfc.pid_Dist2T, D2T_clipped, 0, dT, false, false); // speed
+        speed = PID_P_Acc(&hfc.pid_Dist2T, D2T_clipped, 0, dT, false, false);
 
-        /* do path navigation only once far enough from the target
-        ** since otherwise trust vectoring will take care of the final approach */
-        if (hfc.rw_cfg.path_navigation && distance_to_ref>2)
-        {
-            /* add a side vector to the main speed vector to the target waypoint.
-            ** The side vector is proportional to the current distance from the path
-            ** and it is pulling the aircraft to stay on the path */
+        // do path navigation only once far enough from the target
+        // since otherwise trust vectoring will take care of the final approach
+        if (hfc.rw_cfg.path_navigation && distance_to_ref > 2) {
+            // add a side vector to the main speed vector to the target waypoint.
+            // The side vector is proportional to the current distance from the path
+            // and it is pulling the aircraft to stay on the path
             float CTc = course_to_ref;
             float D2P, S2P;
             float STc = hfc.waypoint_STcourse;
@@ -2406,17 +2509,13 @@ static void ServoUpdate(float dT)
             D2P = ABS(hfc.path_a*Cx+hfc.path_b*Cy)*hfc.path_dist_denom;
             S2P = PID_P_Acc(&hfc.pid_Dist2P, D2P, 0, dT, false, false); // speed to path
             
-            /* always rotate the speed vector towards the path */
-            if (deltaCourse>=0)
-                S2Prot = -90;
-            else
-                S2Prot = 90;
+            // always rotate the speed vector towards the path
+            S2Prot = (deltaCourse >= 0) ? -90 : 90;
                 
-//            Rotate(0, S2P, hfc.IMUorient[YAW] - (STc+S2Prot)*D2R, &PathSpeedR, &PathSpeedP);
+            //Rotate(0, S2P, hfc.IMUorient[YAW] - (STc+S2Prot)*D2R, &PathSpeedR, &PathSpeedP);
             PathSpeedR = -S2P*SINfR(hfc.IMUorient[YAW] - (STc+S2Prot)*D2R);
       }
-      else      
-      {
+      else {
           hfc.pid_Dist2P.COlast = 0;
           PathSpeedR = 0;
       }
@@ -2450,8 +2549,9 @@ static void ServoUpdate(float dT)
 
       /* for high speeds, make the nose to point towards the target,
       * or to follow the ground speed vector. For low speeds, do not change it */
-      if (distance_to_ref>5)
+      if (distance_to_ref > 5) {
           hfc.ctrl_out[ANGLE][YAW] = hfc.rw_cfg.nose_to_WP ? course_to_ref : hfc.waypoint_STcourse;
+      }
 
 #ifndef THRUST_VECTORING
       if (/*speed>pConfig->low_speed_limit &&*/ distance_to_ref>5 || hfc.waypoint_type==WAYPOINT_FLYTHROUGH)
@@ -2623,50 +2723,57 @@ static void ServoUpdate(float dT)
       }
     }
 
-    /* 16us */
-    if (hfc.control_mode[PITCH]>=CTRL_MODE_ANGLE)
-    {
-      if (hfc.control_mode[PITCH]==CTRL_MODE_ANGLE && hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-      	  SetSpeedAcc(&hfc.ctrl_out[ANGLE][PITCH], hfc.ctrl_angle_pitch_3d, pConfig->takeoff_angle_rate, dT);
-      /* if previous mode was below ANGLE, reset PIDs to be bumpless */
-      if (control_mode_prev[PITCH]<CTRL_MODE_ANGLE)
-                     PID_SetForEnable(&hfc.pid_PitchAngle, hfc.ctrl_out[ANGLE][PITCH], hfc.IMUorient[PITCH]*R2D, hfc.ctrl_out[RATE][PITCH]);
-      hfc.ctrl_out[RATE][PITCH] = PID(&hfc.pid_PitchAngle, hfc.ctrl_out[ANGLE][PITCH], hfc.IMUorient[PITCH]*R2D, dT);
+    if (hfc.control_mode[PITCH] >= CTRL_MODE_ANGLE) {
+        if (hfc.control_mode[PITCH] == CTRL_MODE_ANGLE && hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+            SetSpeedAcc(&hfc.ctrl_out[ANGLE][PITCH], hfc.ctrl_angle_pitch_3d, pConfig->takeoff_angle_rate, dT);
+        }
+
+        // if previous mode was below ANGLE, reset PIDs to be bumpless
+        if (control_mode_prev[PITCH] < CTRL_MODE_ANGLE) {
+            PID_SetForEnable(&hfc.pid_PitchAngle, hfc.ctrl_out[ANGLE][PITCH], hfc.IMUorient[PITCH]*R2D, hfc.ctrl_out[RATE][PITCH]);
+        }
+
+        hfc.ctrl_out[RATE][PITCH] = PID(&hfc.pid_PitchAngle, hfc.ctrl_out[ANGLE][PITCH], hfc.IMUorient[PITCH]*R2D, dT);
     }
 
-    if (hfc.control_mode[ROLL]>=CTRL_MODE_ANGLE)
-    {
-      if (hfc.control_mode[ROLL]==CTRL_MODE_ANGLE && hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-        	  SetSpeedAcc(&hfc.ctrl_out[ANGLE][ROLL], hfc.ctrl_angle_roll_3d, pConfig->takeoff_angle_rate, dT);
-      /* if previous mode was below ANGLE, reset PIDs to be bumpless */
-      if (control_mode_prev[ROLL]<CTRL_MODE_ANGLE)
-                     PID_SetForEnable(&hfc.pid_RollAngle,  hfc.ctrl_out[ANGLE][ROLL],  hfc.IMUorient[ROLL]*R2D,  hfc.ctrl_out[RATE][ROLL]);
-      hfc.ctrl_out[RATE][ROLL]  = PID(&hfc.pid_RollAngle,  hfc.ctrl_out[ANGLE][ROLL],  hfc.IMUorient[ROLL]*R2D,  dT);
+    if (hfc.control_mode[ROLL] >= CTRL_MODE_ANGLE) {
+        if (hfc.control_mode[ROLL] == CTRL_MODE_ANGLE && hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+            SetSpeedAcc(&hfc.ctrl_out[ANGLE][ROLL], hfc.ctrl_angle_roll_3d, pConfig->takeoff_angle_rate, dT);
+        }
+
+        // if previous mode was below ANGLE, reset PIDs to be bumpless
+        if (control_mode_prev[ROLL]<CTRL_MODE_ANGLE) {
+            PID_SetForEnable(&hfc.pid_RollAngle, hfc.ctrl_out[ANGLE][ROLL], hfc.IMUorient[ROLL]*R2D, hfc.ctrl_out[RATE][ROLL]);
+        }
+
+        hfc.ctrl_out[RATE][ROLL] = PID(&hfc.pid_RollAngle, hfc.ctrl_out[ANGLE][ROLL], hfc.IMUorient[ROLL]*R2D,  dT);
     }
 
 //    debug_print("%d %5.1f %5.1f\r\n", pr_control_mode, roll_angle, roll_rate);
+    if (hfc.control_mode[PITCH] >= CTRL_MODE_RATE) {
+        // if previous mode was below RATE, reset PIDs to be bumpless
+        if (control_mode_prev[PITCH]<CTRL_MODE_RATE) {
+            PID_SetForEnable(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], hfc.ctrl_out[RAW][PITCH]);
+        }
 
-    if (hfc.control_mode[PITCH]>=CTRL_MODE_RATE)
-    {    
-      /* if previous mode was below RATE, reset PIDs to be bumpless */
-      if (control_mode_prev[PITCH]<CTRL_MODE_RATE)
-                    PID_SetForEnable(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], hfc.ctrl_out[RAW][PITCH]);
-      hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], dT);
+        hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], dT);
     }
-    else
-      hfc.ctrl_out[RAW][PITCH] = ClipMinMax(hfc.ctrl_out[RAW][PITCH], hfc.pid_PitchRate.COmin, hfc.pid_PitchRate.COmax);
+    else {
+        hfc.ctrl_out[RAW][PITCH] = ClipMinMax(hfc.ctrl_out[RAW][PITCH], hfc.pid_PitchRate.COmin, hfc.pid_PitchRate.COmax);
+    }
       
-    if (hfc.control_mode[ROLL]>=CTRL_MODE_RATE)
-    {
-      /* if previous mode was below RATE, reset PIDs to be bumpless */
-      if (control_mode_prev[ROLL]<CTRL_MODE_RATE)
-                   PID_SetForEnable(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  hfc.ctrl_out[RAW][ROLL]);
-      hfc.ctrl_out[RAW][ROLL] = PID(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  dT);
-    }
-    else
-      hfc.ctrl_out[RAW][ROLL] = ClipMinMax(hfc.ctrl_out[RAW][ROLL], hfc.pid_RollRate.COmin, hfc.pid_RollRate.COmax);
+    if (hfc.control_mode[ROLL]>=CTRL_MODE_RATE) {
+        //if previous mode was below RATE, reset PIDs to be bumpless
+        if (control_mode_prev[ROLL]<CTRL_MODE_RATE) {
+            PID_SetForEnable(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  hfc.ctrl_out[RAW][ROLL]);
+        }
 
-    /* 26, 16, 50us */
+        hfc.ctrl_out[RAW][ROLL] = PID(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  dT);
+    }
+    else {
+        hfc.ctrl_out[RAW][ROLL] = ClipMinMax(hfc.ctrl_out[RAW][ROLL], hfc.pid_RollRate.COmin, hfc.pid_RollRate.COmax);
+    }
+
     if (hfc.control_mode[YAW]>=CTRL_MODE_ANGLE)
     {
       bool double_angle_acc = hfc.ctrl_source==CTRL_SOURCE_JOYSTICK || hfc.ctrl_source==CTRL_SOURCE_RCRADIO ? true : false;
@@ -2678,20 +2785,19 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[RATE][YAW] = PID_P_Acc(&hfc.pid_YawAngle, hfc.ctrl_out[ANGLE][YAW], hfc.IMUorient[YAW]*R2D, dT, false, double_angle_acc);
     }  
 
-    if (hfc.control_mode[YAW]>=CTRL_MODE_RATE)
-    {
-      if (control_mode_prev[YAW]<CTRL_MODE_RATE)
-                  PID_SetForEnable(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], hfc.ctrl_out[RAW][YAW]);
-      hfc.ctrl_out[RAW][YAW] = PID(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], dT);
+    if (hfc.control_mode[YAW] >= CTRL_MODE_RATE) {
+        if (control_mode_prev[YAW] < CTRL_MODE_RATE) {
+            PID_SetForEnable(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], hfc.ctrl_out[RAW][YAW]);
+        }
+        hfc.ctrl_out[RAW][YAW] = PID(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], dT);
     }
-    else
-      hfc.ctrl_out[RAW][YAW] = ClipMinMax(hfc.ctrl_out[RAW][YAW], hfc.pid_YawRate.COmin, hfc.pid_YawRate.COmax);
+    else {
+        hfc.ctrl_out[RAW][YAW] = ClipMinMax(hfc.ctrl_out[RAW][YAW], hfc.pid_YawRate.COmin, hfc.pid_YawRate.COmax);
+    }
 
     hfc.ctrl_yaw_rate = hfc.ctrl_out[RATE][YAW];  // store yaw rate for auto banking
     
-
     /* collective */
-    /* 34, 33, 53us */
     if (hfc.control_mode[COLL]>=CTRL_MODE_POSITION)
     {
         float CurrAltitude, CtrlAltitude, LidarMinAlt, vspeedmin;
@@ -2743,85 +2849,97 @@ static void ServoUpdate(float dT)
         e_alt = CtrlAltitude - CurrAltitude;
         hfc.ctrl_out[SPEED][COLL] = PID_P_Acc(&hfc.pid_CollAlt, CtrlAltitude, CurrAltitude, dT, hfc.LidarCtrlMode && (e_alt>=0), double_acc);  // in lidar mode, ignore acc up
     }
-    else
+    else {
         hfc.ctrl_out[POS][COLL] = hfc.altitude;
-        
-    if (hfc.control_mode[COLL]>=CTRL_MODE_SPEED)
-    {
-      if (hfc.control_mode[COLL]==CTRL_MODE_SPEED && hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-    	  SetSpeedAcc(&hfc.ctrl_out[SPEED][COLL], hfc.ctrl_vspeed_3d, pConfig->landing_vspeed_acc, dT);
-      if (control_mode_prev[COLL]<CTRL_MODE_SPEED)
-      {
-//		debug_print("vspeed = %f   GPS = %f  manual = %f\r\n", hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
-    	  PID_SetForEnable(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
-      }
-
-      hfc.ctrl_out[RAW][COLL] = PID(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], dT);
-//          debug_print("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
     }
-    else
-    {
+        
+    if (hfc.control_mode[COLL] >= CTRL_MODE_SPEED) {
+        if (hfc.control_mode[COLL] == CTRL_MODE_SPEED && hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+            SetSpeedAcc(&hfc.ctrl_out[SPEED][COLL], hfc.ctrl_vspeed_3d, pConfig->landing_vspeed_acc, dT);
+        }
+
+        if (control_mode_prev[COLL]<CTRL_MODE_SPEED) {
+            //debug_print("vspeed = %f   GPS = %f  manual = %f\r\n", hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
+            PID_SetForEnable(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], hfc.ctrl_out[RAW][COLL]);
+        }
+
+        hfc.ctrl_out[RAW][COLL] = PID(&hfc.pid_CollVspeed, hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[2], dT);
+        //debug_print("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
+    }
+    else {
       /* RC stick always sets RAW values. In full auto, manual coll needs to be explicitly set here */
       /* this is only for auto takeoff-arm */
       float ctrl = hfc.ctrl_out[RAW][COLL];
-      if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D)
-      {
-//        ctrl = pConfig->CollZeroAngle;
+      if (hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+          //ctrl = pConfig->CollZeroAngle;
           SetSpeedAcc(&hfc.ctrl_collective_raw, hfc.ctrl_collective_3d, pConfig->collective_man_speed, dT);
           ctrl = hfc.ctrl_collective_raw;
       }
+
       hfc.ctrl_out[RAW][COLL] = ClipMinMax(ctrl, hfc.pid_CollVspeed.COmin, hfc.pid_CollVspeed.COmax);
       hfc.ctrl_out[POS][COLL] = hfc.altitude;
     }
+
     hfc.collective_raw_curr = hfc.ctrl_out[RAW][COLL];
 
-    /* for fixed pitch prop, collective drives the throttle, throttle lever gates it */
-    if (pConfig->throttle_ctrl==PROP_FIXED_PITCH)
-    {
+    // for fixed pitch prop, collective drives the throttle, throttle lever gates it
+    if (pConfig->throttle_ctrl == PROP_FIXED_PITCH) {
+
         if (hfc.rw_cfg.AngleCollMixing) {
-            hfc.ctrl_out[RAW][COLL] += hfc.rw_cfg.AngleCollMixing*(1/AngleCompensation-1);
+            hfc.ctrl_out[RAW][COLL] += hfc.rw_cfg.AngleCollMixing * (1/AngleCompensation-1);
         }
 
         hfc.ctrl_out[RAW][THRO] = hfc.ctrl_out[RAW][COLL];
-        /* if lever is low, set throttle to minimum and everything else to 0 to prevent any prop from accidental spinning because of PIDs */
-        if (hfc.throttle_value<-0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL]<CTRL_MODE_SPEED && hfc.collective_value<-0.50f)
-          || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)))
-        {
-            float throttle = pConfig->throttle_values[0];
-            if (hfc.throttle_armed && hfc.throttle_value>-0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))
-          	throttle = -0.5;
 
-            ResetIterms();
-            hfc.ctrl_out[RAW][THRO] = throttle;
-            hfc.ctrl_out[RAW][PITCH] = 0;
-            hfc.ctrl_out[RAW][ROLL]  = 0;
-            hfc.ctrl_out[RAW][YAW]   = 0;
+        // if lever is low, set throttle to minimum and everything else to 0
+        // to prevent any prop from accidental spinning because of PIDs
+        if (hfc.throttle_value < -0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL] < CTRL_MODE_SPEED && hfc.collective_value < -0.50f)
+                || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))) {
 
+            if (hfc.throttle_armed && hfc.throttle_value > -0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF
+                    && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
+                ResetIterms();
+                hfc.ctrl_out[RAW][THRO] = -pConfig->Stick100range;
+                hfc.ctrl_out[RAW][PITCH] = 0;
+                hfc.ctrl_out[RAW][ROLL]  = 0;
+                hfc.ctrl_out[RAW][YAW]   = 0;
+            }
         }
     }
 
-    /* add offset for fine tuning of RPM */
-    hfc.ctrl_out[RAW][THRO] += hfc.throttle_offset;
+    // add offset for fine tuning of RPM
+    hfc.ctrl_out[RAW][THRO] += hfc.rw_cfg.throttle_offset;
 
-    /* 1us inhibit individual channels */
-    if (pConfig->ctrl_mode_inhibit[THRO] || !hfc.throttle_armed)
+    // inhibit individual channels
+    if (pConfig->ctrl_mode_inhibit[THRO] || !hfc.throttle_armed) {
+        // Sets to Minimum Throttle
         hfc.ctrl_out[RAW][THRO] = pConfig->throttle_values[0];
-    if (pConfig->ctrl_mode_inhibit[PITCH])
+    }
+
+    if (pConfig->ctrl_mode_inhibit[PITCH]) {
         hfc.ctrl_out[RAW][PITCH] = hfc.pid_PitchRate.COofs;
-    if (pConfig->ctrl_mode_inhibit[ROLL])
+    }
+
+    if (pConfig->ctrl_mode_inhibit[ROLL]) {
         hfc.ctrl_out[RAW][ROLL] = hfc.pid_RollRate.COofs;
-    if (pConfig->ctrl_mode_inhibit[YAW])
+    }
+
+    if (pConfig->ctrl_mode_inhibit[YAW]) {
         hfc.ctrl_out[RAW][YAW] = hfc.pid_YawRate.COofs;
-    if (pConfig->ctrl_mode_inhibit[COLL])
+    }
+
+    if (pConfig->ctrl_mode_inhibit[COLL]) {
         hfc.ctrl_out[RAW][COLL] = hfc.pid_CollVspeed.COofs;
+    }
 
     SetSpeedAcc(&hfc.mixer_in[PITCH], hfc.ctrl_out[RAW][PITCH]* pConfig->control_gains[PITCH], pConfig->servo_speed[PITCH], dT);
     SetSpeedAcc(&hfc.mixer_in[ROLL],  hfc.ctrl_out[RAW][ROLL] * pConfig->control_gains[ROLL],  pConfig->servo_speed[ROLL], dT);
-    hfc.mixer_in[YAW]   = hfc.ctrl_out[RAW][YAW]  * pConfig->control_gains[YAW];
+
+    hfc.mixer_in[YAW]   = (hfc.ctrl_out[RAW][YAW] * pConfig->control_gains[YAW]);
     hfc.mixer_in[COLL]	= hfc.ctrl_out[RAW][COLL];
     hfc.mixer_in[THRO]	= hfc.ctrl_out[RAW][THRO];
 
-//    Rotate2D(&hfc.mixer_in[ROLL], &hfc.mixer_in[PITCH], pConfig->RollPitchAngle); // this would interfeer with SetSpeedAcc() just above
+    //Rotate2D(&hfc.mixer_in[ROLL], &hfc.mixer_in[PITCH], pConfig->RollPitchAngle); // this would interfere with SetSpeedAcc() just above
 
     ServoMixer();
 
@@ -4833,6 +4951,9 @@ void InitializeRuntimeData(void)
     hfc.rw_cfg.landing_wind_threshold = pConfig->landing_wind_threshold;
     hfc.rw_cfg.battery_capacity = pConfig->battery_capacity;
     hfc.rw_cfg.WindTableScale = pConfig->WindTableScale;
+    hfc.rw_cfg.elevator_gain = pConfig->elevator_gain;
+    hfc.rw_cfg.dcp_gain = pConfig->dcp_gain;
+    hfc.rw_cfg.throttle_offset = pConfig->throttle_offset;
 
     hfc.command.command = TELEM_CMD_NONE;
     hfc.full_auto = true;
