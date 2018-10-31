@@ -3168,7 +3168,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
 static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
 {
     float *data= (float *)pdata;
-    static int new_data_mask = 0;
+    int new_data = 1;
 
     // TODO::SP: Only taking Castle Link from Servo Node id 1 at present
 //    if (node_id > 0) {
@@ -3179,33 +3179,40 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
         case AVIDRONE_MSGID_CASTLE_0:
             castle_link_live[node_id].battery_voltage = *data++;
             castle_link_live[node_id].ripple_voltage = *data;
-            new_data_mask |= (1 << 0);
+            castle_link_live[node_id].new_data_mask |= (1 << 0);
             break;
         case AVIDRONE_MSGID_CASTLE_1:
             castle_link_live[node_id].current = *data++;
             castle_link_live[node_id].output_power = *data;
-            new_data_mask |= (1 << 1);
+            castle_link_live[node_id].new_data_mask |= (1 << 1);
             break;
         case AVIDRONE_MSGID_CASTLE_2:
             castle_link_live[node_id].throttle = *data++;
             castle_link_live[node_id].rpm = *data;
-            new_data_mask |= (1 << 2);
+            castle_link_live[node_id].new_data_mask |= (1 << 2);
             break;
         case AVIDRONE_MSGID_CASTLE_3:
             castle_link_live[node_id].bec_voltage = *data++;
             castle_link_live[node_id].bec_current = *data;
-            new_data_mask |= (1 << 3);
+            castle_link_live[node_id].new_data_mask |= (1 << 3);
             break;
         case AVIDRONE_MSGID_CASTLE_4:
             castle_link_live[node_id].temperature = *(float *)data;
-            new_data_mask |= (1 << 4);
+            castle_link_live[node_id].new_data_mask |= (1 << 4);
             break;
         default:
             break;
     }
 
-    if (new_data_mask == 0x1F) {
-        new_data_mask = 0;
+    for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
+        if (castle_link_live[i].new_data_mask < 0x1F) {
+            new_data = 0;
+            break;
+        }
+    }
+
+    if (new_data == 1) {
+        new_data = 0;
 
         float Iaux     = 0;
         float Iesc     = 0;
@@ -3215,6 +3222,8 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
         float esc_temp = 0;
 
         for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
+            castle_link_live[i].new_data_mask = 0;
+
             Iaux     += castle_link_live[i].bec_current;
             Iesc     += castle_link_live[i].current;
             Vmain    += castle_link_live[i].battery_voltage;
