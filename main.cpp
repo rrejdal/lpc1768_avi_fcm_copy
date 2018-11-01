@@ -1060,6 +1060,10 @@ static void ServoMixer(void)
                 // Link Live Throttle on Rear Servo output 0
                 servo_node_pwm[2].servo_out[0] = servo_node_pwm[1].servo_out[0] + pConfig->RearRpmTrim;
                 MixerTandem(&servo_node_pwm[0]);
+
+                // Drive PWM Ch5 on front back servos for Fan Control
+                servo_node_pwm[1].servo_out[4] = hfc.throttle_armed ? 1 : -1;
+                servo_node_pwm[2].servo_out[4] = servo_node_pwm[1].servo_out[4];
             break;
         default:
             break;
@@ -4709,9 +4713,9 @@ int ConfigureCanServoNodes(int num_servo_nodes)
     for (int i = 0; i < num_servo_nodes; i++) {
         canbus_ack = 0;
         can_tx_message.len = 2;
-        // Activates Channels for Castle Link/Throttle, A, B, C
+        // Activates Channels for Castle Link/Throttle, A, B, C, PWM Fan control
         // TODO::SP: This will ultimately come from configuration file
-        can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4;
+        can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_5;
         can_tx_message.data[1] = LIDAR_ACTIVE; /* Link Live is automatically enabled on Tandem Servos */
 
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
