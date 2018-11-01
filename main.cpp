@@ -4174,14 +4174,12 @@ void do_control()
 
     hfc.power.dT += dT;
 
-    if ((hfc.print_counter % 100) == 0) {
-        // Every 100ms update battery status, if new data available
-        if (canbus_livelink_avail || power_update_avail){
-            UpdateBatteryStatus(hfc.power.dT);
-            hfc.power.dT = 0;
-            canbus_livelink_avail = 0;
-            power_update_avail = 0;
-        }
+    // Update battery status, if new data available
+    if (canbus_livelink_avail || power_update_avail){
+        UpdateBatteryStatus(hfc.power.dT);
+        hfc.power.dT = 0;
+        canbus_livelink_avail = 0;
+        power_update_avail = 0;
     }
 
     hfc.gps_new_data = false;
