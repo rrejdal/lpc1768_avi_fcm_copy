@@ -1062,8 +1062,8 @@ static void ServoMixer(void)
                 MixerTandem(&servo_node_pwm[0]);
 
                 // Drive PWM Ch5 on front back servos for Fan Control
-                servo_node_pwm[0].servo_out[4] = ((servo_node_pwm[1].servo_out[0] > 0.5) && hfc.throttle_armed) ? 1 : -1;
                 servo_node_pwm[1].servo_out[4] = hfc.throttle_armed ? 1 : -1;
+                servo_node_pwm[2].servo_out[4] = servo_node_pwm[1].servo_out[4];
             break;
         default:
             break;
