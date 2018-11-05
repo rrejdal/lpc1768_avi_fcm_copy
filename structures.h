@@ -277,16 +277,16 @@
 
 typedef struct /* size 10bytes */
 {
-	uint32 Vmain  : 12;		// 0-64V	*64
-	uint32 Vaux   : 10;		// 0-16V	*64
-	uint32 Vservo : 10;		// 0-16V	*64
+    uint32 Vmain  : 12;     // 0-64V    *64
+    uint32 Vaux   : 10;     // 0-16V    *64
+    uint32 Vservo : 10;     // 0-16V    *64
 
-	uint32 Vesc : 12;		// 0-64V	*64
-	uint32 Iesc : 12;		// 0-64A	*64
-	uint32 Iaux : 8;		// 0-8A		*32
+    uint32 Vesc : 12;       // 0-64V    *64
+    uint32 Iesc : 13;       // 0-256A   *32
+    uint32 Iaux : 7;        // 0-8A *16
 
-	uint16 battery_level : 8;	// in %, 250=100%	*250
-	uint16 capacity_used : 8;	// 0-32Ah			*8
+    uint16 battery_level : 7;   // in %, 120=100%   *120
+    uint16 capacity_used : 9;   // 0-128Ah      *4
 } T_PowerMsg;
 
 typedef struct

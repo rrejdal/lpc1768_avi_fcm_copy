@@ -3615,14 +3615,14 @@ static void RPM_Process(void)
  *
  * Inputs(not explicitly stated):
  *
- * 1. hfc.compassMin[3]: minimum values measured from compass in x, y and z.
+ * 1. hfc.compass_cal.compassMin[3]: minimum values measured from compass in x, y and z.
  *                       Reset to -9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
  *                       If new value is -200 less then current min then
  *                       assume it is an anomaly and IGNORE
  *
- * 2. hfc.compassMax[3]: maximum values measured from compass in x, y and z
+ * 2. hfc.compass_cal.compassMax[3]: maximum values measured from compass in x, y and z
  *                       Reset to +9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.

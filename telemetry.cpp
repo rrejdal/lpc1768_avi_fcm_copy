@@ -572,15 +572,14 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->telem_crc_errors          = telem_crc_errors;
     msg->telem_start_code_searches = telem_start_code_searches;
     msg->flight_time_left	= ClipMinMax(hfc->power.flight_time_left, 0, 65535);
-    msg->power.Iaux			= min(255, (int)(hfc->power.Iaux*32+0.5f));	// 0-8A		*32
-
-    msg->power.Iesc			= min(4095, (int)(hfc->power.Iesc*64+0.5f));	// 0-64V	*64
+    msg->power.Iaux         = min(127, (int)(hfc->power.Iaux*16+0.5f)); // 0-8A     *16
+    msg->power.Iesc         = min(8191, (int)(hfc->power.Iesc*32+0.5f));    // 0-256V   *32
     msg->power.Vaux			= min(1023, (int)(hfc->power.Vaux*64+0.5f));	// 0-16V	*64
     msg->power.Vesc			= min(4095, (int)(hfc->power.Vesc*64+0.5f));	// 0-64V	*64
     msg->power.Vmain		= min(4095, (int)(hfc->power.Vmain*64+0.5f));
     msg->power.Vservo		= min(1023, (int)(hfc->power.Vservo*64+0.5f));	// 0-16V	*64
-    msg->power.battery_level = ClipMinMax((int)(hfc->power.battery_level*2.5f+0.5f), 0, 255);	// in %, 250=100%	*250
-    msg->power.capacity_used = min(255, (int)(hfc->power.capacity_used*8/3600+0.5f));	// 0-32Ah			*8
+    msg->power.battery_level = ClipMinMax((int)(hfc->power.battery_level*1.2f+0.5f), 0, 127);   // in %, 120=100%   *120
+    msg->power.capacity_used = min(511, (int)(hfc->power.capacity_used*4/3600+0.5f));   // 0-128Ah          *4
     msg->gyro_temperature = Float32toFloat16(hfc->gyro_temp_lp);
     msg->baro_temperature = Float32toFloat16(hfc->baro_temperature);
     msg->gps_hdop = Float32toFloat16(gps_data.PDOP*0.01f);
