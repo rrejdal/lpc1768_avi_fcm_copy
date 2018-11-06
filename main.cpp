@@ -3242,7 +3242,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
 
     if (check_data == 1) {
         // loop through each lidar
-        for (int i = 0; i < MAX_NUM_LIDAR-1; i++) {
+        for (int i = 0; i < MAX_NUM_LIDAR; i++) {
             int current = lidarData[i].i_current;
             int history_pass = 1;
             index = current - 1;
@@ -3250,7 +3250,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
             //check the current lidar reading with the 10 previous values before
             for(int j = 0; j < LIDAR_HISTORY_SIZE; j++) {
                 if (index < 0) {
-                    index = LIDAR_HISTORY_SIZE-1;
+                    index = 9;
                 }
 
                 if (lidarData[i].new_data_rdy > 0) {
