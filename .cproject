@@ -331,7 +331,7 @@
 					<stringMacro name="majorver" type="VALUE_TEXT" value="01"/>
 					<stringMacro name="minorver" type="VALUE_TEXT" value="01"/>
 					<stringMacro name="buildtype" type="VALUE_TEXT" value="B"/>
-					<stringMacro name="buildver" type="VALUE_TEXT" value="05"/>
+					<stringMacro name="buildver" type="VALUE_TEXT" value="06"/>
 				</macros>
 				<externalSettings/>
 				<extensions>
