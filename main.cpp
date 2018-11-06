@@ -3242,7 +3242,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
 
     if (check_data == 1) {
         // loop through each lidar
-        for (int i = 0; i < MAX_NUM_LIDAR; i++) {
+        for (int i = 0; i < MAX_NUM_LIDAR-1; i++) {
             int current = lidarData[i].i_current;
             int history_pass = 1;
             index = current - 1;
@@ -3250,7 +3250,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
             //check the current lidar reading with the 10 previous values before
             for(int j = 0; j < LIDAR_HISTORY_SIZE; j++) {
                 if (index < 0) {
-                    index = 9;
+                    index = LIDAR_HISTORY_SIZE-1;
                 }
 
                 if (lidarData[i].new_data_rdy > 0) {
@@ -3615,14 +3615,14 @@ static void RPM_Process(void)
  *
  * Inputs(not explicitly stated):
  *
- * 1. hfc.compassMin[3]: minimum values measured from compass in x, y and z.
+ * 1. hfc.compass_cal.compassMin[3]: minimum values measured from compass in x, y and z.
  *                       Reset to -9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
  *                       If new value is -200 less then current min then
  *                       assume it is an anomaly and IGNORE
  *
- * 2. hfc.compassMax[3]: maximum values measured from compass in x, y and z
+ * 2. hfc.compass_cal.compassMax[3]: maximum values measured from compass in x, y and z
  *                       Reset to +9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
@@ -4174,14 +4174,12 @@ void do_control()
 
     hfc.power.dT += dT;
 
-    if ((hfc.print_counter % 100) == 0) {
-        // Every 100ms update battery status, if new data available
-        if (canbus_livelink_avail || power_update_avail){
-            UpdateBatteryStatus(hfc.power.dT);
-            hfc.power.dT = 0;
-            canbus_livelink_avail = 0;
-            power_update_avail = 0;
-        }
+    // Update battery status, if new data available
+    if (canbus_livelink_avail || power_update_avail){
+        UpdateBatteryStatus(hfc.power.dT);
+        hfc.power.dT = 0;
+        canbus_livelink_avail = 0;
+        power_update_avail = 0;
     }
 
     hfc.gps_new_data = false;
