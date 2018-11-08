@@ -4,10 +4,10 @@
 		<cconfiguration id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.debug.444021737">
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.debug.444021737" moduleId="org.eclipse.cdt.core.settings" name="Debug">
 				<macros>
-					<stringMacro name="majorver" type="VALUE_TEXT" value="01"/>
-					<stringMacro name="minorver" type="VALUE_TEXT" value="00"/>
+					<stringMacro name="majorver" type="VALUE_TEXT" value="1"/>
+					<stringMacro name="minorver" type="VALUE_TEXT" value="1"/>
 					<stringMacro name="buildtype" type="VALUE_TEXT" value="B"/>
-					<stringMacro name="buildver" type="VALUE_TEXT" value="02"/>
+					<stringMacro name="buildver" type="VALUE_TEXT" value="7"/>
 				</macros>
 				<externalSettings/>
 				<extensions>
@@ -328,10 +328,10 @@
 		<cconfiguration id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.release.050068423">
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.release.050068423" moduleId="org.eclipse.cdt.core.settings" name="Release">
 				<macros>
-					<stringMacro name="majorver" type="VALUE_TEXT" value="01"/>
-					<stringMacro name="minorver" type="VALUE_TEXT" value="01"/>
+					<stringMacro name="majorver" type="VALUE_TEXT" value="1"/>
+					<stringMacro name="minorver" type="VALUE_TEXT" value="1"/>
 					<stringMacro name="buildtype" type="VALUE_TEXT" value="B"/>
-					<stringMacro name="buildver" type="VALUE_TEXT" value="06"/>
+					<stringMacro name="buildver" type="VALUE_TEXT" value="7"/>
 				</macros>
 				<externalSettings/>
 				<extensions>

@@ -3187,6 +3187,30 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
     }
 }
 
+static void UpdateLidarHeight(int node_id, int lidarCount)
+{
+    unsigned int pulse = 0;
+    float alt_avg = 0;
+    static int lidar_mask = 0;
+
+    pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
+
+    lidarData[node_id].alt[0] = pulse * 0.001f;
+    lidar_mask |= (1<< node_id);
+
+    if (pConfig->num_servo_nodes == 2) {
+        if (lidar_mask == 3) {
+            alt_avg = (lidarData[0].alt[0] + lidarData[1].alt[0]) / 2.0f;
+            hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
+            lidar_mask = 0;
+        }
+    }
+    else {
+        alt_avg = lidarData[node_id].alt[0];
+        hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
+    }
+
+}
 
 /* ***************************************************************************
  * Multiple Lidars Supported. Can now hold lidar history of LIDAR_HISTORY_SIZE.
@@ -3202,6 +3226,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
     int check_data = 0;
     int num_valid_data = 0;
     int index = 0;
+
 
     // Apply Lidar offset, limit the reading between 0 and MAX_LIDAR_PULSE
     pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
@@ -3438,7 +3463,8 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
-                UpdateLidar(node_id, *(uint32_t *)pdata);
+                UpdateLidarHeight(node_id, *(uint32_t *)pdata);
+                //UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
