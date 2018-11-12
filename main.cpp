@@ -56,7 +56,8 @@ extern int SaveNewConfig(void);
 extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
-USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
+//USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
+USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
 
@@ -2900,14 +2901,17 @@ static void ServoUpdate(float dT)
         if (hfc.throttle_value < -0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL] < CTRL_MODE_SPEED && hfc.collective_value < -0.50f)
                 || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))) {
 
+            float throttle = pConfig->throttle_values[0];
             if (hfc.throttle_armed && hfc.throttle_value > -0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF
                     && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
-                ResetIterms();
-                hfc.ctrl_out[RAW][THRO] = -pConfig->Stick100range;
-                hfc.ctrl_out[RAW][PITCH] = 0;
-                hfc.ctrl_out[RAW][ROLL]  = 0;
-                hfc.ctrl_out[RAW][YAW]   = 0;
+                throttle = -0.5;
             }
+
+            ResetIterms();
+            hfc.ctrl_out[RAW][THRO] = throttle;
+            hfc.ctrl_out[RAW][PITCH] = 0;
+            hfc.ctrl_out[RAW][ROLL]  = 0;
+            hfc.ctrl_out[RAW][YAW]   = 0;
         }
     }
 
