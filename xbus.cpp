@@ -11,7 +11,6 @@ DigitalOut Test(p13);		// local test pin for scoping interrupt routine
 
 XBus::XBus(PinName rx) : serial(NC, rx)
 {
-    int i;
     servos       = 0;
     sync         = true;
     bytes        = 0;
@@ -21,20 +20,23 @@ XBus::XBus(PinName rx) : serial(NC, rx)
     time_since_last_good = 0;
     receiving    = false;
     no_prev_signal = true;
+    timeouts = 0;
+    sbus_flag_errors = 0;
+    sbus_enabled = 0;
+    sbusFrameTime = 0;
+    sbusFrameStartAt = 0;
+
     /* throttle has to get set to min otherwise it will turn on the motor after reset with the transmitter off */
     valuesf[0] = -0.571f;
-    for (i=1; i<MAX_XBUS_SERVOS; i++) valuesf[i] = 0;
-    for (i=0; i<MAX_XBUS_SERVOS; i++) revert[i]  = 0;
-    revert[1] = 1; revert[2] = 1; revert[3] = 1;
+    for (int i=1; i<MAX_XBUS_SERVOS; i++) {
+        valuesf[i] = 0;
+    }
 
-    //valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
-    valuesf[1] = 0;         // XBUS_ROLL, 0 side speed
-    valuesf[2] = 0;         // XBUS_PITCH, 0 forward speed
-    valuesf[3] = 0;         // XBUS_YAW, 0 heading change
-    valuesf[4] = -0.571f;   // XBUS_THR_SW, altitude hold
-    valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
-    valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
-    valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
+    for (int i=0; i<MAX_XBUS_SERVOS; i++) {
+        revert[i]  = 0;
+    }
+
+    revert[1] = 1; revert[2] = 1; revert[3] = 1;
 
 }
 
@@ -257,13 +259,12 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
         	return XBUS_NEW_VALUES;
     }
     /* check if timeout value has been reached */
-    else if (time_since_last_good > XBUS_TIMEOUT_VALUE)
+    //else if (time_since_last_good > XBUS_TIMEOUT_VALUE)
+    if (time_since_last_good > XBUS_TIMEOUT_VALUE)
     {
         timeouts++;
-        // NOTE::SP: This is only done when we are armed and flying.
-        // TODO::SP: THIS NEEDS TO ALSO WORK FOR VARIBALE PITCH UAVs (HELIs)
-        if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY))
-        {
+        // NOTE::SP: This is only done when we are armed and flying/Have Throttle.
+        if (hfc.throttle_armed && (hfc.throttle_value > -0.5f)) {
             valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
             valuesf[1] = 0;			// XBUS_ROLL, 0 side speed
             valuesf[2] = 0;			// XBUS_PITCH, 0 forward speed
@@ -279,20 +280,23 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
         sync = true;    // !!!!!!!!!!!111 not sure if this is a good idea, it might be preventing from re-aquiring xbus
         return XBUS_TIMEOUT;
     }
-    else
+    else {
         return XBUS_NO_NEW_VALUES;
+    }
 }
 
 void XBus::InitXbusValues()
 {
-    if(sbus_enabled == 0) {
-        for (int i=0; i < servos; i++)
-        {
-            valuesf[i] = -0.571f;
+    if (sbus_enabled == 0) {
+        valuesf[0] = -0.571f;
+        for (int i=1; i<MAX_XBUS_SERVOS; i++) {
+            valuesf[i] = 0;
+        }
 
-            if (revert[i]) {
-                valuesf[i] = -valuesf[i];
-            }
+        for (int i=0; i<MAX_XBUS_SERVOS; i++) {
+            revert[i]  = 0;
         }
     }
+
+    return;
 }

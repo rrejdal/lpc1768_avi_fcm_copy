@@ -716,12 +716,14 @@ static void SetControlMode(void)
     	if (xbus.valuesf[XBUS_MODE_SW] < -0.5f) {
     		mode = CTRL_MODE_ANGLE;
     	}
-		else if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
-    		mode = CTRL_MODE_MANUAL;
-		}
 		else {
-    		mode = CTRL_MODE_RATE;
-		}
+		    if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
+		        mode = CTRL_MODE_MANUAL;
+		    }
+		    else {
+		        mode = CTRL_MODE_RATE;
+		    }
+        }
 
     	mode += pConfig->RCmodeSwitchOfs;	// shift the mode up
     	mode = min(mode, CTRL_MODE_POSITION);
@@ -803,8 +805,14 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 
     // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
-    hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
-    hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
+    if (hfc.full_auto) {
+        hfc.rw_cfg.elevator_gain = pConfig->elevator_gain;
+        hfc.rw_cfg.dcp_gain = pConfig->dcp_gain;
+    }
+    else {
+        hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);     // use only positive half
+        hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
+    }
 
     ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
     PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * hfc.rw_cfg.elevator_gain;
@@ -2082,6 +2090,7 @@ static void ServoUpdateRAW(float dT)
     }
 #endif
 
+
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
         hfc.collective_value = xbus.valuesf[XBUS_THRO];
@@ -2194,7 +2203,7 @@ static void ServoUpdate(float dT)
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
-#if 0
+#if 1
     if ((hfc.print_counter %500) == 0) {
         debug_print("Xbus");
         for (int i=0; i < 16; i++) {
@@ -2235,21 +2244,16 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-    if (hfc.throttle_armed) {
-        if (!hfc.full_auto) {
-            hfc.auto_throttle = false;
-        }
-
-        if (!hfc.auto_throttle) {
-            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
-        }
+    if (!hfc.full_auto && !hfc.throttle_armed) {
+        hfc.auto_throttle = false;
     }
-    else {
+
+    if (!hfc.auto_throttle) {
+        hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
+    }
+    else if (!hfc.throttle_armed) {
         hfc.throttle_value = -pConfig->Stick100range;
     }
-
-//    if (!(hfc.print_counter&0x3f))
-//    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
