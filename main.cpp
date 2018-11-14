@@ -2203,7 +2203,7 @@ static void ServoUpdate(float dT)
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
-#if 1
+#if 0
     if ((hfc.print_counter %500) == 0) {
         debug_print("Xbus");
         for (int i=0; i < 16; i++) {
