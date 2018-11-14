@@ -1376,18 +1376,20 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 }
 
                 if(i_pitch != -1) {
-                    sPRINTd(str, (char*)"COMPASS P:%d",
-                            (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
+                    int orient_val = (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT;
+                    sPRINTd(str, (char*)"COMPASS P:%d", (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("check i_pitch = %d\r\n",
-                            (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
+                    debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
+                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_PITCH, orient_val);
+                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
                 else if(i_roll != -1 ) {
-                    sPRINTd(str, (char*)"COMPASS R:%d",
-                            (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
+                    int orient_val = (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT;
+                    sPRINTd(str, (char*)"COMPASS R:%d", (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("check i_roll = %d\r\n",
-                            (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
+                    debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
+                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_ROLL, orient_val);
+                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
 
                 myLcd.SetLine(1, (char*)"CALIBRATING!  ", 0);
@@ -3769,6 +3771,9 @@ static void CompassCalibration(void)
 
         hfc.compass_cal.valid = 1;
         hfc.compass_cal.version = COMPASS_CAL_VERSION;
+
+        int size = telem.CalibrateCompassDone();
+        telem.AddMessage((unsigned char*)&hfc.telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
 
         // TODO::SP: Error handling...?
         SaveCompassCalibration(&hfc.compass_cal);

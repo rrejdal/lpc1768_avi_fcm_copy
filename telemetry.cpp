@@ -652,6 +652,62 @@ void TelemSerial::Generate_AircraftCfg(void)
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
+int TelemSerial::CalibrateCompassOrient(byte orient_type, float orient_val)
+{
+    T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+
+    msg->data[0].param = TELEM_PARAM_CALIBRATE;
+    msg->data[0].sub_param= orient_type;
+    switch(orient_type)
+    {
+        case TELEM_PARAM_CAL_ORIENT_PITCH:
+        case TELEM_PARAM_CAL_ORIENT_ROLL:
+            //CheckRangeAndSetF(&msg->data[0].data[0], orient_val, -180, 180);
+            msg->data[0].data[0] = orient_val;
+            break;
+        default:
+            return 0;
+    }
+//    int size = 2 + sizeof(msg->data[0].data[0]);
+//    Telemetry_InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, size);
+    /*TODO:: mi, remove this comment*/
+    InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
+    return sizeof(T_Telem_Calibrate);
+}
+
+int TelemSerial::CalibrateCompassDone(void)
+{
+
+    T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+    int i;
+    msg->data[0].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[0].sub_param = TELEM_PARAM_CAL_DONE_OFS;
+    for(i=0; i<3; i++) {
+        msg->data[0].data[i] = hfc->compass_cal.comp_ofs[i];
+    }
+
+    msg->data[1].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[1].sub_param = TELEM_PARAM_CAL_DONE_GAINS;
+    for(i=0; i<3; i++) {
+        msg->data[1].data[i] = hfc->compass_cal.comp_gains[i];
+    }
+
+    msg->data[2].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[2].sub_param = TELEM_PARAM_CAL_DONE_MAX;
+    for(i=0; i<3; i++) {
+        msg->data[2].data[i] = (float)hfc->compass_cal.compassMax[i];
+    }
+
+    msg->data[3].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[3].sub_param = TELEM_PARAM_CAL_DONE_MIN;
+    for(i=0; i<3; i++) {
+        msg->data[3].data[i] = (float)hfc->compass_cal.compassMin[i];
+    }
+
+    InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
+    return sizeof(T_Telem_Calibrate);
+}
+
 void TelemSerial::Generate_Tcpip7(void)
 {
     T_Telem_TCPIP7 *msg = &hfc->telemTcpip7;
