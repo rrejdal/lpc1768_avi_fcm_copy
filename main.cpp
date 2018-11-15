@@ -1364,12 +1364,14 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 int i_pitch = -1;
                 int i_roll = -1;
                 for(int j = 0; j < ROLL_COMP_LIMIT; j++) {
-                    if( (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS)
-                            && (j < PITCH_COMP_LIMIT)){
+                    if( (j < PITCH_COMP_LIMIT)  &&
+                        (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS) ){
                         i_pitch = j;
                         break;
                     }
-                    else if(hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) {
+                    else
+                    if( (j < ROLL_COMP_LIMIT)  &&
+                        (hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) ){
                         i_roll = j;
                         break;
                     }
@@ -3663,8 +3665,11 @@ static void CompassCalibration(void)
     int min_range = 450;
     int max_range = 1430;
 
-    if( hfc.comp_calibrate == NO_COMP_CALIBRATE )
-    {
+    if( hfc.comp_calibrate == NO_COMP_CALIBRATE ) {
+        return;
+    }
+    else if ( hfc.comp_calibrate == COMP_CALIBRATE_DONE ) {
+        hfc.comp_calibrate = NO_COMP_CALIBRATE;
         return;
     }
 
@@ -3725,37 +3730,44 @@ static void CompassCalibration(void)
     /*At this point i_pitch and i_roll are used as flags
      * to see if comp_pitch and comp_roll, respectively, have
      * been filled.*/
-    for(i = 0; i < PITCH_COMP_LIMIT; i++)
-    {
-        if(hfc.comp_pitch_flags[i] < NUM_ANGLE_POINTS)
-        {
+    i_pitch = 1;
+    i_roll = 1;
+    for(i = 0; i < ROLL_COMP_LIMIT; i++) {
+        if( (i < PITCH_COMP_LIMIT)  &&
+            (hfc.comp_pitch_flags[i] < NUM_ANGLE_POINTS) ){
             i_pitch = 0;
             break;
         }
-        if(i == (PITCH_COMP_LIMIT-1))
-        {
-            i_pitch = 1;
-        }
-    }
-
-    for(i = 0; i < ROLL_COMP_LIMIT; i++)
-    {
-        if( hfc.comp_roll_flags[i] < NUM_ANGLE_POINTS)
-        {
+        else
+        if( (i < ROLL_COMP_LIMIT)  &&
+            (hfc.comp_roll_flags[i] < NUM_ANGLE_POINTS) ){
             i_roll = 0;
             break;
         }
-        if(i == (ROLL_COMP_LIMIT-1))
-        {
-            i_roll = 1;
-        }
     }
 
-    if ((i_pitch == 1) && (mag_range[0] >= min_range)
-    		&& (i_roll == 1) && (mag_range[1] >= min_range)
-            && (mag_range[2] >= min_range)) {
+    if ( (i_pitch == 1) &&
+         (i_roll  == 1) &&
+         (mag_range[0] >= min_range) &&
+    	 (mag_range[1] >= min_range) &&
+         (mag_range[2] >= min_range)
+         ){
 
         hfc.comp_calibrate = COMP_CALIBRATE_DONE;
+    }
+    else //if we do all orientations but range is wrong then reset orientations
+    if ( (i_pitch == 1) &&
+         (i_roll  == 1) &&
+         (mag_range[0] <= min_range) &&
+         (mag_range[1] <= min_range) &&
+         (mag_range[2] <= min_range) ){
+
+        for(i = 0; i < PITCH_COMP_LIMIT; i++) {
+            hfc.comp_pitch_flags[i] = 0;
+        }
+        for(i = 0; i < ROLL_COMP_LIMIT; i++) {
+            hfc.comp_roll_flags[i] = 0;
+        }
     }
 
 
@@ -3777,7 +3789,6 @@ static void CompassCalibration(void)
 
         // TODO::SP: Error handling...?
         SaveCompassCalibration(&hfc.compass_cal);
-        hfc.comp_calibrate = NO_COMP_CALIBRATE;
     }
 
 }

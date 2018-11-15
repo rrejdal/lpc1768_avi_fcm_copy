@@ -281,7 +281,7 @@
 
 #define PITCH_COMP_LIMIT       (180/9) //-90 to 90 degrees, in 20 groups of 9 degrees, must be a whole number
 #define ROLL_COMP_LIMIT        (360/9) //-180 to 180 degrees in 40 groups of 9 degrees, must be a whole number
-#define NUM_ANGLE_POINTS       100
+#define NUM_ANGLE_POINTS       110
 
 #define NO_COMP_CALIBRATE       0
 #define COMP_CALIBRATING        1
@@ -1064,8 +1064,8 @@ typedef struct
     float        linklive_values[13];   // castle linklive actual values
     unsigned int linklive_period_T;
     
-    int comp_pitch_flags[PITCH_COMP_LIMIT+1]; // used to tack whether the compass hit pitches from -85 to 85 deg
-    int comp_roll_flags[ROLL_COMP_LIMIT+1]; // used to check whether the compass hit rolls from -175 to 175 degress
+    int comp_pitch_flags[PITCH_COMP_LIMIT]; // used to tack whether the compass hit pitches from -90 to 90 deg
+    int comp_roll_flags[ROLL_COMP_LIMIT]; // used to check whether the compass hit rolls from -180 to 180 degress
     int comp_calibrate;     // 0 means not calibrating, 1 means calibrating, 2 means just finished calibration
     
     unsigned char profile_mode;             // enables and controls profiling
