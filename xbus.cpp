@@ -296,6 +296,8 @@ void XBus::InitXbusValues()
         for (int i=0; i<MAX_XBUS_SERVOS; i++) {
             revert[i]  = 0;
         }
+
+        revert[1] = 1; revert[2] = 1; revert[3] = 1;
     }
 
     return;
