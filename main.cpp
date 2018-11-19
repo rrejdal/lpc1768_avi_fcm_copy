@@ -56,7 +56,8 @@ extern int SaveNewConfig(void);
 extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
-USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
+//USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
+USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
 
@@ -715,12 +716,14 @@ static void SetControlMode(void)
     	if (xbus.valuesf[XBUS_MODE_SW] < -0.5f) {
     		mode = CTRL_MODE_ANGLE;
     	}
-		else if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
-    		mode = CTRL_MODE_MANUAL;
-		}
 		else {
-    		mode = CTRL_MODE_RATE;
-		}
+		    if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
+		        mode = CTRL_MODE_MANUAL;
+		    }
+		    else {
+		        mode = CTRL_MODE_RATE;
+		    }
+        }
 
     	mode += pConfig->RCmodeSwitchOfs;	// shift the mode up
     	mode = min(mode, CTRL_MODE_POSITION);
@@ -802,8 +805,14 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 
     // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
-    hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
-    hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
+    if (hfc.full_auto) {
+        hfc.rw_cfg.elevator_gain = pConfig->elevator_gain;
+        hfc.rw_cfg.dcp_gain = pConfig->dcp_gain;
+    }
+    else {
+        hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);     // use only positive half
+        hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
+    }
 
     ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
     PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * hfc.rw_cfg.elevator_gain;
@@ -1062,8 +1071,8 @@ static void ServoMixer(void)
                 MixerTandem(&servo_node_pwm[0]);
 
                 // Drive PWM Ch5 on front back servos for Fan Control
-                servo_node_pwm[1].servo_out[4] = hfc.throttle_armed ? 1 : -1;
-                servo_node_pwm[2].servo_out[4] = servo_node_pwm[1].servo_out[4];
+                servo_node_pwm[1].servo_out[7] = hfc.throttle_armed ? 1 : -1;
+                servo_node_pwm[2].servo_out[7] = servo_node_pwm[1].servo_out[7];
             break;
         default:
             break;
@@ -2081,6 +2090,7 @@ static void ServoUpdateRAW(float dT)
     }
 #endif
 
+
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
         hfc.collective_value = xbus.valuesf[XBUS_THRO];
@@ -2234,21 +2244,16 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-    if (hfc.throttle_armed) {
-        if (!hfc.full_auto) {
-            hfc.auto_throttle = false;
-        }
-
-        if (!hfc.auto_throttle) {
-            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
-        }
+    if (!hfc.full_auto && !hfc.throttle_armed) {
+        hfc.auto_throttle = false;
     }
-    else {
+
+    if (!hfc.auto_throttle) {
+        hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
+    }
+    else if (!hfc.throttle_armed) {
         hfc.throttle_value = -pConfig->Stick100range;
     }
-
-//    if (!(hfc.print_counter&0x3f))
-//    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
@@ -2900,14 +2905,17 @@ static void ServoUpdate(float dT)
         if (hfc.throttle_value < -0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL] < CTRL_MODE_SPEED && hfc.collective_value < -0.50f)
                 || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))) {
 
+            float throttle = pConfig->throttle_values[0];
             if (hfc.throttle_armed && hfc.throttle_value > -0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF
                     && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
-                ResetIterms();
-                hfc.ctrl_out[RAW][THRO] = -pConfig->Stick100range;
-                hfc.ctrl_out[RAW][PITCH] = 0;
-                hfc.ctrl_out[RAW][ROLL]  = 0;
-                hfc.ctrl_out[RAW][YAW]   = 0;
+                throttle = -0.5;
             }
+
+            ResetIterms();
+            hfc.ctrl_out[RAW][THRO] = throttle;
+            hfc.ctrl_out[RAW][PITCH] = 0;
+            hfc.ctrl_out[RAW][ROLL]  = 0;
+            hfc.ctrl_out[RAW][YAW]   = 0;
         }
     }
 
@@ -3187,6 +3195,30 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
     }
 }
 
+static void UpdateLidarHeight(int node_id, int lidarCount)
+{
+    unsigned int pulse = 0;
+    float alt_avg = 0;
+    static int lidar_mask = 0;
+
+    pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
+
+    lidarData[node_id].alt[0] = pulse * 0.001f;
+    lidar_mask |= (1<< node_id);
+
+    if (pConfig->num_servo_nodes == 2) {
+        if (lidar_mask == 3) {
+            alt_avg = (lidarData[0].alt[0] + lidarData[1].alt[0]) / 2.0f;
+            hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
+            lidar_mask = 0;
+        }
+    }
+    else {
+        alt_avg = lidarData[node_id].alt[0];
+        hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
+    }
+
+}
 
 /* ***************************************************************************
  * Multiple Lidars Supported. Can now hold lidar history of LIDAR_HISTORY_SIZE.
@@ -3202,6 +3234,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
     int check_data = 0;
     int num_valid_data = 0;
     int index = 0;
+
 
     // Apply Lidar offset, limit the reading between 0 and MAX_LIDAR_PULSE
     pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
@@ -3248,7 +3281,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
             index = current - 1;
 
             //check the current lidar reading with the 10 previous values before
-            for(int j = 0; j < LIDAR_HISTORY_SIZE; j++) {
+            for(int j = 0; j < LIDAR_HISTORY_SIZE-1; j++) {
                 if (index < 0) {
                     index = 9;
                 }
@@ -3438,7 +3471,8 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
-                UpdateLidar(node_id, *(uint32_t *)pdata);
+                UpdateLidarHeight(node_id, *(uint32_t *)pdata);
+                //UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -4713,7 +4747,7 @@ int ConfigureCanServoNodes(int num_servo_nodes)
         can_tx_message.len = 2;
         // Activates Channels for Castle Link/Throttle, A, B, C, PWM Fan control
         // TODO::SP: This will ultimately come from configuration file
-        can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_5;
+        can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
         can_tx_message.data[1] = LIDAR_ACTIVE; /* Link Live is automatically enabled on Tandem Servos */
 
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
