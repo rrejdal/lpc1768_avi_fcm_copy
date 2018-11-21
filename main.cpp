@@ -40,6 +40,7 @@
 #include "avican.h"
 #include "USBSerial.h"
 #include "IAP.h"
+#include "afsi.h"
 #include "version.h"
 
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
@@ -84,6 +85,9 @@ GPS gps;
 
 RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
+
+RawSerial afsi_raw(AFSI_TX, AFSI_RX);
+AFSI  afsi(&afsi_raw);
 
 InterruptIn  lidar(LIDAR_PWM);
 InterruptIn  *rpm = NULL;
