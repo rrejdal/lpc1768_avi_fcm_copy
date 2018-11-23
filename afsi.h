@@ -32,7 +32,49 @@
 #define MAX_MESSAGES  10
 #define BUFFER_SIZE   (256+8+16)
 
-class AFSI
+#define AFSI_CMD_ID_ARM         0x00
+#define AFSI_CMD_ID_DISARM      0x01
+#define AFSI_CMD_ID_TAKEOFF     0x02
+#define AFSI_CMD_ID_LAND        0x03
+#define AFSI_CMD_ID_SET_POS     0x04
+#define AFSI_CMD_ID_FWD_SPEED   0x05
+#define AFSI_CMD_ID_AFT_SPEED   0x06
+#define AFSI_CMD_ID_RGT_SPEED   0x07
+#define AFSI_CMD_ID_LFT_SPEED   0x08
+#define AFSI_CMD_ID_ALT         0x09
+#define AFSI_CMD_ID_HOME        0x0A
+#define AFSI_CMD_ID_HOLD        0x0B
+#define AFSI_CMD_ID_HDNG        0x0C
+#define AFSI_CMD_ID_STAT_POW    0x00
+#define AFSI_CMD_ID_STAT_GPS    0x01
+#define AFSI_CMD_ID_STAT_OP     0x02
+#define AFSI_CMD_ID_STAT_FCM    0x03
+
+#define AFSI_SNC_CH_1           0XB5
+#define AFSI_SNC_CH_2           0X62
+
+#define AFSI_STATE_INIT         0
+#define AFSI_STATE_SYNC         1
+#define AFSI_STATE_CLASS        2
+#define AFSI_STATE_ID           3
+#define AFSI_STATE_LEN          4
+#define AFSI_STATE_MSG          5
+
+typedef struct{
+    uint8_t sync1;
+    uint8_t sync2;
+    uint8_t msg_class;
+    uint8_t id;
+    uint16_t len;
+}afsi_hdr;
+
+typedef struct{
+    afsi_hdr * hdr;
+    void * payload;
+    uint8_t crc[2];
+}afsi_msg;
+
+class afsi
 {
 
 public:
@@ -47,8 +89,21 @@ public:
     bool IsTypeInQ(unsigned char type);
     void ProcessInputBytes(RawSerial &telemetry);
     void AddInputByte(char ch);
-    
-    AFSI(RawSerial *m_serial);
+    void ParseMessage ();
+    bool CheckCRC();
+    void clearBuffer();
+    static void trackMsgState ();
+    void deleteMsg();
+    afsi(RawSerial *m_serial);
+
+
+    afsi_msg * msg;
+    uint8_t afsi_buffer[200] = {0};
+    uint8_t afsi_byte;
+    uint8_t afsi_index;
+    uint8_t afsi_msgCnt;
+    uint32_t afsi_state;
+
 
     /* transmit stuff */
     /*
@@ -69,6 +124,8 @@ private:
     RawSerial *serial;
     FlightControlData *hfc;
     const ConfigData *pConfig;
+
+
 
     /*
     typedef struct {

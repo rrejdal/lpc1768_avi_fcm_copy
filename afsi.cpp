@@ -28,10 +28,99 @@
 #include "afsi.h"
 #include "defines.h"
 
-
-AFSI::AFSI(RawSerial *m_serial)
-{
+afsi::afsi(RawSerial *m_serial){
     serial = NULL;
     hfc = NULL;
     pConfig = NULL;
+}
+
+void afsi::clearBuffer(){
+    afsi_index = 0;
+    for (int i = 0;i<200;i++){
+        afsi_buffer[i] = 0;
+    }
+}
+
+void afsi::deleteMsg(){
+    delete msg->hdr;
+    delete msg->payload;
+    delete msg;
+    msg = new afsi_msg;
+    msg->hdr = new afsi_hdr;
+}
+
+bool afsi::CheckCRC(){
+    int len = sizeof(msg->data);
+    for (int i=0; i<sizeof(msg->data); i++) {
+        msg->CK_A = msg->CK_A + msg->data[i];
+        msg->CK_B = msg->CK_B + msg->CK_A;
+    }
+
+    if (msg->CK_A != msg->data[len+0]) {
+        return false;
+    }
+
+    if (msg->CK_B != msg->data[len+1]) {
+        return false;
+    }
+
+    return true;
+}
+
+static void afsi::trackMsgState(){
+    switch (afsi_state)
+    {
+        case AFSI_STATE_INIT:
+            if (afsi_byte == AFSI_SNC_CH_1){
+                afsi_buffer[afsi_index] = afsi_byte;
+                afsi_index++;
+                afsi_state = AFSI_STATE_SYNC;
+                msg->hdr->sync1 = afsi_byte;
+            }
+            else{
+                clearBuffer();
+                deleteMsg();
+            }
+            break;
+        case AFSI_STATE_SYNC:
+            if (afsi_byte == AFSI_SNC_CH_2){
+                afsi_buffer[afsi_index] = afsi_byte;
+                afsi_index++;
+                afsi_state = AFSI_STATE_CLASS;
+                msg->hdr->sync2 = afsi_byte;
+            }
+            else{
+                clearBuffer();
+                deleteMsg();
+            }
+            break;
+        case AFSI_STATE_CLASS:
+            afsi_buffer[afsi_index] = afsi_byte;
+            afsi_index++;
+            afsi_state = AFSI_STATE_ID;
+            msg->hdr->msg_class = afsi_byte;
+
+            break;
+        case AFSI_STATE_ID:
+            afsi_buffer[afsi_index] = afsi_byte;
+            afsi_index++;
+            afsi_state = AFSI_STATE_LEN;
+            msg->hdr->id = afsi_byte;
+
+            break;
+        case AFSI_STATE_LEN:
+            afsi_buffer[afsi_index] = afsi_byte;
+            afsi_index++;
+            afsi_state = AFSI_STATE_MSG;
+            msg->hdr->len = afsi_byte;
+            afsi_msgCnt = 0;
+
+            break;
+        case AFSI_STATE_MSG:
+            if (afsi_msgCnt < msg->hdr->len + 2)
+            afsi_buffer[afsi_index] = afsi_byte;
+            afsi_index++;
+            afsi_state = AFSI_STATE_CLASS;
+            msg->hdr->sync2 = afsi_byte;
+    }
 }
