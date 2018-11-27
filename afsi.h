@@ -32,6 +32,10 @@
 #define MAX_MESSAGES  10
 #define BUFFER_SIZE   (256+8+16)
 
+#define AFSI_CMD_CLASS_CTRL     0x01
+#define AFSI_CMD_CLASS_STAT     0x02
+#define AFSI_CMD_CLASS_ACK      0x03
+
 #define AFSI_CMD_ID_ARM         0x00
 #define AFSI_CMD_ID_DISARM      0x01
 #define AFSI_CMD_ID_TAKEOFF     0x02
@@ -59,6 +63,7 @@
 #define AFSI_STATE_ID           3
 #define AFSI_STATE_LEN          4
 #define AFSI_STATE_MSG          5
+#define AFSI_STATE_DONE         6
 
 typedef struct{
     uint8_t sync1;
@@ -70,7 +75,7 @@ typedef struct{
 
 typedef struct{
     afsi_hdr * hdr;
-    void * payload;
+    uint8_t payload[200];
     uint8_t crc[2];
 }afsi_msg;
 
@@ -89,15 +94,17 @@ public:
     bool IsTypeInQ(unsigned char type);
     void ProcessInputBytes(RawSerial &telemetry);
     void AddInputByte(char ch);
-    void ParseMessage ();
-    bool CheckCRC();
+
+    bool checkCRC(uint8_t len,uint8_t c1, uint8_t c2);
     void clearBuffer();
     static void trackMsgState ();
+    int parseMsg();
+    static void processMsg();
     void deleteMsg();
     afsi(RawSerial *m_serial);
 
 
-    afsi_msg * msg;
+
     uint8_t afsi_buffer[200] = {0};
     uint8_t afsi_byte;
     uint8_t afsi_index;
@@ -120,7 +127,7 @@ public:
     */
 
 private:
-
+    afsi_msg * msg;
     RawSerial *serial;
     FlightControlData *hfc;
     const ConfigData *pConfig;

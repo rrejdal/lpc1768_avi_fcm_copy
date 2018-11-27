@@ -43,39 +43,37 @@ void afsi::clearBuffer(){
 
 void afsi::deleteMsg(){
     delete msg->hdr;
-    delete msg->payload;
     delete msg;
     msg = new afsi_msg;
     msg->hdr = new afsi_hdr;
 }
 
-bool afsi::CheckCRC(){
-    int len = sizeof(msg->data);
-    for (int i=0; i<sizeof(msg->data); i++) {
-        msg->CK_A = msg->CK_A + msg->data[i];
-        msg->CK_B = msg->CK_B + msg->CK_A;
+bool afsi::checkCRC(uint8_t len,uint8_t c1, uint8_t c2){
+    //-2 is added because otherwise the 2 CRC bytes are included
+    for (int i=0; i<len-2; i++) {
+        c1 += msg->payload[i];
+        c2 += c1;
     }
 
-    if (msg->CK_A != msg->data[len+0]) {
+    if (c1 != msg->crc[0]) {
         return false;
     }
 
-    if (msg->CK_B != msg->data[len+1]) {
+    if (c2 != msg->crc[1]) {
         return false;
     }
 
     return true;
 }
 
+//State machine reading bytes into a buffer
 static void afsi::trackMsgState(){
-    switch (afsi_state)
-    {
+    switch (afsi_state){
         case AFSI_STATE_INIT:
             if (afsi_byte == AFSI_SNC_CH_1){
                 afsi_buffer[afsi_index] = afsi_byte;
                 afsi_index++;
                 afsi_state = AFSI_STATE_SYNC;
-                msg->hdr->sync1 = afsi_byte;
             }
             else{
                 clearBuffer();
@@ -87,7 +85,6 @@ static void afsi::trackMsgState(){
                 afsi_buffer[afsi_index] = afsi_byte;
                 afsi_index++;
                 afsi_state = AFSI_STATE_CLASS;
-                msg->hdr->sync2 = afsi_byte;
             }
             else{
                 clearBuffer();
@@ -98,29 +95,69 @@ static void afsi::trackMsgState(){
             afsi_buffer[afsi_index] = afsi_byte;
             afsi_index++;
             afsi_state = AFSI_STATE_ID;
-            msg->hdr->msg_class = afsi_byte;
 
             break;
         case AFSI_STATE_ID:
             afsi_buffer[afsi_index] = afsi_byte;
             afsi_index++;
             afsi_state = AFSI_STATE_LEN;
-            msg->hdr->id = afsi_byte;
 
             break;
         case AFSI_STATE_LEN:
+            if (afsi_index == 4){
+                msg->hdr->len = (uint16_t)afsi_byte;
+            }
+            else if (afsi_index == 5){
+                msg->hdr->len += ((uint16_t)afsi_byte<<8);
+                afsi_state = AFSI_STATE_MSG;
+                afsi_msgCnt = 0;
+            }
+
             afsi_buffer[afsi_index] = afsi_byte;
             afsi_index++;
-            afsi_state = AFSI_STATE_MSG;
-            msg->hdr->len = afsi_byte;
-            afsi_msgCnt = 0;
 
             break;
         case AFSI_STATE_MSG:
-            if (afsi_msgCnt < msg->hdr->len + 2)
+            if (afsi_msgCnt < msg->hdr->len+2){
+                afsi_state = AFSI_STATE_DONE;
+            }
             afsi_buffer[afsi_index] = afsi_byte;
             afsi_index++;
-            afsi_state = AFSI_STATE_CLASS;
-            msg->hdr->sync2 = afsi_byte;
+            afsi_msgCnt++;
+
+            break;
     }
+}
+
+//Processes byte buffer into message
+int afsi::parseMsg (){
+    int totalLength = 1+1+1+1+2+msg->hdr->len + 2;
+
+    msg->crc[0] = afsi_buffer[totalLength-1];
+    msg->crc[1] = afsi_buffer[totalLength-2];
+
+    if (!afsi::checkCRC(totalLength,msg->crc[0],msg->crc[1])){
+        return -1;
+    }
+
+
+    //Populate information from buffer
+    msg->hdr->sync1 = afsi_buffer[0];
+    msg->hdr->sync2 = afsi_buffer[1];
+    msg->hdr->msg_class = afsi_buffer[2];
+    msg->hdr->id = afsi_buffer[3];
+    for (int i=0; i<msg->hdr->len; i++){
+        msg->payload[i] = afsi_buffer[4+i];
+    }
+
+    return 0;
+}
+
+static void afsi::processMsg(){
+    switch(msg->hdr->msg_class){
+        case (ASFI_){
+
+        }
+    }
+
 }
