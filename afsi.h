@@ -28,6 +28,7 @@
 
 #include "mbed.h"
 #include "structures.h"
+#include "pGPS.h"
 
 #define MAX_MESSAGES  10
 #define BUFFER_SIZE   (256+8+16)
@@ -49,6 +50,7 @@
 #define AFSI_CMD_ID_HOME        0x0A
 #define AFSI_CMD_ID_HOLD        0x0B
 #define AFSI_CMD_ID_HDNG        0x0C
+
 #define AFSI_CMD_ID_STAT_POW    0x00
 #define AFSI_CMD_ID_STAT_GPS    0x01
 #define AFSI_CMD_ID_STAT_OP     0x02
@@ -103,7 +105,17 @@ public:
     void deleteMsg();
     afsi(RawSerial *m_serial);
 
-
+    void SendMsgToGround(int msg_id);
+    unsigned char processU1(uint8_t val, float scaling);
+    unsigned short processU2(uint8_t val, float scaling);
+    void Arm();
+    void Disarm();
+    void SetHome();
+    void CommandTakeoffArm (float takeoffSpeed);
+    void SelectCtrlSource(byte source);
+    void CommandLanding(bool final, bool setWP);
+    void SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire);
+    float Wrap180(float delta);
 
     uint8_t afsi_buffer[200] = {0};
     uint8_t afsi_byte;
