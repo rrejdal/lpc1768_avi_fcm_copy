@@ -1134,7 +1134,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             {
                 // TODO::SP - Removing this for Indro demo, to hook up new box drop
                 // Another HACK OF THE DAY 09-12-2018
-                return (CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1));
+                CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1);
 
 #if 0
                 if (CheckRangeAndSetI(&hfc->rw_cfg.battery_capacity, p->data, 1, 1000000))
@@ -1599,7 +1599,7 @@ void TelemSerial::Disarm(void)
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
 
-	xbus.InitXbusValues();
+	//xbus.InitXbusValues();
 
 	// TODO::SP: Error handling on Flash write error??
 	if (hfc->pid_params_changed) {
