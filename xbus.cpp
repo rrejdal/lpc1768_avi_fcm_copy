@@ -262,7 +262,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
         timeouts++;
         // NOTE::SP: This is only done when we are armed and flying.
         // TODO::SP: THIS NEEDS TO ALSO WORK FOR VARIBALE PITCH UAVs (HELIs)
-        if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY))
+        //if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY))
         {
             valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
             valuesf[1] = 0;			// XBUS_ROLL, 0 side speed

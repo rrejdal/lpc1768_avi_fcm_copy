@@ -1700,6 +1700,9 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
                 CheckRangeAndSetB(&hfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
+            else
+            if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
+                CheckRangeAndSetI(&hfc->box_dropper_, item->value1.i, 0, 1);
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -2971,6 +2974,9 @@ static void ServoUpdate(float dT)
         float led_pwm = hfc.throttle_armed ? 1 : -1;
         FCM_SERVO_CH6->pulsewidth_us((int)(1500.5f + led_pwm * 500));
     }
+
+    float box_dropper_pwm = hfc.box_dropper_ ? 1 : -1;
+    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + box_dropper_pwm * 500));
 
     if (FCMLinkLive) {
         ProcessFcmLinkLive();
@@ -4274,6 +4280,14 @@ static void Servos_Init(void)
         FCM_SERVO_CH6->pulsewidth_us(1500);
     }
 
+    // NOTE::SP: HACK OF THE DAY 12-09-2018
+    // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 5
+    // FOR USE WITH SPECIAL BOX DROPPER FOR INDRO Demo
+    if (FCM_SERVO_CH5) {
+        FCM_SERVO_CH5.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH5.pulsewidth_us(1500);
+    }
+
     if (pConfig->fcm_servo) {
 
         FCM_SERVO_CH5.period_us(pConfig->pwm_period);
@@ -5035,6 +5049,8 @@ void InitializeRuntimeData(void)
             hfc.compass_cal.compassMax[i] = -9999;
         }
     }
+
+    hfc.box_dropper_ = 0;
 }
 
 /**

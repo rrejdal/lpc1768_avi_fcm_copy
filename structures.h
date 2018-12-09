@@ -1093,6 +1093,8 @@ typedef struct
     
     float gyro_ofs[3];
 
+    int box_dropper_;
+
     ModifiableConfigData rw_cfg;
 
     CompassCalibrationData compass_cal;

@@ -1132,11 +1132,18 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             else
             if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
             {
+                // TODO::SP - Removing this for Indro demo, to hook up new box drop
+                // Another HACK OF THE DAY 09-12-2018
+                return (CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1));
+
+#if 0
                 if (CheckRangeAndSetI(&hfc->rw_cfg.battery_capacity, p->data, 1, 1000000))
                 {
                     hfc->power.capacity_total = hfc->rw_cfg.battery_capacity/1000.0f*3600; // As
                     hfc->power.energy_total   = hfc->power.capacity_total * pConfig->battery_cells * 3.7f;  // Ws
                 }
+#endif
+
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDTAB_SCALE)
