@@ -1365,30 +1365,34 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 int i_pitch = -1;
                 int i_roll = -1;
                 for(int j = 0; j < ROLL_COMP_LIMIT; j++) {
-                    if( (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS)
-                            && (j < PITCH_COMP_LIMIT)){
+                    if( (j < PITCH_COMP_LIMIT)  &&
+                        (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS) ){
                         i_pitch = j;
                         break;
                     }
-                    else if(hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) {
+                    else
+                    if( (j < ROLL_COMP_LIMIT)  &&
+                        (hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) ){
                         i_roll = j;
                         break;
                     }
                 }
 
                 if(i_pitch != -1) {
-                    sPRINTd(str, (char*)"COMPASS P:%d",
-                            (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
+                    int orient_val = (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT;
+                    sPRINTd(str, (char*)"COMPASS P:%d", (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("check i_pitch = %d\r\n",
-                            (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
+                    debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
+                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_PITCH, orient_val);
+                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
                 else if(i_roll != -1 ) {
-                    sPRINTd(str, (char*)"COMPASS R:%d",
-                            (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
+                    int orient_val = (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT;
+                    sPRINTd(str, (char*)"COMPASS R:%d", (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("check i_roll = %d\r\n",
-                            (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
+                    debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
+                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_ROLL, orient_val);
+                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
 
                 myLcd.SetLine(1, (char*)"CALIBRATING!  ", 0);
@@ -3285,7 +3289,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
             //check the current lidar reading with the 10 previous values before
             for(int j = 0; j < LIDAR_HISTORY_SIZE-1; j++) {
                 if (index < 0) {
-                    index = LIDAR_HISTORY_SIZE-1;
+                    index = 9;
                 }
 
                 if (lidarData[i].new_data_rdy > 0) {
@@ -3651,14 +3655,14 @@ static void RPM_Process(void)
  *
  * Inputs(not explicitly stated):
  *
- * 1. hfc.compass_cal.compassMin[3]: minimum values measured from compass in x, y and z.
+ * 1. hfc.compassMin[3]: minimum values measured from compass in x, y and z.
  *                       Reset to -9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
  *                       If new value is -200 less then current min then
  *                       assume it is an anomaly and IGNORE
  *
- * 2. hfc.compass_cal.compassMax[3]: maximum values measured from compass in x, y and z
+ * 2. hfc.compassMax[3]: maximum values measured from compass in x, y and z
  *                       Reset to +9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
@@ -3697,8 +3701,11 @@ static void CompassCalibration(void)
     int min_range = 450;
     int max_range = 1430;
 
-    if( hfc.comp_calibrate == NO_COMP_CALIBRATE )
-    {
+    if( hfc.comp_calibrate == NO_COMP_CALIBRATE ) {
+        return;
+    }
+    else if ( hfc.comp_calibrate == COMP_CALIBRATE_DONE ) {
+        hfc.comp_calibrate = NO_COMP_CALIBRATE;
         return;
     }
 
@@ -3759,37 +3766,44 @@ static void CompassCalibration(void)
     /*At this point i_pitch and i_roll are used as flags
      * to see if comp_pitch and comp_roll, respectively, have
      * been filled.*/
-    for(i = 0; i < PITCH_COMP_LIMIT; i++)
-    {
-        if(hfc.comp_pitch_flags[i] < NUM_ANGLE_POINTS)
-        {
+    i_pitch = 1;
+    i_roll = 1;
+    for(i = 0; i < ROLL_COMP_LIMIT; i++) {
+        if( (i < PITCH_COMP_LIMIT)  &&
+            (hfc.comp_pitch_flags[i] < NUM_ANGLE_POINTS) ){
             i_pitch = 0;
             break;
         }
-        if(i == (PITCH_COMP_LIMIT-1))
-        {
-            i_pitch = 1;
-        }
-    }
-
-    for(i = 0; i < ROLL_COMP_LIMIT; i++)
-    {
-        if( hfc.comp_roll_flags[i] < NUM_ANGLE_POINTS)
-        {
+        else
+        if( (i < ROLL_COMP_LIMIT)  &&
+            (hfc.comp_roll_flags[i] < NUM_ANGLE_POINTS) ){
             i_roll = 0;
             break;
         }
-        if(i == (ROLL_COMP_LIMIT-1))
-        {
-            i_roll = 1;
-        }
     }
 
-    if ((i_pitch == 1) && (mag_range[0] >= min_range)
-    		&& (i_roll == 1) && (mag_range[1] >= min_range)
-            && (mag_range[2] >= min_range)) {
+    if ( (i_pitch == 1) &&
+         (i_roll  == 1) &&
+         (mag_range[0] >= min_range) &&
+    	 (mag_range[1] >= min_range) &&
+         (mag_range[2] >= min_range)
+         ){
 
         hfc.comp_calibrate = COMP_CALIBRATE_DONE;
+    }
+    else //if we do all orientations but range is wrong then reset orientations
+    if ( (i_pitch == 1) &&
+         (i_roll  == 1) &&
+         (mag_range[0] <= min_range) &&
+         (mag_range[1] <= min_range) &&
+         (mag_range[2] <= min_range) ){
+
+        for(i = 0; i < PITCH_COMP_LIMIT; i++) {
+            hfc.comp_pitch_flags[i] = 0;
+        }
+        for(i = 0; i < ROLL_COMP_LIMIT; i++) {
+            hfc.comp_roll_flags[i] = 0;
+        }
     }
 
 
@@ -3806,9 +3820,11 @@ static void CompassCalibration(void)
         hfc.compass_cal.valid = 1;
         hfc.compass_cal.version = COMPASS_CAL_VERSION;
 
+        int size = telem.CalibrateCompassDone();
+        telem.AddMessage((unsigned char*)&hfc.telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
+
         // TODO::SP: Error handling...?
         SaveCompassCalibration(&hfc.compass_cal);
-        hfc.comp_calibrate = NO_COMP_CALIBRATE;
     }
 
 }

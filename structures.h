@@ -35,7 +35,8 @@
 #define TELEMETRY_CTRL          12
 #define TELEMETRY_GPS           13
 #define TELEMETRY_SYSTEM        14
-#define TELEMETRY_LAST_MSG_TYPE	15
+#define TELEMETRY_CALIBRATE     15
+#define TELEMETRY_LAST_MSG_TYPE 16
 
 
 #define TELEM_PARAM_WAYPOINT        1
@@ -133,6 +134,19 @@
 #define TELEM_PARAM_PID_IMU_P           34
 #define TELEM_PARAM_PID_IMU_I           35
 #define TELEM_PARAM_PID_IMU_D           36
+
+#define TELEM_PARAM_CALIBRATE       5
+
+#define TELEM_PARAM_CAL_ORIENT_PITCH    0
+#define TELEM_PARAM_CAL_ORIENT_ROLL     1
+
+
+#define TELEM_PARAM_CALIBRATE_DONE  6
+
+#define TELEM_PARAM_CAL_DONE_OFS        0
+#define TELEM_PARAM_CAL_DONE_GAINS      1
+#define TELEM_PARAM_CAL_DONE_MAX        2
+#define TELEM_PARAM_CAL_DONE_MIN        3
 
 /* commands */
 #define TELEM_CMD_NONE              255
@@ -267,7 +281,7 @@
 
 #define PITCH_COMP_LIMIT       (180/9) //-90 to 90 degrees, in 20 groups of 9 degrees, must be a whole number
 #define ROLL_COMP_LIMIT        (360/9) //-180 to 180 degrees in 40 groups of 9 degrees, must be a whole number
-#define NUM_ANGLE_POINTS       100
+#define NUM_ANGLE_POINTS       110
 
 #define NO_COMP_CALIBRATE       0
 #define COMP_CALIBRATING        1
@@ -277,16 +291,16 @@
 
 typedef struct /* size 10bytes */
 {
-    uint32 Vmain  : 12;     // 0-64V    *64
-    uint32 Vaux   : 10;     // 0-16V    *64
-    uint32 Vservo : 10;     // 0-16V    *64
+	uint32 Vmain  : 12;		// 0-64V	*64
+	uint32 Vaux   : 10;		// 0-16V	*64
+	uint32 Vservo : 10;		// 0-16V	*64
 
-    uint32 Vesc : 12;       // 0-64V    *64
-    uint32 Iesc : 13;       // 0-256A   *32
-    uint32 Iaux : 7;        // 0-8A *16
+	uint32 Vesc : 12;		// 0-64V	*64
+	uint32 Iesc : 12;		// 0-64A	*64
+	uint32 Iaux : 8;		// 0-8A		*32
 
-    uint16 battery_level : 7;   // in %, 120=100%   *120
-    uint16 capacity_used : 9;   // 0-128Ah      *4
+	uint16 battery_level : 8;	// in %, 250=100%	*250
+	uint16 capacity_used : 8;	// 0-32Ah			*8
 } T_PowerMsg;
 
 typedef struct
@@ -519,6 +533,23 @@ typedef struct
     byte    msg_id;
     byte    user_data;
 } T_Telem_Msg2Ground;
+
+/* Telemetry - Calibrating messages */
+typedef struct
+{
+    byte        param;
+    byte        sub_param;
+    float       data[3];
+} T_CalibrateParams;
+typedef struct
+{
+    /* header */
+    T_TelemUpHdr        hdr;
+
+    /* payload */
+    T_CalibrateParams       data[4];       // up to 4 parameters per message
+} T_Telem_Calibrate;
+
 
 typedef struct
 {
@@ -1033,8 +1064,8 @@ typedef struct
     float        linklive_values[13];   // castle linklive actual values
     unsigned int linklive_period_T;
     
-    int comp_pitch_flags[PITCH_COMP_LIMIT+1]; // used to tack whether the compass hit pitches from -85 to 85 deg
-    int comp_roll_flags[ROLL_COMP_LIMIT+1]; // used to check whether the compass hit rolls from -175 to 175 degress
+    int comp_pitch_flags[PITCH_COMP_LIMIT]; // used to tack whether the compass hit pitches from -90 to 90 deg
+    int comp_roll_flags[ROLL_COMP_LIMIT]; // used to check whether the compass hit rolls from -180 to 180 degress
     int comp_calibrate;     // 0 means not calibrating, 1 means calibrating, 2 means just finished calibration
     
     unsigned char profile_mode;             // enables and controls profiling
@@ -1107,6 +1138,7 @@ typedef struct
     T_Telem_DataStream3 telemDataStream3;
     T_Telem_Msg2Ground  telemMsg2ground;
     T_AircraftConfig    aircraftConfig;
+    T_Telem_Calibrate   telemCalibrate;
 
     /* state for resuming playlist */
     T_State	state;

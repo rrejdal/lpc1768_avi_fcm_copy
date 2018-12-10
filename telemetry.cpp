@@ -572,14 +572,15 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->telem_crc_errors          = telem_crc_errors;
     msg->telem_start_code_searches = telem_start_code_searches;
     msg->flight_time_left	= ClipMinMax(hfc->power.flight_time_left, 0, 65535);
-    msg->power.Iaux         = min(127, (int)(hfc->power.Iaux*16+0.5f)); // 0-8A     *16
-    msg->power.Iesc         = min(8191, (int)(hfc->power.Iesc*32+0.5f));    // 0-256V   *32
+    msg->power.Iaux			= min(255, (int)(hfc->power.Iaux*32+0.5f));	// 0-8A		*32
+
+    msg->power.Iesc			= min(4095, (int)(hfc->power.Iesc*64+0.5f));	// 0-64V	*64
     msg->power.Vaux			= min(1023, (int)(hfc->power.Vaux*64+0.5f));	// 0-16V	*64
     msg->power.Vesc			= min(4095, (int)(hfc->power.Vesc*64+0.5f));	// 0-64V	*64
     msg->power.Vmain		= min(4095, (int)(hfc->power.Vmain*64+0.5f));
     msg->power.Vservo		= min(1023, (int)(hfc->power.Vservo*64+0.5f));	// 0-16V	*64
-    msg->power.battery_level = ClipMinMax((int)(hfc->power.battery_level*1.2f+0.5f), 0, 127);   // in %, 120=100%   *120
-    msg->power.capacity_used = min(511, (int)(hfc->power.capacity_used*4/3600+0.5f));   // 0-128Ah          *4
+    msg->power.battery_level = ClipMinMax((int)(hfc->power.battery_level*2.5f+0.5f), 0, 255);	// in %, 250=100%	*250
+    msg->power.capacity_used = min(255, (int)(hfc->power.capacity_used*8/3600+0.5f));	// 0-32Ah			*8
     msg->gyro_temperature = Float32toFloat16(hfc->gyro_temp_lp);
     msg->baro_temperature = Float32toFloat16(hfc->baro_temperature);
     msg->gps_hdop = Float32toFloat16(gps_data.PDOP*0.01f);
@@ -649,6 +650,62 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->unused[2]          = 0;
 
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
+}
+
+int TelemSerial::CalibrateCompassOrient(byte orient_type, float orient_val)
+{
+    T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+
+    msg->data[0].param = TELEM_PARAM_CALIBRATE;
+    msg->data[0].sub_param= orient_type;
+    switch(orient_type)
+    {
+        case TELEM_PARAM_CAL_ORIENT_PITCH:
+        case TELEM_PARAM_CAL_ORIENT_ROLL:
+            //CheckRangeAndSetF(&msg->data[0].data[0], orient_val, -180, 180);
+            msg->data[0].data[0] = orient_val;
+            break;
+        default:
+            return 0;
+    }
+//    int size = 2 + sizeof(msg->data[0].data[0]);
+//    Telemetry_InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, size);
+    /*TODO:: mi, remove this comment*/
+    InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
+    return sizeof(T_Telem_Calibrate);
+}
+
+int TelemSerial::CalibrateCompassDone(void)
+{
+
+    T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+    int i;
+    msg->data[0].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[0].sub_param = TELEM_PARAM_CAL_DONE_OFS;
+    for(i=0; i<3; i++) {
+        msg->data[0].data[i] = hfc->compass_cal.comp_ofs[i];
+    }
+
+    msg->data[1].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[1].sub_param = TELEM_PARAM_CAL_DONE_GAINS;
+    for(i=0; i<3; i++) {
+        msg->data[1].data[i] = hfc->compass_cal.comp_gains[i];
+    }
+
+    msg->data[2].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[2].sub_param = TELEM_PARAM_CAL_DONE_MAX;
+    for(i=0; i<3; i++) {
+        msg->data[2].data[i] = (float)hfc->compass_cal.compassMax[i];
+    }
+
+    msg->data[3].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[3].sub_param = TELEM_PARAM_CAL_DONE_MIN;
+    for(i=0; i<3; i++) {
+        msg->data[3].data[i] = (float)hfc->compass_cal.compassMin[i];
+    }
+
+    InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
+    return sizeof(T_Telem_Calibrate);
 }
 
 void TelemSerial::Generate_Tcpip7(void)
