@@ -148,6 +148,15 @@ unsigned int TelemSerial::RemoveBytes(unsigned char *b, int remove, int size)
 void TelemSerial::AddInputByte(char ch)
 {
     T_TelemUpHdr *hdr;
+    TELEM_AFSI_HDR *hdr_afsi;
+    TELEM_AFSI_MSG *msg_afsi;
+    msg_afsi->hdr = hdr_afsi;
+    T_Telem_Commands5 * msg_cmd;
+    T_Telem_Params4 * msg_par;
+
+
+    bool foundSC = false;
+    bool foundSC_AFSI = false;
 
 //  debug_print("Telem c=%d\r\n", ch);
     
@@ -160,10 +169,10 @@ void TelemSerial::AddInputByte(char ch)
     telem_recv_buffer[telem_recv_bytes++] = ch;
     
     /* if first byte is not the start code find it, by discarding all data in front of it */
-    if (telem_recv_buffer[0]!=0x47)
+    if (telem_recv_buffer[0]!=0x47 && telem_recv_buffer[0]!= AFSI_SNC_CH_1)
     {
         unsigned int i;
-        bool foundSC = false;
+
         for (i=0; i<telem_recv_bytes; i++)
         {
             if (telem_recv_buffer[i]==0x47)
@@ -172,20 +181,34 @@ void TelemSerial::AddInputByte(char ch)
                 foundSC = true;
                 break;
             }
+            else if (telem_recv_buffer[i]==AFSI_SNC_CH_1)
+            {
+                telem_recv_bytes = RemoveBytes(telem_recv_buffer,i,telem_recv_bytes);
+                foundSC_AFSI = true;
+                break;
+            }
         }
         telem_start_code_searches++;
-        if (!foundSC)
+        if (!foundSC && !foundSC_AFSI)
         {
         	telem_recv_bytes = 0;
         	return;
         }
+    }
+    else if (telem_recv_buffer[0] == 0x47)
+    {
+        foundSC = true;
+    }
+    else if (telem_recv_buffer[0] == AFSI_SNC_CH_1)
+    {
+        foundSC_AFSI = true;
     }
 
     if (!telem_recv_bytes)
     	return;
 
     /* still did not find it, this case should never happen */
-    if (telem_recv_buffer[0]!=0x47)
+    if (telem_recv_buffer[0]!=0x47 && telem_recv_buffer[0] != AFSI_SNC_CH_1)
     {
 //        debug_print("NSC: %2d ", telem_recv_bytes);
 //        for (i=0; i<8; i++) printf("%02x ", telem_recv_buffer[i]);
@@ -198,72 +221,183 @@ void TelemSerial::AddInputByte(char ch)
     	return;
     
     hdr = (T_TelemUpHdr*)telem_recv_buffer;
-
-    /* check CRC of the header */
+    if (foundSC)
     {
-    	byte hdr1[4];
-    	byte crc8;
-
-    	hdr1[0] = telem_recv_buffer[0];
-    	hdr1[1] = telem_recv_buffer[1];
-    	hdr1[2] = 0x39;
-    	hdr1[3] = telem_recv_buffer[3];
-    	crc8 = CalcCRC8(hdr1, 4);
-    	if (crc8!=hdr->crc8)
-    	{
-    		telem_recv_buffer[0] = 0;
-//            debug_print("Wrong hdr CRC\r\n");
-    		return;
-
-    	}
-    }
-	if (hdr->type>=TELEMETRY_LAST_MSG_TYPE)
-	{
-		telem_recv_buffer[0] = 0;
-//            debug_print("Wrong msg type %d\r\n", hdr->type);
-		return;
-	}
-	if (hdr->type==TELEMETRY_COMMANDS5 && hdr->len>18)
-	{
-		telem_recv_buffer[0] = 0;
-//            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
-		return;
-	}
-	if (hdr->type==TELEMETRY_PROFILE_CMD && hdr->len>(sizeof(T_Telem_Profile8)-8-1))
-	{
-		telem_recv_buffer[0] = 0;
-//            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
-		return;
-	}
-
-	/*do we have enough bytes for the header */
-    if (telem_recv_bytes<8)
-        return;
-        
-    /* do we have enough bytes for the message */
-    if (telem_recv_bytes < (unsigned int)(hdr->len+8+1))
-        return;
-        
-    /* check crc */
-    {
-        unsigned int crc_org = hdr->crc;
-        unsigned int crc_calc;
-        hdr->crc = 0x12345678;
-        crc_calc = CalcCRC32(telem_recv_buffer, hdr->len+8+1);
-        if (crc_org != crc_calc)
+        /* check CRC of the header */
         {
-            /* error - wipe out the start code so the search can be restarted for a new message */
+            byte hdr1[4];
+            byte crc8;
+
+            hdr1[0] = telem_recv_buffer[0];
+            hdr1[1] = telem_recv_buffer[1];
+            hdr1[2] = 0x39;
+            hdr1[3] = telem_recv_buffer[3];
+            crc8 = CalcCRC8(hdr1, 4);
+            if (crc8!=hdr->crc8)
+            {
+                telem_recv_buffer[0] = 0;
+    //            debug_print("Wrong hdr CRC\r\n");
+                return;
+
+            }
+        }
+        if (hdr->type>=TELEMETRY_LAST_MSG_TYPE)
+        {
+            telem_recv_buffer[0] = 0;
+    //            debug_print("Wrong msg type %d\r\n", hdr->type);
+            return;
+        }
+        if (hdr->type==TELEMETRY_COMMANDS5 && hdr->len>18)
+        {
+            telem_recv_buffer[0] = 0;
+    //            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
+            return;
+        }
+        if (hdr->type==TELEMETRY_PROFILE_CMD && hdr->len>(sizeof(T_Telem_Profile8)-8-1))
+        {
+            telem_recv_buffer[0] = 0;
+    //            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
+            return;
+        }
+
+        /*do we have enough bytes for the header */
+        if (telem_recv_bytes<8)
+            return;
+
+        /* do we have enough bytes for the message */
+        if (telem_recv_bytes < (unsigned int)(hdr->len+8+1))
+            return;
+
+        /* check crc */
+        {
+            unsigned int crc_org = hdr->crc;
+            unsigned int crc_calc;
+            hdr->crc = 0x12345678;
+            crc_calc = CalcCRC32(telem_recv_buffer, hdr->len+8+1);
+            if (crc_org != crc_calc)
+            {
+                /* error - wipe out the start code so the search can be restarted for a new message */
+                telem_recv_buffer[0] = 0;
+                telem_crc_errors++;
+                return;
+            }
+        }
+    }
+    //AFSI header population
+    else if (foundSC_AFSI)
+    {
+        byte hdr1[4];
+        byte crc8;
+
+        msg_cmd = new T_Telem_Commands5;
+        msg_par = new T_Telem_Params4;
+
+        //Check if enough bytes for header
+        if (telem_recv_bytes < 6)
+        {
+            return;
+        }
+
+        //Populate header
+        hdr_afsi->sync1 = telem_recv_buffer[0];
+        hdr_afsi->sync2 = telem_recv_buffer[1];
+        hdr_afsi->msg_class = telem_recv_buffer[2];
+        hdr_afsi->id = telem_recv_buffer[3];
+        hdr_afsi->len = (telem_recv_buffer[4]<<4) + telem_recv_buffer[5];
+
+        //Check if enough bytes for rest of message
+        if (telem_recv_bytes < 6+msg_afsi->hdr->len+2)
+        {
+            return;
+        }
+
+        //Populate rest of the message
+        for (int i = 0; i<msg_afsi->hdr->len; i++)
+        {
+            msg_afsi->payload[i] = telem_recv_buffer[i+6];
+        }
+        msg_afsi->crc[0] = telem_recv_buffer[6+msg_afsi->hdr->len];
+        msg_afsi->crc[1] = telem_recv_buffer[6+msg_afsi->hdr->len+1];
+
+        //Check CRC
+        int c1,c2;
+        for (int i=0; i<msg_afsi->hdr->len; i++)
+        {
+            c1 += msg_afsi->payload[i];
+            c2 += c1;
+        }
+        //CRC check failed
+        if (c1 != msg_afsi->crc[0] || c2 != msg_afsi->crc[1])
+        {
             telem_recv_buffer[0] = 0;
             telem_crc_errors++;
             return;
         }
+
+        ///////////////////////Population of normal hdr/////////////////////////
+        //Message type
+        if (msg_afsi->hdr->id == AFSI_CMD_ID_ARM ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_DISARM ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_TAKEOFF ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_HOME ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_LAND ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_HOLD)
+        {
+            msg_cmd->command = TELEM_CMD_NONE;
+            msg_cmd->sub_cmd = TELEM_CMD_NONE;
+            hdr->type = TELEMETRY_COMMANDS5;
+            switch (msg_afsi->hdr->id){
+                case AFSI_CMD_ID_ARM:
+                    msg_cmd ->command = TELEM_CMD_ARMING;
+                    msg_cmd->sub_cmd = CMD_ARM;
+                    break;
+                case AFSI_CMD_ID_DISARM:
+                    msg_cmd->command = TELEM_CMD_ARMING;
+                    break;
+                case AFSI_CMD_ID_TAKEOFF:
+                    msg_cmd->command = TELEM_CMD_TAKEOFF;
+                    msg_cmd->sub_cmd = TAKEOFF_ARM;
+                    break;
+                case  AFSI_CMD_ID_LAND:
+                    msg_cmd->command = TELEM_CMD_LAND;
+                    msg_cmd->sub_cmd = LANDING_CURRENT;
+                    break;
+                case AFSI_CMD_ID_HOME:
+                    msg_cmd->command = TELEM_CMD_GOTO_HOME;
+                    break;
+                case AFSI_CMD_ID_HOLD:
+                    msg_cmd->command = TELEM_CMD_POS_HOLD;
+                    break;
+                default:
+                    msg_cmd->command = TELEM_CMD_NONE;
+            }
+            //Transfer data
+            for (int i = 0; i<msg_afsi->hdr->len; i++)
+            {
+                msg_cmd->data[i] = msg_afsi->payload[i];
+            }
+        }
+        else if (msg_afsi->hdr->id == AFSI_CMD_ID_FWD_SPEED ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_AFT_SPEED ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_RIGHT_SPEED ||
+            msg_afsi->hdr->id == AFSI_CMD_ID_LEFT_SPEED)
+        {
+            hdr->type = TELEMETRY_PARAMETERS4;
+            hfc->joystick_new_values = true;
+        }
     }
+
+
 
 //    debug_print("Telem Msg type=%d\r\n", hdr->type);
     
     if (hdr->type==TELEMETRY_PARAMETERS4)
     {
         T_Telem_Params4 *msg = (T_Telem_Params4*)telem_recv_buffer;
+        if (foundSC_AFSI)
+        {
+            return;
+        }
 
         if (ProcessParameters(msg))
         {
@@ -282,10 +416,13 @@ void TelemSerial::AddInputByte(char ch)
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
         return;
     }
-    else if (hdr->type==TELEMETRY_COMMANDS5) {
-
+    else if (hdr->type==TELEMETRY_COMMANDS5)
+    {
         T_Telem_Commands5 *msg = (T_Telem_Commands5*)telem_recv_buffer;
-
+        if (foundSC_AFSI)
+        {
+            msg = msg_cmd;
+        }
         if (CopyCommand(msg)) {
             telem_good_messages++;
             /* this might be produced before the previous one was transmitted !!!!!!! */
@@ -319,6 +456,7 @@ void TelemSerial::AddInputByte(char ch)
 //                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
                 hfc->playlist_items = 21*msg->page;
             }
+
             if ((hfc->playlist_items+msg->lines) <= PLAYLIST_SIZE)
             {
                 for (i=0; i<msg->lines; i++)

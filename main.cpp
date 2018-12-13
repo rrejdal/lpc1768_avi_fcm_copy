@@ -40,7 +40,6 @@
 #include "avican.h"
 #include "USBSerial.h"
 #include "IAP.h"
-#include "afsi.h"
 #include "version.h"
 
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
@@ -87,7 +86,7 @@ RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
 
 RawSerial afsi_raw(AFSI_TX, AFSI_RX);
-AFSI  afsi(&afsi_raw);
+TelemSerial  afsi(&afsi_raw);
 
 InterruptIn  lidar(LIDAR_PWM);
 InterruptIn  *rpm = NULL;
@@ -104,6 +103,7 @@ InterruptIn  *linklive = NULL;      // When re-purposed Ch1 for LiveLink
 Ticker livelink_timer;
 
 FlightControlData hfc = {0};
+FlightControlData hfc_afsi = {0};
 const ConfigData *pConfig = NULL;
 
 // Text displayed on ShowSplash
@@ -4480,9 +4480,9 @@ static void ProcessUserCmnds(char c)
         int *fcm_serial_num;
         fcm_serial_num = iap.read_serial();
 
-        usb_print("Type[FCM], Node[%d], Version[%02x:%02x:%02x],  SERIAL[%08x:%08x:%08x:%08x]\r\n",
-                            DEFAULT_NODE_ID, MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION,
-                            fcm_serial_num[0], fcm_serial_num[1], fcm_serial_num[2], fcm_serial_num[3]);
+//        usb_print("Type[FCM], Node[%d], Version[%02x:%02x:%02x],  SERIAL[%08x:%08x:%08x:%08x]\r\n",
+//                            DEFAULT_NODE_ID, MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION,
+//                            fcm_serial_num[0], fcm_serial_num[1], fcm_serial_num[2], fcm_serial_num[3]);
 
         usb_print("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
@@ -5203,8 +5203,12 @@ int main()
         xbus.SetSbusEnabled(pConfig->SbusEnable);
         xbus.ConfigRx();
 
+        //Will transmit on these pins for now, to test commands
         telem.Initialize(&hfc, pConfig);
         telemetry.baud(pConfig->telem_baudrate);
+
+//        afsi.Initialize(&hfc_afsi,pConfig);
+//        afsi_raw.baud(pConfig->telem_baudrate);
 
         Servos_Init();
 
