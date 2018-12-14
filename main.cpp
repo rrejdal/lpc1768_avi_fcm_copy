@@ -56,6 +56,8 @@ extern int SaveNewConfig(void);
 extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
+void CompassCalDone(void);
+
 //USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
 USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
@@ -177,7 +179,6 @@ static void Buttons();
 static void PrintOrient();
 static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
-
 
 float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
 {
@@ -3123,8 +3124,10 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    /* when current is below 0.2C, battery is considered unloaded */
-    if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
+    // TODO::SP: This needs to be tested and made a configurable value
+    /* when current is below 20A (0.2A normally), battery is considered unloaded */
+    //if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
+    if (I < (0.02f * hfc.rw_cfg.battery_capacity)) {
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
@@ -3787,7 +3790,7 @@ static void CompassCalibration(void)
          (mag_range[0] >= min_range) &&
     	 (mag_range[1] >= min_range) &&
          (mag_range[2] >= min_range)
-         ){
+         ) {
 
         hfc.comp_calibrate = COMP_CALIBRATE_DONE;
     }
@@ -3806,27 +3809,29 @@ static void CompassCalibration(void)
         }
     }
 
-
-    if(hfc.comp_calibrate == COMP_CALIBRATE_DONE)
-    {
-        for (i=0; i<3; i++)
-        {
-            hfc.compass_cal.comp_ofs[i] = (hfc.compass_cal.compassMin[i]+hfc.compass_cal.compassMax[i]+1)/2;
-
-            //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
-            hfc.compass_cal.comp_gains[i] = 537.37f/((hfc.compass_cal.compassMax[i]-hfc.compass_cal.compassMin[i])/2.0f);
-        }
-
-        hfc.compass_cal.valid = 1;
-        hfc.compass_cal.version = COMPASS_CAL_VERSION;
-
-        int size = telem.CalibrateCompassDone();
-        telem.AddMessage((unsigned char*)&hfc.telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
-
-        // TODO::SP: Error handling...?
-        SaveCompassCalibration(&hfc.compass_cal);
+    if (hfc.comp_calibrate == COMP_CALIBRATE_DONE) {
+        CompassCalDone();
     }
 
+}
+
+void CompassCalDone(void)
+{
+    for (int i=0; i<3; i++) {
+        hfc.compass_cal.comp_ofs[i] = (hfc.compass_cal.compassMin[i]+hfc.compass_cal.compassMax[i]+1)/2;
+
+        //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
+        hfc.compass_cal.comp_gains[i] = 537.37f/((hfc.compass_cal.compassMax[i]-hfc.compass_cal.compassMin[i])/2.0f);
+    }
+
+    hfc.compass_cal.valid = 1;
+    hfc.compass_cal.version = COMPASS_CAL_VERSION;
+
+    int size = telem.CalibrateCompassDone();
+    telem.AddMessage((unsigned char*)&hfc.telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
+
+    // TODO::SP: Error handling...?
+    SaveCompassCalibration(&hfc.compass_cal);
 }
 
 void do_control()
@@ -4243,6 +4248,11 @@ void do_control()
         hfc.power.dT = 0;
         canbus_livelink_avail = 0;
         power_update_avail = 0;
+    }
+
+    if (hfc.debug_flags[0] == 1) {
+        serial.printf("New playlist command rxed, items[%d]\r\n", hfc.debug_flags[1]);
+        hfc.debug_flags[0] = 0;
     }
 
     hfc.gps_new_data = false;

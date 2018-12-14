@@ -13,6 +13,7 @@ extern void ResetIterms(void);
 extern void GenerateSpeed2AngleLUT(void);
 extern void AltitudeUpdate(float alt_rate, float dT);
 extern void HeadingUpdate(float heading_rate, float dT);
+extern void CompassCalDone(void);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -305,6 +306,7 @@ void TelemSerial::AddInputByte(char ch)
     {
         if (hfc->playlist_status==PLAYLIST_STOPPED)
         {
+            hfc->debug_flags[0] = 1;
             T_Telem_Playlist6 *msg = (T_Telem_Playlist6*)telem_recv_buffer;
             int i;
                         
@@ -330,7 +332,8 @@ void TelemSerial::AddInputByte(char ch)
             hfc->tcpip_org_len  = hdr->len;
             hfc->tcpip_user1    = hfc->playlist_items;
             hfc->tcpip_user2    = PLAYLIST_SIZE;
-//            debug_print("new playlist item\r\n");
+            hfc->debug_flags[1] = hfc->playlist_items;
+            //debug_print("new playlist item\r\n");
         }
         telem_good_messages++;
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
@@ -1797,25 +1800,40 @@ void TelemSerial::ProcessCommands(void)
         else
         if (sub_cmd == CALIBRATE_COMPASS)
         {
-            int i = 0;
-
-            hfc->display_mode = DISPLAY_COMPASS;
-
-            hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
-            hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
-
-            for(i = 0; i < PITCH_COMP_LIMIT; i++)
-            {
-                hfc->comp_pitch_flags[i] = 0;
+            if (hfc->comp_calibrate == COMP_CALIBRATING) {
+                hfc->comp_calibrate = COMP_CALIBRATE_DONE;
+                CompassCalDone();
             }
+            else {
 
-            for(i = 0; i < ROLL_COMP_LIMIT; i++)
-            {
-                hfc->comp_roll_flags[i] = 0;
+                int i = 0;
+
+                hfc->display_mode = DISPLAY_COMPASS;
+
+                hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
+                hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
+
+                for(i = 0; i < PITCH_COMP_LIMIT; i++)
+                {
+                    hfc->comp_pitch_flags[i] = 0;
+                }
+
+                for(i = 0; i < ROLL_COMP_LIMIT; i++)
+                {
+                    hfc->comp_roll_flags[i] = 0;
+                }
+
+                if (hfc->comp_calibrate == COMP_CALIBRATING) {
+                    hfc->comp_calibrate = COMP_CALIBRATE_DONE;
+                    CompassCalDone();
+                }
+                else {
+                    hfc->comp_calibrate = COMP_CALIBRATING;
+                }
+
+                hfc->comp_calibrate = COMP_CALIBRATING;
+                //debug_print("Starting Compass Calibration\r\n");
             }
-
-            hfc->comp_calibrate = COMP_CALIBRATING;
-            //debug_print("Starting Compass Calibration\r\n");
         }
     }
     else
