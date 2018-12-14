@@ -1152,7 +1152,7 @@ typedef struct
     /* list of emergency landing sites */
     T_LandingSite	landing_sites[LANDING_SITES];
 
-    /* extra 6000 bytes work, 12000 does not */
+    int debug_flags[10]; // Temp debug flags to be used however
 } FlightControlData;
 
 
