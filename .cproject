@@ -6,7 +6,7 @@
 				<macros>
 					<stringMacro name="majorver" type="VALUE_TEXT" value="1"/>
 					<stringMacro name="minorver" type="VALUE_TEXT" value="1"/>
-					<stringMacro name="buildtype" type="VALUE_TEXT" value="E"/>
+					<stringMacro name="buildtype" type="VALUE_TEXT" value="F"/>
 					<stringMacro name="buildver" type="VALUE_TEXT" value="8"/>
 				</macros>
 				<externalSettings/>
@@ -330,7 +330,7 @@
 				<macros>
 					<stringMacro name="majorver" type="VALUE_TEXT" value="1"/>
 					<stringMacro name="minorver" type="VALUE_TEXT" value="1"/>
-					<stringMacro name="buildtype" type="VALUE_TEXT" value="E"/>
+					<stringMacro name="buildtype" type="VALUE_TEXT" value="F"/>
 					<stringMacro name="buildver" type="VALUE_TEXT" value="8"/>
 				</macros>
 				<externalSettings/>
