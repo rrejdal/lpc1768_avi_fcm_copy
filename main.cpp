@@ -4250,10 +4250,12 @@ void do_control()
         power_update_avail = 0;
     }
 
+#if 0
     if (hfc.debug_flags[0] == 1) {
         serial.printf("New playlist command rxed, items[%d]\r\n", hfc.debug_flags[1]);
         hfc.debug_flags[0] = 0;
     }
+#endif
 
     hfc.gps_new_data = false;
     hfc.print_counter++;
