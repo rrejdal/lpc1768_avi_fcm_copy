@@ -461,7 +461,8 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accFilt[i]);
 //    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accGroundENUhp[i]);
     for (i=0; i<3; i++) msg->compass[i]  = Float32toFloat16(compass.dataXYZcalib[i]);
-    msg->compass_heading = Float32toFloat16(hfc->compass_heading);
+//    msg->compass_heading = Float32toFloat16(hfc->compass_heading);
+    msg->compass_heading = Float32toFloat16(hfc->heading);
     for (i=0; i<3; i++) msg->orient[i]   = Float32toFloat16(hfc->IMUorient[i]*R2D);
     msg->speedGroundENU[0] = Float32toFloat16(hfc->IMUspeedGroundENU[0]);
     msg->speedGroundENU[1] = Float32toFloat16(hfc->IMUspeedGroundENU[1]);

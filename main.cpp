@@ -3956,7 +3956,18 @@ void do_control()
         /* orient is in rad, gyro in deg */
         hfc.gyroOfs[PITCH] = -PID(&hfc.pid_IMU[PITCH], hfc.SmoothAcc[PITCH]*R2D-hfc.bankPitch,hfc.IMUorient[PITCH]*R2D, dT);
         hfc.gyroOfs[ROLL]  = -PID(&hfc.pid_IMU[ROLL],  hfc.SmoothAcc[ROLL]*R2D+hfc.bankRoll,  hfc.IMUorient[ROLL]*R2D,  dT);
-        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.compass_heading_lp,                hfc.IMUorient[YAW]*R2D,   dT);
+
+        // As ground speed increases, trust the gps heading more
+        if( hfc.gps_speed >= pConfig->gps_speed_heading_threshold ) {
+            float gps_weight = pConfig->gps_speed_heading_weight*hfc.gps_speed;
+            ClipMinMax(gps_weight, 0, 1);
+            hfc.heading = (1-gps_weight)*hfc.compass_heading_lp + gps_weight*hfc.gps_heading;
+        }
+        else {
+            hfc.heading = hfc.compass_heading_lp;
+        }
+
+        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.heading,                hfc.IMUorient[YAW]*R2D,   dT);
         /*
         if (!(hfc.print_counter & 0x3ff)) {
             debug_print("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
