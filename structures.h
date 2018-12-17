@@ -847,7 +847,8 @@ typedef struct ConfigurationData {
     int disable_pre_flight;
 
     float gps_speed_heading_threshold;
-    float gps_speed_heading_weight;
+    float heading_offset_threshold;
+    float heading_offset;
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
@@ -1041,6 +1042,7 @@ typedef struct
     float distance2WP_min;              // minimum distance so far to the next waypoint
 
     float heading;
+    float heading_offset;
 
     float compass_heading;              // heading based on compass in deg CW starting from north
     float compass_heading_lp;           // 1s low-passed version

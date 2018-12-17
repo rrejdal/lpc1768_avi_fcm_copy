@@ -8,7 +8,7 @@
 #include "IMU.h"
 #include "defines.h"
 
-extern int SavePIDUpdates(FlightControlData *fcm_data);
+extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern void ResetIterms(void);
 extern void GenerateSpeed2AngleLUT(void);
 extern void AltitudeUpdate(float alt_rate, float dT);
@@ -1662,9 +1662,7 @@ void TelemSerial::Disarm(void)
 	//xbus.InitXbusValues();
 
 	// TODO::SP: Error handling on Flash write error??
-	if (hfc->pid_params_changed) {
-		SavePIDUpdates(hfc);
-	}
+    UpdateFlashConfig(hfc);
 }
 
 void TelemSerial::PlaylistSaveState(void)

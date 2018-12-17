@@ -53,7 +53,7 @@ void HeadingUpdate(float heading_rate, float dT);
 extern int LoadConfiguration(const ConfigData **pConfig);
 extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 extern int SaveNewConfig(void);
-extern int SavePIDUpdates(FlightControlData *fcm_data);
+extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
 void CompassCalDone(void);
@@ -2015,9 +2015,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->touchdown_time = hfc->time_ms;
 
                 // TODO::SP: Error Handling on Flash write error??
-                if (hfc->pid_params_changed) {
-                	SavePIDUpdates(hfc);
-                }
+                UpdateFlashConfig(hfc);
             }
         }
         else
@@ -3911,6 +3909,16 @@ void do_control()
         }
     }
 
+    // As ground speed increases, trust the gps heading more
+    if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
+         && (ABS(hfc.speedHeliRFU[0]) <= 2)
+         && (ABS(hfc.gps_heading - hfc.compass_heading_lp) >= pConfig->heading_offset_threshold)  ) {
+        hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
+    }
+
+    hfc.heading = hfc.compass_heading_lp + hfc.heading_offset;
+
+
     if (pConfig->baro_enable == 1) {
     	hfc.baro_dT += dT;
     	baro_altitude_raw_prev = hfc.baro_altitude_raw_lp;
@@ -3961,17 +3969,6 @@ void do_control()
         /* orient is in rad, gyro in deg */
         hfc.gyroOfs[PITCH] = -PID(&hfc.pid_IMU[PITCH], hfc.SmoothAcc[PITCH]*R2D-hfc.bankPitch,hfc.IMUorient[PITCH]*R2D, dT);
         hfc.gyroOfs[ROLL]  = -PID(&hfc.pid_IMU[ROLL],  hfc.SmoothAcc[ROLL]*R2D+hfc.bankRoll,  hfc.IMUorient[ROLL]*R2D,  dT);
-
-        // As ground speed increases, trust the gps heading more
-        if( hfc.gps_speed >= pConfig->gps_speed_heading_threshold ) {
-            float gps_weight = pConfig->gps_speed_heading_weight*hfc.gps_speed;
-            ClipMinMax(gps_weight, 0, 1);
-            hfc.heading = (1-gps_weight)*hfc.compass_heading_lp + gps_weight*hfc.gps_heading;
-        }
-        else {
-            hfc.heading = hfc.compass_heading_lp;
-        }
-
         hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.heading,                hfc.IMUorient[YAW]*R2D,   dT);
         /*
         if (!(hfc.print_counter & 0x3ff)) {
@@ -5090,6 +5087,8 @@ void InitializeRuntimeData(void)
     }
 
     hfc.box_dropper_ = 0;
+
+    hfc.heading_offset = pConfig->heading_offset;
 }
 
 /**

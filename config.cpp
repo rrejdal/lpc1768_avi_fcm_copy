@@ -30,7 +30,7 @@
 int LoadConfiguration(const ConfigData **pConfig);
 int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 int SaveNewConfig(void);
-int SavePIDUpdates(FlightControlData *fcm_data);
+int UpdateFlashConfig(FlightControlData *fcm_data);
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
 // Config Info
@@ -181,7 +181,7 @@ static void UpdatePIDconfig(ConfigData *pConfigData, FlightControlData *fcm_data
   * @param  *fcm_data: pointer to runtime flight data
   * @retval -1 on error, 0 on success
   */
-int SavePIDUpdates(FlightControlData *fcm_data)
+int UpdateFlashConfig(FlightControlData *fcm_data)
 {
     // Re-Write config with PID update values from Telemetry.
     ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
@@ -203,8 +203,16 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // copy config data from Flash to RAM
     memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
 
+    if (   (!fcm_data->pid_params_changed)
+        && (pConfigData->heading_offset == fcm_data->heading_offset) ) {
+        return 0;
+    }
+
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
+
+    // Overwrite heading offset value
+    pConfigData->heading_offset = fcm_data->heading_offset;
 
     // Recalculate checksum on file
     unsigned char *pData = (unsigned char *)pConfigData;
