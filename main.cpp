@@ -3913,7 +3913,7 @@ void do_control()
 
     // As ground speed increases, trust the gps heading more
     if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
-         && (ABS(hfc.speedHeliRFU[0]) <= 2)
+         && (ABS(hfc.ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold)
          && (ABS(hfc.gps_heading - hfc.compass_heading_lp) >= pConfig->heading_offset_threshold)  ) {
         hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
     }
