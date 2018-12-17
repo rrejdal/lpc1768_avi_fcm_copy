@@ -3415,6 +3415,8 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
         hfc.power.Vaux   = Vbec;
         hfc.power.Vaux   = ClipMinMax(hfc.power.Vaux, 0, hfc.power.Vaux);
 
+        hfc.esc_temp    = esc_temp;
+
         if (!pConfig->rpm_sensor) {
             hfc.RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
         }
