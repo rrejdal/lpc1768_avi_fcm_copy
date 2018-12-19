@@ -2082,14 +2082,15 @@ void TelemSerial::ResetIMU(bool print)
                                                     pConfig->fcm_orient, pConfig->comp_declination_offset,
                                                     hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
     hfc->compass_heading_lp = hfc->compass_heading;
-    hfc->IMUorient[YAW] = hfc->compass_heading_lp*D2R;
+    hfc->heading = hfc->compass_heading_lp + hfc->heading_offset;
+    hfc->IMUorient[YAW] = hfc->heading*D2R;
     IMU_PRY2Q(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL], hfc->IMUorient[YAW]);
 
     for (i=0; i<3; i++) hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
     for (i=0; i<3; i++) hfc->gyro_lp_disp[i] = 0;
     PID_SetForEnable(&hfc->pid_IMU[0], hfc->SmoothAcc[PITCH]*R2D, hfc->IMUorient[PITCH]*R2D, -hfc->gyroOfs[0]);
     PID_SetForEnable(&hfc->pid_IMU[1], hfc->SmoothAcc[ROLL]*R2D,  hfc->IMUorient[ROLL]*R2D,  -hfc->gyroOfs[1]);
-    PID_SetForEnable(&hfc->pid_IMU[2], hfc->compass_heading,      hfc->IMUorient[YAW]*R2D,   -hfc->gyroOfs[2]);
+    PID_SetForEnable(&hfc->pid_IMU[2], hfc->heading,      hfc->IMUorient[YAW]*R2D,   -hfc->gyroOfs[2]);
 
     /*mmri: just took out the carriage return so that gyrotemp
      * compensation output data is more easily read in .csv file*/

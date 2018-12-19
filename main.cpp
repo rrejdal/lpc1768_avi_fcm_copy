@@ -3926,8 +3926,9 @@ void do_control()
 
     // As ground speed increases, trust the gps heading more
     if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
-         && (ABS(hfc.speedHeliRFU[0]) <= 2)
-         && (ABS(hfc.gps_heading - hfc.compass_heading_lp) >= pConfig->heading_offset_threshold)  ) {
+         && (gps.gps_data_.PDOP*0.01f < 2.00f )
+         && (ABS(hfc.ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold)
+         && (ABS(hfc.gps_heading - hfc.heading) >= pConfig->heading_offset_threshold)  ) {
         hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
     }
 
@@ -4529,6 +4530,15 @@ static void ProcessUserCmnds(char c)
                 usb_print("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
             }
             can_power_coeff = 0;
+        }
+        else if (strcmp(request, "compass") == 0) {
+            usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
+            usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[0],hfc.compass_cal.compassMin[0],
+                                                                     hfc.compass_cal.comp_gains[0],hfc.compass_cal.comp_ofs[0]);
+            usb_print("Y    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[1],hfc.compass_cal.compassMin[1],
+                                                                     hfc.compass_cal.comp_gains[1],hfc.compass_cal.comp_ofs[1]);
+            usb_print("Z    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[2],hfc.compass_cal.compassMin[2],
+                                                                     hfc.compass_cal.comp_gains[2],hfc.compass_cal.comp_ofs[2]);
         }
     }
     else if (c == 'M') {

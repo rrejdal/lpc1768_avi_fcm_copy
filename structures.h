@@ -848,6 +848,7 @@ typedef struct ConfigurationData {
 
     float gps_speed_heading_threshold;
     float heading_offset_threshold;
+    float yaw_heading_threshold;
     float heading_offset;
 
 //} __attribute__((packed)) ConfigData;
