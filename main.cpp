@@ -3124,10 +3124,8 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    // TODO::SP: This needs to be tested and made a configurable value
-    /* when current is below 20A (0.2A normally), battery is considered unloaded */
-    //if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
-    if (I < (0.02f * hfc.rw_cfg.battery_capacity)) {
+    /* when current is below 0.2C, battery is considered unloaded */
+    if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
