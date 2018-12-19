@@ -870,6 +870,17 @@ float LP_Wrap180(float new_value, float prev_value, float n_avgs)
 }
 
 
+void wrap180(float* value)
+{
+    if (*value < -180 ) {
+        *value += 360;
+    }
+    else
+    if (*value > 180 ) {
+        *value -= 360;
+    }
+    return;
+}
 
 /* rotates vector [x:y] into [x1:y1] by angle a in rads, positive is counter-clockwise */
 void Rotate(float x, float y, float a, float *x1, float *y1)

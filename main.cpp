@@ -3927,12 +3927,20 @@ void do_control()
     // As ground speed increases, trust the gps heading more
     if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
          && (gps.gps_data_.PDOP*0.01f < 2.00f )
-         && (ABS(hfc.ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold)
-         && (ABS(hfc.gps_heading - hfc.heading) >= pConfig->heading_offset_threshold)  ) {
-        hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
+         && (hfc.full_auto || (hfc.control_mode[PITCH] >= CTRL_MODE_SPEED) )
+         && (ABS(hfc.ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold) ) {
+
+        float current_offset = hfc.gps_heading - hfc.heading;
+        wrap180(&current_offset);
+
+        if ( ABS(current_offset) >= pConfig->heading_offset_threshold)   {
+            hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
+            wrap180(&hfc.heading_offset);
+        }
     }
 
     hfc.heading = hfc.compass_heading_lp + hfc.heading_offset;
+    wrap180(&hfc.heading);
 
 
     if (pConfig->baro_enable == 1) {
@@ -5143,7 +5151,7 @@ void InitializeRuntimeData(void)
 
     hfc.box_dropper_ = 0;
 
-    hfc.heading_offset = pConfig->heading_offset;
+    hfc.heading_offset = 0; //pConfig->heading_offset;
 }
 
 /**
