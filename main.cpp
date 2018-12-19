@@ -56,6 +56,9 @@ extern int SaveNewConfig(void);
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
+extern int EraseFlash(void);
+extern int SetJtag(int state);
+
 void CompassCalDone(void);
 
 //USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
@@ -2189,7 +2192,12 @@ static void ServoUpdateRAW(float dT)
         if (pConfig->power_node) {
             WriteToPowerNodeServos();
         }
-        else if (pConfig->fcm_servo) {
+
+        if (pConfig->can_servo) {
+            WriteToServoNodeServos(pConfig->num_servo_nodes);
+        }
+
+        if (pConfig->fcm_servo) {
             WriteToFcmServos();
         }
     }
@@ -2964,7 +2972,12 @@ static void ServoUpdate(float dT)
         if (pConfig->power_node) {
             WriteToPowerNodeServos();
         }
-        else {
+
+        if (pConfig->can_servo) {
+            WriteToServoNodeServos(pConfig->num_servo_nodes);
+        }
+
+        if (pConfig->fcm_servo) {
             WriteToFcmServos();
         }
     }
@@ -4550,6 +4563,36 @@ static void ProcessUserCmnds(char c)
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
     }
+    else if (c == 'D') {
+        serial.scanf("%19s", request);
+        if (strcmp(request, "unlock") == 0) {
+            if (SetJtag(0) == 0) {
+                usb_print("ACK");
+            }
+            else {
+                usb_print("NACK");
+            }
+        }
+        else if (strcmp(request, "lock") == 0) {
+            if (SetJtag(1) == 0) {
+                usb_print("ACK");
+            }
+            else {
+                usb_print("NACK");
+            }
+        }
+        else if (strcmp(request, "eraseall") == 0) {
+            if (EraseFlash() == 0) {
+                usb_print("ACK");
+            }
+            else {
+                usb_print("NACK");
+            }
+        }
+        else {
+            usb_print("INVALID");
+        }
+    }
 }
 
 void ProcessButtonSelection()
@@ -5141,6 +5184,7 @@ static int InitCanbusNodes(void)
     return canbus_status;
 }
 
+extern unsigned long CRP_Key;
 /**
   * @brief  main.
   * @retval none

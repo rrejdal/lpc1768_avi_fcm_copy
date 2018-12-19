@@ -32,6 +32,9 @@ int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 int SaveNewConfig(void);
 int UpdateFlashConfig(FlightControlData *fcm_data);
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+int EraseFlash(void);
+int SetJtag(int state);
+
 
 // Config Info
 #define FLASH_CONFIG_ADDR       FLASH_SECTOR_29
@@ -331,6 +334,73 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
     }
 
     if (iap.write((char *)pCalData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    __enable_irq();
+
+    return 0;
+}
+
+int EraseFlash(void)
+{
+    __disable_irq();
+
+    // Erase...
+    if (iap.prepare(0, (29)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.erase(0, (29)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    __enable_irq();
+
+    return 0;
+}
+
+
+#define CRP_1       0x12345678
+#define CRP_2       0x87654321
+#define CRP_3       0x43218765
+#define CRP_TEST    0xA5A5A5A5
+#define CRP_OFFSET  0x000002FC
+
+int SetJtag(int state)
+{
+    // Copy sector 0 to RAM, update 0x2FC with Flag
+    // Erase Sector 0 and then re-write it
+    // sector 0 is only 4kB in size, we will make use of the reserved config RAM area
+    // Grab pointer to reserved RAM space (setup from Linker)
+    // This should contain new configuration data.
+    uint32_t *pRamScratch = (uint32_t *)&ram_config;
+    if (pRamScratch == NULL) {
+        return -1;
+    }
+
+    memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
+
+    // TODO::SP - check value of state and write appropriate value
+    *(pRamScratch + CRP_OFFSET) = (uint32_t)CRP_TEST;
+
+    __disable_irq();
+
+    // Erase existing file
+    if (iap.prepare(0, 0) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.erase(0, 0) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    // Write new file
+    if (iap.prepare(0, 0) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.write((char *)pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15) != CMD_SUCCESS) {
         return -1;
     }
 
