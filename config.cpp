@@ -364,8 +364,9 @@ int EraseFlash(void)
 #define CRP_1       0x12345678
 #define CRP_2       0x87654321
 #define CRP_3       0x43218765
-#define CRP_TEST    0xA5A5A5A5
+#define CRP_UNLOCK  0xFFFFFFFF
 #define CRP_OFFSET  0x000002FC
+#define LOCK_JTAG   1
 
 int SetJtag(int state)
 {
@@ -382,7 +383,15 @@ int SetJtag(int state)
     memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
 
     // TODO::SP - check value of state and write appropriate value
-    *(pRamScratch + CRP_OFFSET) = (uint32_t)CRP_TEST;
+    uint32_t *tmp = pRamScratch;
+    tmp += (CRP_OFFSET/4);
+
+    if (state == LOCK_JTAG) {
+        *tmp = (uint32_t)CRP_2;
+    }
+    else {
+        *tmp = (uint32_t)CRP_UNLOCK;
+    }
 
     __disable_irq();
 

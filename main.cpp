@@ -4584,7 +4584,7 @@ static void ProcessUserCmnds(char c)
     else if (c == 'D') {
         serial.scanf("%19s", request);
         if (strcmp(request, "unlock") == 0) {
-            if (SetJtag(0) == 0) {
+            if (SetJtag(UNLOCK_JTAG) == 0) {
                 usb_print("ACK");
             }
             else {
@@ -4592,7 +4592,7 @@ static void ProcessUserCmnds(char c)
             }
         }
         else if (strcmp(request, "lock") == 0) {
-            if (SetJtag(1) == 0) {
+            if (SetJtag(LOCK_JTAG) == 0) {
                 usb_print("ACK");
             }
             else {
@@ -5202,7 +5202,6 @@ static int InitCanbusNodes(void)
     return canbus_status;
 }
 
-extern unsigned long CRP_Key;
 /**
   * @brief  main.
   * @retval none
