@@ -1,12 +1,13 @@
 #include <stddef.h>
 #include <stdio.h>
-#include "telemetry.h"
 #include "utils.h"
 #include "mymath.h"
 #include "HMC5883L.h"
 #include "pGPS.h"
 #include "IMU.h"
 #include "defines.h"
+#include "afsi.h"
+#include "telemetry.h"
 
 extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern void ResetIterms(void);
@@ -18,13 +19,18 @@ extern HMC5883L compass;
 extern GPS gps;
 extern XBus xbus;
 
-TelemSerial::TelemSerial(RawSerial *m_serial)
+
+#include "NOKIA_5110.h"
+#include "hardware.h"
+extern NokiaLcd myLcd;
+
+AFSI_Serial::AFSI_Serial(RawSerial *m_serial)
 {
     curr_msg.msg = NULL;
     curr_msg.size = 0;
     messages      = 0;
     serial = m_serial;
-    
+
     telem_good_messages       = 0;
     telem_crc_errors          = 0;
     telem_start_code_searches = 0;
@@ -32,19 +38,19 @@ TelemSerial::TelemSerial(RawSerial *m_serial)
 
 }
 
-void TelemSerial::ProcessInputBytes(RawSerial &telemetry)
+void AFSI_Serial::ProcessInputBytes(RawSerial &telemetry)
 {
     while (telemetry.readable()) {
         AddInputByte(telemetry.getc());
     }
 }
 
-bool TelemSerial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority)
+bool AFSI_Serial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority)
 {
     if (messages >= MAX_TELEM_MESSAGES) {
         return false;
     }
-        
+
     Q[messages].msg  = m_msg;
     Q[messages].size = m_size;
     Q[messages].msg_type = m_msg_type;
@@ -54,13 +60,13 @@ bool TelemSerial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_m
     return true;
 }
 
-void TelemSerial::Update()
+void AFSI_Serial::Update()
 {
     while(1) {
         unsigned int i;
         int index = 0;
         int priority;
-        
+
         /* if current message is in progress, keep sending it till serial buffer is full */
         while (curr_msg.size) {
             if (!serial->writeable()) {
@@ -69,12 +75,12 @@ void TelemSerial::Update()
             serial->putc(*curr_msg.msg++);
             curr_msg.size--;
         }
-        
+
         /* if no more messages, exit */
         if (!messages) {
             return;
         }
-            
+
         /* find the first highest priority message and move it to the current message to go out */
         priority = -1;
         for (i=0; i<messages; i++) {
@@ -93,7 +99,7 @@ void TelemSerial::Update()
     }
 }
 
-bool TelemSerial::IsEmpty()
+bool AFSI_Serial::IsEmpty()
 {
     if (!curr_msg.size && !messages) {
         return true;
@@ -103,7 +109,7 @@ bool TelemSerial::IsEmpty()
     }
 }
 
-bool TelemSerial::IsTypeInQ(unsigned char type)
+bool AFSI_Serial::IsTypeInQ(unsigned char type)
 {
     int i;
 
@@ -120,7 +126,7 @@ bool TelemSerial::IsTypeInQ(unsigned char type)
     return false;
 }
 
-unsigned int TelemSerial::CalcCRC32(byte *data, unsigned int len)
+unsigned int AFSI_Serial::CalcCRC32(byte *data, unsigned int len)
 {
   unsigned int i;
   unsigned int result = 0xffffffff;
@@ -132,7 +138,7 @@ unsigned int TelemSerial::CalcCRC32(byte *data, unsigned int len)
   return result;
 }
 
-unsigned int TelemSerial::RemoveBytes(unsigned char *b, int remove, int size)
+unsigned int AFSI_Serial::RemoveBytes(unsigned char *b, int remove, int size)
 {
     int j;
 
@@ -145,12 +151,12 @@ unsigned int TelemSerial::RemoveBytes(unsigned char *b, int remove, int size)
     return size;
 }
 
-void TelemSerial::AddInputByte(char ch)
+void AFSI_Serial::AddInputByte(char ch)
 {
-    T_TelemUpHdr *hdr;
+    bool foundSC_AFSI = false;
 
 //  debug_print("Telem c=%d\r\n", ch);
-    
+
     /* if full, just clear it */
     if (telem_recv_bytes >= TELEM_BUFFER_SIZE) {
         telem_recv_bytes = 0;
@@ -158,34 +164,38 @@ void TelemSerial::AddInputByte(char ch)
 
     /* add input byte into the recv buffer and increment telem_recv_bytes*/
     telem_recv_buffer[telem_recv_bytes++] = ch;
-    
+
     /* if first byte is not the start code find it, by discarding all data in front of it */
-    if (telem_recv_buffer[0]!=0x47)
+    if (telem_recv_buffer[0]!= AFSI_SNC_CH_1)
     {
         unsigned int i;
-        bool foundSC = false;
+
         for (i=0; i<telem_recv_bytes; i++)
         {
-            if (telem_recv_buffer[i]==0x47)
+            if (telem_recv_buffer[i]==AFSI_SNC_CH_1)
             {
-                telem_recv_bytes = RemoveBytes(telem_recv_buffer, i, telem_recv_bytes);
-                foundSC = true;
+                telem_recv_bytes = RemoveBytes(telem_recv_buffer,i,telem_recv_bytes);
+                foundSC_AFSI = true;
                 break;
             }
         }
         telem_start_code_searches++;
-        if (!foundSC)
+        if (!foundSC_AFSI)
         {
             telem_recv_bytes = 0;
             return;
         }
+    }
+    else if (telem_recv_buffer[0] == AFSI_SNC_CH_1)
+    {
+        foundSC_AFSI = true;
     }
 
     if (!telem_recv_bytes)
         return;
 
     /* still did not find it, this case should never happen */
-    if (telem_recv_buffer[0]!=0x47)
+    if (telem_recv_buffer[0] != AFSI_SNC_CH_1)
     {
 //        debug_print("NSC: %2d ", telem_recv_bytes);
 //        for (i=0; i<8; i++) printf("%02x ", telem_recv_buffer[i]);
@@ -194,76 +204,150 @@ void TelemSerial::AddInputByte(char ch)
         return;
     }
 
-    if (telem_recv_bytes<4)
-        return;
-    
-    hdr = (T_TelemUpHdr*)telem_recv_buffer;
-
-    /* check CRC of the header */
+    //Check if enough bytes for header
+    if (telem_recv_bytes < 6)
     {
-        byte hdr1[4];
-        byte crc8;
+        return;
+    }
 
-        hdr1[0] = telem_recv_buffer[0];
-        hdr1[1] = telem_recv_buffer[1];
-        hdr1[2] = 0x39;
-        hdr1[3] = telem_recv_buffer[3];
-        crc8 = CalcCRC8(hdr1, 4);
-        if (crc8!=hdr->crc8)
+    //Populate header
+    hdr_afsi->sync1 = telem_recv_buffer[0];
+    hdr_afsi->sync2 = telem_recv_buffer[1];
+    hdr_afsi->msg_class = telem_recv_buffer[2];
+    hdr_afsi->id = telem_recv_buffer[3];
+    hdr_afsi->len = (telem_recv_buffer[4]<<8) + telem_recv_buffer[5];
+
+    //Check if enough bytes for rest of message
+    //+2 at the end added for CRC
+    if (telem_recv_bytes < 6+msg_afsi->hdr->len+2)
+    {
+        return;
+    }
+
+    //Populate rest of the message
+    for (int i = 0; i<msg_afsi->hdr->len; i++)
+    {
+        msg_afsi->payload[i] = telem_recv_buffer[i+6];
+    }
+    msg_afsi->crc[0] = telem_recv_buffer[6+msg_afsi->hdr->len];
+    msg_afsi->crc[1] = telem_recv_buffer[6+msg_afsi->hdr->len+1];
+
+    //Check CRC
+    int c1 = 0;
+    int c2 = 0;
+    for (int i=0; i<msg_afsi->hdr->len; i++)
+    {
+        c1 += msg_afsi->payload[i];
+        c2 += c1;
+    }
+    //CRC check failed
+    if (c1 != msg_afsi->crc[0] || c2 != msg_afsi->crc[1])
+    {
+        telem_recv_buffer[0] = 0;
+        telem_crc_errors++;
+        return;
+    }
+
+    ///////////////////////Population of normal hdr/////////////////////////
+    //Message type
+    if (msg_afsi->hdr->id == AFSI_CMD_ID_ARM ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_DISARM ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_TAKEOFF ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_HOME ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_LAND ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_HOLD)
+    {
+        msg_cmd->command = TELEM_CMD_NONE;
+        msg_cmd->sub_cmd = TELEM_CMD_NONE;
+        hdr->type = TELEMETRY_COMMANDS5;
+        hdr->len = msg_afsi->hdr->len;
+        switch (msg_afsi->hdr->id){
+            case AFSI_CMD_ID_ARM:
+                msg_cmd ->command = TELEM_CMD_ARMING;
+                msg_cmd->sub_cmd = CMD_ARM;
+                break;
+            case AFSI_CMD_ID_DISARM:
+                msg_cmd->command = TELEM_CMD_ARMING;
+                break;
+            case AFSI_CMD_ID_TAKEOFF:
+                msg_cmd->command = TELEM_CMD_TAKEOFF;
+                msg_cmd->sub_cmd = TAKEOFF_ARM;
+                break;
+            case  AFSI_CMD_ID_LAND:
+                msg_cmd->command = TELEM_CMD_LAND;
+                msg_cmd->sub_cmd = LANDING_CURRENT;
+                break;
+            case AFSI_CMD_ID_HOME:
+                msg_cmd->command = TELEM_CMD_GOTO_HOME;
+                break;
+            case AFSI_CMD_ID_HOLD:
+                msg_cmd->command = TELEM_CMD_POS_HOLD;
+                break;
+            default:
+                msg_cmd->command = TELEM_CMD_NONE;
+        }
+        //Transfer data
+        for (int i = 0; i<msg_afsi->hdr->len; i++)
         {
-            telem_recv_buffer[0] = 0;
-//            debug_print("Wrong hdr CRC\r\n");
-            return;
+            msg_cmd->data[i] = msg_afsi->payload[i];
+        }
 
+    }
+    else if (msg_afsi->hdr->id == AFSI_CMD_ID_FWD_SPEED ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_AFT_SPEED ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_RIGHT_SPEED ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_LEFT_SPEED ||
+        msg_afsi->hdr->id == AFSI_CMD_ID_SET_ALT)
+    {
+        hdr->type = TELEMETRY_PARAMETERS4;
+        hfc->joystick_new_values = true;
+
+        switch (msg_afsi->hdr->id)
+        {
+            case AFSI_CMD_ID_SET_ALT:
+                msg_par->data[0].param = TELEM_PARAM_WAYPOINT;
+                msg_par->data[0].sub_param = TELEM_PARAM_WP_ALTITUDE;
+                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
+                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
+                break;
+            case AFSI_CMD_ID_FWD_SPEED:
+                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
+                msg_par->data[0].sub_param = TELEM_PARAM_JOY_PITCH;
+                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
+                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
+                break;
+            case AFSI_CMD_ID_AFT_SPEED:
+                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
+                msg_par->data[0].sub_param = TELEM_PARAM_JOY_PITCH;
+                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
+                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
+                break;
+            case AFSI_CMD_ID_LEFT_SPEED:
+                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
+                msg_par->data[0].sub_param = TELEM_PARAM_JOY_ROLL;
+                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
+                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
+                break;
+            case AFSI_CMD_ID_RIGHT_SPEED:
+                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
+                msg_par->data[0].sub_param = TELEM_PARAM_JOY_ROLL;
+                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
+                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
+                break;
         }
     }
-    if (hdr->type>=TELEMETRY_LAST_MSG_TYPE)
-    {
-        telem_recv_buffer[0] = 0;
-//            debug_print("Wrong msg type %d\r\n", hdr->type);
-        return;
-    }
-    if (hdr->type==TELEMETRY_COMMANDS5 && hdr->len>18)
-    {
-        telem_recv_buffer[0] = 0;
-//            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
-        return;
-    }
-    if (hdr->type==TELEMETRY_PROFILE_CMD && hdr->len>(sizeof(T_Telem_Profile8)-8-1))
-    {
-        telem_recv_buffer[0] = 0;
-//            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
-        return;
-    }
 
-    /*do we have enough bytes for the header */
-    if (telem_recv_bytes<8)
-        return;
 
-    /* do we have enough bytes for the message */
-    if (telem_recv_bytes < (unsigned int)(hdr->len+8+1))
-        return;
-
-    /* check crc */
-    {
-        unsigned int crc_org = hdr->crc;
-        unsigned int crc_calc;
-        hdr->crc = 0x12345678;
-        crc_calc = CalcCRC32(telem_recv_buffer, hdr->len+8+1);
-        if (crc_org != crc_calc)
-        {
-            /* error - wipe out the start code so the search can be restarted for a new message */
-            telem_recv_buffer[0] = 0;
-            telem_crc_errors++;
-            return;
-        }
-    }
 
 //    debug_print("Telem Msg type=%d\r\n", hdr->type);
-    
+
     if (hdr->type==TELEMETRY_PARAMETERS4)
     {
         T_Telem_Params4 *msg = (T_Telem_Params4*)telem_recv_buffer;
+        if (foundSC_AFSI)
+        {
+            return;
+        }
 
         if (ProcessParameters(msg))
         {
@@ -282,10 +366,13 @@ void TelemSerial::AddInputByte(char ch)
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
         return;
     }
-    else if (hdr->type==TELEMETRY_COMMANDS5) {
-
+    else if (hdr->type==TELEMETRY_COMMANDS5)
+    {
         T_Telem_Commands5 *msg = (T_Telem_Commands5*)telem_recv_buffer;
-
+        if (foundSC_AFSI)
+        {
+            msg = msg_cmd;
+        }
         if (CopyCommand(msg)) {
             telem_good_messages++;
             /* this might be produced before the previous one was transmitted !!!!!!! */
@@ -307,18 +394,19 @@ void TelemSerial::AddInputByte(char ch)
         {
             T_Telem_Playlist6 *msg = (T_Telem_Playlist6*)telem_recv_buffer;
             int i;
-                        
+
             if (msg->page==0)
             {
                 hfc->playlist_items = 0;
                 hfc->playlist_position = 0;
             }
-            
+
             if (hfc->playlist_items != 21*msg->page)
             {
 //                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
                 hfc->playlist_items = 21*msg->page;
             }
+
             if ((hfc->playlist_items+msg->lines) <= PLAYLIST_SIZE)
             {
                 for (i=0; i<msg->lines; i++)
@@ -341,13 +429,13 @@ void TelemSerial::AddInputByte(char ch)
     {
         T_Telem_Profile8 *msg = (T_Telem_Profile8*)telem_recv_buffer;
         int i;
-        
+
         hfc->streaming_enable = msg->stream_enable;     // enables data streaming
-        
+
         /* error checking */
         if (hfc->streaming_enable && (msg->stream_channels<1 || msg->stream_channels>7))
             hfc->streaming_enable = false;
-            
+
         if (hfc->streaming_enable)
         {
             for (i=0; i<7; i++)
@@ -374,8 +462,8 @@ void TelemSerial::AddInputByte(char ch)
             hfc->profile_mode = PROFILING_START;
 //            debug_print("profiling started channel %d level %d lag %d period %d delta %d\r\n",
 //                    hfc->profile_ctrl_variable, hfc->profile_ctrl_level, hfc->profile_lag, hfc->profile_period, hfc->profile_delta);
-        }        
-        
+        }
+
         telem_good_messages++;
         /* this might be produced before the previous one was transmitted !!!!!!! */
         hfc->tcpip_confirm  = true;
@@ -426,7 +514,7 @@ void TelemSerial::AddInputByte(char ch)
     }
 }
 
-void TelemSerial::InitHdr(unsigned char *msg, int msg_size)
+void AFSI_Serial::InitHdr(unsigned char *msg, int msg_size)
 {
     msg[0] = 0x47;
     msg[1] = msg_size-4-1;
@@ -434,7 +522,7 @@ void TelemSerial::InitHdr(unsigned char *msg, int msg_size)
     msg[2] = CalcCRC8(msg, msg_size);
 }
 
-void TelemSerial::InitHdr32(unsigned char type, unsigned char *msg, int msg_size)
+void AFSI_Serial::InitHdr32(unsigned char type, unsigned char *msg, int msg_size)
 {
     T_TelemUpHdr *hdr = (T_TelemUpHdr*)msg;
 
@@ -448,7 +536,7 @@ void TelemSerial::InitHdr32(unsigned char type, unsigned char *msg, int msg_size
     hdr->crc        = CalcCRC32((unsigned char*)msg, msg_size);
 }
 
-void TelemSerial::Generate_Ctrl0(int time_ms)
+void AFSI_Serial::Generate_Ctrl0(int time_ms)
 {
     int i;
     T_Telem_Ctrl0 *msg = &hfc->telemCtrl0;
@@ -471,22 +559,22 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     msg->baro_vspeed   = Float32toFloat16(hfc->baro_vspeed);
 //    msg->baro_vspeed   = Float32toFloat16(hfc->baro_vspeedDF);
 //    msg->baro_vspeed   = Float32toFloat16(hfc->lidar_vspeed);
-    
+
     for (i=0; i<5; i++) msg->ctrl_manual[i] = Float32toFloat16(hfc->ctrl_out[RAW][i]);   // PRYCT
     for (i=0; i<3; i++) msg->ctrl_rate[i]   = Float32toFloat16(hfc->ctrl_out[RATE][i]);  // PRY
     for (i=0; i<3; i++) msg->ctrl_angle[i]  = Float32toFloat16(hfc->ctrl_out[ANGLE][i]); // PRY
     for (i=0; i<2; i++) msg->ctrl_speed[i]  = Float32toFloat16(hfc->ctrl_out[SPEED][i]); // FR
     msg->ctrl_speed[2]                      = Float32toFloat16(hfc->ctrl_out[SPEED][COLL]);
     msg->ctrl_altitude = hfc->ctrl_out[POS][COLL];
-    
+
     msg->latitude  = (int)(hfc->positionLatLon[0]*10000000);
     msg->longitude = (int)(hfc->positionLatLon[1]*10000000);
     msg->lidar_alt = Float32toFloat16(hfc->altitude_lidar);
-    
+
     InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
 }
 
-void TelemSerial::Generate_GPS1(int time_ms)
+void AFSI_Serial::Generate_GPS1(int time_ms)
 {
     int i;
     T_Telem_GPS1 *msg = &hfc->telemGPS1;
@@ -509,7 +597,7 @@ void TelemSerial::Generate_GPS1(int time_ms)
     InitHdr32(TELEMETRY_GPS, (unsigned char*)msg, sizeof(T_Telem_GPS1));
 }
 
-float TelemSerial::WinSpeedEst(float Wangle)
+float AFSI_Serial::WinSpeedEst(float Wangle)
 {
     int angle = ABS(Wangle)*16;
     int anglei = min(44, angle/16);
@@ -525,7 +613,7 @@ float TelemSerial::WinSpeedEst(float Wangle)
     return speed;
 }
 
-void TelemSerial::Generate_System2(int time_ms)
+void AFSI_Serial::Generate_System2(int time_ms)
 {
     T_Telem_System2 *msg = &hfc->telemSystem2;
 
@@ -556,13 +644,13 @@ void TelemSerial::Generate_System2(int time_ms)
 
     hfc->wind_speed = Wspeed;
     hfc->wind_course = Wcour;
-    
+
     byte waypoint_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D ? 1 : 0;
     byte joystick_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_JOYSTICK ? 1 : 0;
-    
+
     /* payload */
     msg->time        = time_ms;
-    
+
     msg->baro_pressure = hfc->baro_pressure;
     msg->gps_time = gps_data.time/100;
     msg->gps_date = gps_data.date;
@@ -615,7 +703,7 @@ void TelemSerial::Generate_System2(int time_ms)
     InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
 
-void TelemSerial::Generate_AircraftCfg(void)
+void AFSI_Serial::Generate_AircraftCfg(void)
 {
     T_AircraftConfig *msg = &hfc->aircraftConfig;
 
@@ -652,7 +740,7 @@ void TelemSerial::Generate_AircraftCfg(void)
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
-void TelemSerial::Generate_Tcpip7(void)
+void AFSI_Serial::Generate_Tcpip7(void)
 {
     T_Telem_TCPIP7 *msg = &hfc->telemTcpip7;
 
@@ -666,7 +754,7 @@ void TelemSerial::Generate_Tcpip7(void)
     InitHdr((unsigned char*)msg, sizeof(T_Telem_TCPIP7));
 }
 
-int TelemSerial::Generate_Streaming(void)
+int AFSI_Serial::Generate_Streaming(void)
 {
     T_Telem_DataStream3 *msg = &hfc->telemDataStream3;
 
@@ -690,17 +778,17 @@ int TelemSerial::Generate_Streaming(void)
     }
     for (i=0; i<hfc->streaming_channels; i++)
         msg->data_type[i] = hfc->streaming_types[i];       // identifies the data types of individual elements
-        
+
     for (i=0; i<size; i++)
         msg->data[i] = hfc->stream_data[i];
-        
+
     size = size*2 + 4 + 4 + 8;
     InitHdr((unsigned char*)msg, size);
-    
+
     return size;
 }
 
-void TelemSerial::Generate_Msg2Ground(void)
+void AFSI_Serial::Generate_Msg2Ground(void)
 {
     T_Telem_Msg2Ground *msg = &hfc->telemMsg2ground;
 
@@ -712,7 +800,7 @@ void TelemSerial::Generate_Msg2Ground(void)
     InitHdr((unsigned char*)msg, sizeof(T_Telem_Msg2Ground));
 }
 
-void TelemSerial::SaveValuesForAbort(void)
+void AFSI_Serial::SaveValuesForAbort(void)
 {
 //  debug_print("Saved values for abort\r\n");
     hfc->ctrl_initial[THRO]  = xbus.valuesf[XBUS_THR_LV];
@@ -722,7 +810,7 @@ void TelemSerial::SaveValuesForAbort(void)
     hfc->ctrl_initial[COLL]  = xbus.valuesf[XBUS_THRO];
 }
 
-void TelemSerial::ApplyDefaults(void)
+void AFSI_Serial::ApplyDefaults(void)
 {
     hfc->pid_CollAlt.COmax        = hfc->rw_cfg.VspeedMax;
     hfc->pid_CollAlt.COmin        = hfc->rw_cfg.VspeedMin;
@@ -732,13 +820,13 @@ void TelemSerial::ApplyDefaults(void)
     CalcDynYawRate();
 }
 
-void TelemSerial::SelectCtrlSource(byte source)
+void AFSI_Serial::SelectCtrlSource(byte source)
 {
     /* save RC stick values when switching away from RCradio source, for the abort function */
     if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO) {
         SaveValuesForAbort();
     }
-    
+
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
     if (source==CTRL_SOURCE_RCRADIO || source==CTRL_SOURCE_JOYSTICK)
     {
@@ -746,7 +834,7 @@ void TelemSerial::SelectCtrlSource(byte source)
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
         hfc->playlist_status = PLAYLIST_STOPPED;
     }
-    
+
     if (source == CTRL_SOURCE_JOYSTICK) {
         hfc->telem_ctrl_period = 100000;   // in us - 10Hz
     }
@@ -759,7 +847,7 @@ void TelemSerial::SelectCtrlSource(byte source)
     hfc->waypoint_type = WAYPOINT_NONE;
 }
 
-void TelemSerial::CalcDynYawRate(void)
+void AFSI_Serial::CalcDynYawRate(void)
 {
    float AImax    = pConfig->TurnAccParams[0];  // m/s2 max side acceleration during turns
    float MaxSpeed = pConfig->TurnAccParams[1];  // m/s speed at which the max acc is reached
@@ -779,7 +867,7 @@ void TelemSerial::CalcDynYawRate(void)
    }
 }
 
-float TelemSerial::CalcFTWPlimit(char gps_in_cruise)
+float AFSI_Serial::CalcFTWPlimit(char gps_in_cruise)
 {
     float current_speed = hfc->cruise_mode && gps_in_cruise ? hfc->gps_speed : hfc->pid_Dist2T.COmax;
 #ifdef THRUST_VECTORING
@@ -792,14 +880,14 @@ float TelemSerial::CalcFTWPlimit(char gps_in_cruise)
     return limit;
 }
 
-void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire)
+void AFSI_Serial::SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire)
 {
 //    debug_print("Telemetry_SetWaypoint %f %f\r\n", lat, lon);
     /* store stick values for an abort, only the first the waypoint mode is turned on */
     unsigned char source;
     float Sx, Sy, Tx, Ty;
 //    float prev_STcourse;
-    
+
     if (hfc->playlist_status==PLAYLIST_PLAYING)
     {
         /* in playlist mode, copy the current waypoint to the previous */
@@ -816,7 +904,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         hfc->waypoint_pos_prev[2] = hfc->altitude;
 //        prev_STcourse = hfc->IMUorient[YAW]*R2D;  // use current heading
     }
-    
+
     if (altitude>-9999)  // if altitude present, set source to 3D
         source = CTRL_SOURCE_AUTO3D;
     else
@@ -825,10 +913,10 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     else
         source = CTRL_SOURCE_AUTO2D;    // 2D otherwise
     SelectCtrlSource(source);
-    
+
     hfc->waypoint_pos[0] = lat;
     hfc->waypoint_pos[1] = lon;
-    
+
     /* turn on horizontal position mode, yaw angle and keep collective and throttle as is */
     hfc->waypoint_retire    = wp_retire;
 
@@ -844,7 +932,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         hfc->waypoint_pos[2] = hfc->altitude_base + altitude;
     }
     hfc->altitude_WPnext = -9999;   // mark as used
-    
+
     hfc->distance2WP_min = 999999;
 
     /* pre-calculate waypoint path data */
@@ -852,7 +940,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     /* distance to the next waypoint */
     hfc->waypoint_STdist = DistanceCourse(hfc->waypoint_pos_prev[0], hfc->waypoint_pos_prev[1], hfc->waypoint_pos[0], hfc->waypoint_pos[1], &hfc->waypoint_STcourse);
 //    debug_print("S->T: dist = %4.1f, cour = %4.1f\r\n", hfc->waypoint_STdist, hfc->waypoint_STcourse);
-    
+
     Sx = 0;
     Sy = 0;
     Tx = (float)(hfc->waypoint_pos[1] - hfc->waypoint_pos_prev[1]);
@@ -861,7 +949,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     Ty = Ty/DPM;
 //    debug_print("S: %f %f\n", Sx, Sy);
 //    debug_print("T: %f %f\n", Tx, Ty);
-    
+
     hfc->path_a = Ty-Sy;
     hfc->path_b = Sx-Tx;
     if (ABS(hfc->path_a)>=3 || ABS(hfc->path_b)>=3)  // at least 3 meters apart
@@ -888,7 +976,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     hfc->waypoint_STdist = Max(1, hfc->waypoint_STdist - ofs);
 }
 
-bool TelemSerial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
+bool AFSI_Serial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
 {
     float value = *((float*)pivalue);
 //  debug_print("%f\r\n", value);
@@ -900,7 +988,7 @@ bool TelemSerial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, fl
     return true;
 }
 
-bool TelemSerial::CheckRangeAndSetI(int *pvalue, byte *pivalue, int vmin, int vmax)
+bool AFSI_Serial::CheckRangeAndSetI(int *pvalue, byte *pivalue, int vmin, int vmax)
 {
     int value = *((int*)pivalue);
     if (!pvalue || value>vmax || value<vmin) {
@@ -911,7 +999,7 @@ bool TelemSerial::CheckRangeAndSetI(int *pvalue, byte *pivalue, int vmin, int vm
     return true;
 }
 
-bool TelemSerial::CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax)
+bool AFSI_Serial::CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax)
 {
     int value = *((int*)pivalue);
     if (!pvalue || value>vmax || value<vmin) {
@@ -922,7 +1010,7 @@ bool TelemSerial::CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int v
     return true;
 }
 
-bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
+bool AFSI_Serial::ProcessParameters(T_Telem_Params4 *msg)
 {
     unsigned int i;
     unsigned int params = (msg->hdr.len+1)/6;
@@ -935,13 +1023,13 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
 
     if (params>42)
         return false;
-        
+
     for (i=0; i<params; i++)
     {
         T_ParamStruct *p = &msg->data[i];
         byte param = p->param;
         byte sub_param = p->sub_param;
-        
+
 //        debug_print("i=%d param=%d sub=%d\r\n", i, param, sub_param);
 
         if (param==TELEM_PARAM_WAYPOINT)
@@ -1278,7 +1366,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             }
         }
     }
-    
+
     if (waypoint)
     {
         /* since this is asynchronous to the main loop, the control_mode change might be detected and the init skipped,
@@ -1301,7 +1389,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
     return true;
 }
 
-bool TelemSerial::CopyCommand(T_Telem_Commands5 *msg)
+bool AFSI_Serial::CopyCommand(T_Telem_Commands5 *msg)
 {
     if (hfc->command.command != TELEM_CMD_NONE) {
         //debug_print("Previous command not processed yet, overwriting it!!!!!!!!!! %d\r\n", hfc->command.command);
@@ -1318,7 +1406,7 @@ bool TelemSerial::CopyCommand(T_Telem_Commands5 *msg)
     return true;
 }
 
-void TelemSerial::SetHome(void)
+void AFSI_Serial::SetHome(void)
 {
     GpsData gps_data = gps.GetGpsData();
 
@@ -1328,14 +1416,14 @@ void TelemSerial::SetHome(void)
     hfc->altitude_base = hfc->home_pos[2];
 }
 
-void TelemSerial::SendMsgToGround(int msg_id)
+void AFSI_Serial::SendMsgToGround(int msg_id)
 {
     hfc->msg2ground_id = msg_id;
     hfc->msg2ground_count = MSG2GROUND_RESEND_COUNT;
 }
 
 /* returns true when everything is ok, false otherwise */
-char TelemSerial::PreFlightChecks(void)
+char AFSI_Serial::PreFlightChecks(void)
 {
     if (pConfig->disable_pre_flight) {
         return true;
@@ -1436,7 +1524,7 @@ char TelemSerial::PreFlightChecks(void)
     return true;
 }
 
-void TelemSerial::CommandTakeoffArm(void)
+void AFSI_Serial::CommandTakeoffArm(void)
 {
     int status = hfc->playlist_status;
 
@@ -1471,25 +1559,25 @@ void TelemSerial::CommandTakeoffArm(void)
 
     /* reset all I terms */
     ResetIterms();
-    
+
     /* set PRY controls to Angle mode, coll to manual */
     SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
     SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_RATE);
     SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_RATE);
     SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
-    
+
     /* initialize PRY angles to the current orientation */
     hfc->ctrl_out[RATE][PITCH] = 0;
     hfc->ctrl_out[RATE][ROLL]  = 0;
     hfc->ctrl_out[RATE][YAW]   = 0;
-    
+
     /* 0 angle of blades (from config) */
 //    hfc->ctrl_out[RAW][COLL]   = pConfig->CollZeroAngle;
 //    hfc->pid_CollVspeed.COlast = pConfig->CollZeroAngle;  // needed once alt hold is enabled and this could be uninitialized for the takeoff condition
 
     hfc->ctrl_collective_raw = hfc->collective_raw_curr;    // set to current position
     hfc->ctrl_collective_3d  = pConfig->CollZeroAngle;   // target
-    
+
     /* enable fixed control mode */
     SelectCtrlSource(CTRL_SOURCE_AUTO3D);
     // it is getting reset by select source !!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1502,7 +1590,7 @@ void TelemSerial::CommandTakeoffArm(void)
     else {
         SendMsgToGround(MSG2GROUND_SPOOLUP);
     }
-    
+
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
     hfc->waypoint_type   = WAYPOINT_TAKEOFF;
     if (hfc->full_auto)
@@ -1513,7 +1601,7 @@ void TelemSerial::CommandTakeoffArm(void)
 }
 
 /* vspeed needs to be negative */
-void TelemSerial::CommandLandingWP(float lat, float lon, float alt_ground)
+void AFSI_Serial::CommandLandingWP(float lat, float lon, float alt_ground)
 {
     hfc->gps_to_waypoint[0] = 99;   // need something here so the logic does not immediatelly think it is already there
                                     // before it gets properly initialized
@@ -1525,7 +1613,7 @@ void TelemSerial::CommandLandingWP(float lat, float lon, float alt_ground)
 }
 
 /* vspeed needs to be negative */
-void TelemSerial::CommandLanding(bool final, bool setWP)
+void AFSI_Serial::CommandLanding(bool final, bool setWP)
 {
     {
         if (!final && hfc->altitude_lidar>3)
@@ -1567,24 +1655,24 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
             SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
             SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
-            
+
             /* if previous pitch/roll mode was above speed, initialize Iterm such that CO does not instantly change */
             hfc->ctrl_out[SPEED][PITCH] = 0;
             hfc->ctrl_out[SPEED][ROLL]  = 0;
-            hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D; 
-            
+            hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
+
             /* set vspeed mode and initialize it */
 //            hfc->ctrl_out[SPEED][COLL] = vspeed;
             hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed;
             SelectCtrlSource(CTRL_SOURCE_AUTO3D);
-            
+
             hfc->waypoint_type  = WAYPOINT_LANDING;
             hfc->waypoint_stage = FM_LANDING_LOW_ALT;
         }
     }
 }
 
-void TelemSerial::Disarm(void)
+void AFSI_Serial::Disarm(void)
 {
     hfc->throttle_armed    = 0;
     hfc->inhibitRCswitches = false;
@@ -1601,7 +1689,7 @@ void TelemSerial::Disarm(void)
     }
 }
 
-void TelemSerial::PlaylistSaveState(void)
+void AFSI_Serial::PlaylistSaveState(void)
 {
     T_State *state = &hfc->state;
     int i;
@@ -1619,7 +1707,7 @@ void TelemSerial::PlaylistSaveState(void)
         state->control_mode[i] = hfc->control_mode[i];
 }
 
-void TelemSerial::PlaylistRestoreState(void)
+void AFSI_Serial::PlaylistRestoreState(void)
 {
     T_State *state = &hfc->state;
     int i;
@@ -1646,7 +1734,7 @@ void TelemSerial::PlaylistRestoreState(void)
     hfc->delay_counter = 0;
 }
 
-int TelemSerial::FindNearestLandingSite(void)
+int AFSI_Serial::FindNearestLandingSite(void)
 {
     int i;
     int index = -1;
@@ -1669,7 +1757,7 @@ int TelemSerial::FindNearestLandingSite(void)
     return index;
 }
 
-void TelemSerial::Arm(void)
+void AFSI_Serial::Arm(void)
 {
     if (hfc->throttle_armed)
         return;
@@ -1697,11 +1785,11 @@ void TelemSerial::Arm(void)
 //        GyroCalibDynamic(hfc);
 }
 
-void TelemSerial::ProcessCommands(void)
+void AFSI_Serial::ProcessCommands(void)
 {
     byte cmd = hfc->command.command;
     byte sub_cmd = hfc->command.sub_cmd;
-    
+
     if (cmd==TELEM_CMD_NONE)
         return;
 
@@ -1773,7 +1861,7 @@ void TelemSerial::ProcessCommands(void)
             SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
             /* set target altitude and heading to the current one */
-            hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
+            hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
             hfc->joystick_new_values = 1;
 
             if (hfc->playlist_status==PLAYLIST_PLAYING)
@@ -1818,14 +1906,14 @@ void TelemSerial::ProcessCommands(void)
                 hfc->pl_wp_initialized = false;
                 hfc->altitude_WPnext   = -9999;  // altitude unchanged by default, can be set from playlist
                 hfc->delay_counter     = 0;
-                
+
                 /* set default values */
                 ApplyDefaults();
                 /* initialize current waypoint with the current position */
                 hfc->waypoint_pos[0] = hfc->positionLatLon[0];
                 hfc->waypoint_pos[1] = hfc->positionLatLon[1];
                 hfc->waypoint_pos[2] = hfc->altitude;
-                
+
                 /* reset GOTO counters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
             }
         }
@@ -1974,14 +2062,14 @@ void TelemSerial::ProcessCommands(void)
     {
 //        debug_print("Unknown command: %d\r\n", cmd);
     }
-    
+
     hfc->command.command = TELEM_CMD_NONE;
 }
 
-void TelemSerial::SetPositionHold(void)
+void AFSI_Serial::SetPositionHold(void)
 {
     /* set heading to the current one */
-    hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
+    hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
     /* set vcontrol to max to make sure it can hold the pos */
     ApplyDefaults();
     SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1],
@@ -1989,7 +2077,7 @@ void TelemSerial::SetPositionHold(void)
     hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
 }
 
-void TelemSerial::ResetIMU(bool print)
+void AFSI_Serial::ResetIMU(bool print)
 {
     int i;
     float accGroundENU[3];
@@ -2029,4 +2117,16 @@ void TelemSerial::ResetIMU(bool print)
         hfc->accGroundENU_prev[i] = accGroundENU[i];
         hfc->IMUspeedGroundENU[i] = 0;
     }
+}
+
+unsigned short AFSI_Serial::processU2(uint8_t*data, int scaling)
+{
+    unsigned short result = 0;
+
+    for (int i = 0; i<2; i++)
+    {
+        result += (data[i]<<(8*(1-i)));
+    }
+
+    return result/scaling;
 }
