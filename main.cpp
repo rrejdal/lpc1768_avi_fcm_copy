@@ -5145,6 +5145,10 @@ static int InitCanbusNodes(void)
 int main()
 {
 
+#if defined (CRP_LOCK)
+    SetJtag(LOCK_JTAG);
+#endif
+
     led1 = 1;
 
     spi.frequency(4000000);
