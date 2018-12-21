@@ -380,6 +380,12 @@ int SetJtag(int state)
         return -1;
     }
 
+    // Determine if lock state is already set to desired, return if nothing to do.
+    uint32_t *pCRP_key = (uint32_t *)CRP_OFFSET;
+    if (*pCRP_key == CRP_2) {
+        return 0;
+    }
+
     memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
 
     // TODO::SP - check value of state and write appropriate value
