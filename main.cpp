@@ -4483,6 +4483,10 @@ static void ProcessUserCmnds(char c)
     }
     else if (c == 'C') {
         // Calibrate requested
+#if 0
+        // SP::NOTE: 28/12/2018
+        // TEMP REMOVING MECHANSIM FOR STARTING A CALIBRATION TO THE POWER NODE.
+        // THIS IS NO LONGER THE DESIRED WAY TO PERFORM POWER NODE CALIBRATION.
         usb_print("OK");
 
         int timeout = CAN_TIMEOUT;
@@ -4552,7 +4556,9 @@ static void ProcessUserCmnds(char c)
             }
             can_power_coeff = 0;
         }
-        else if (strcmp(request, "compass") == 0) {
+        else
+#endif
+       if (strcmp(request, "compass") == 0) {
             usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
             usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[0],hfc.compass_cal.compassMin[0],
                                                                      hfc.compass_cal.comp_gains[0],hfc.compass_cal.comp_ofs[0]);
@@ -4560,7 +4566,10 @@ static void ProcessUserCmnds(char c)
                                                                      hfc.compass_cal.comp_gains[1],hfc.compass_cal.comp_ofs[1]);
             usb_print("Z    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[2],hfc.compass_cal.compassMin[2],
                                                                      hfc.compass_cal.comp_gains[2],hfc.compass_cal.comp_ofs[2]);
-        }
+       }
+       else {
+           usb_print("NACK");
+       }
     }
     else if (c == 'M') {
         // System Manifest
