@@ -1793,9 +1793,10 @@ void TelemSerial::ProcessCommands(void)
     }
     if (cmd==TELEM_CMD_CALIBRATE)
     {
-        if (sub_cmd == CALIBRATE_STOP)
+        if (sub_cmd == CALIBRATE_STOP)  // STOP Compass Calibration
         {
-            hfc->comp_calibrate = NO_COMP_CALIBRATE;
+            hfc->comp_calibrate = COMP_CALIBRATE_DONE;
+            CompassCalDone();
         }
         else
         if (sub_cmd == CALIBRATE_IMU)
@@ -1808,40 +1809,26 @@ void TelemSerial::ProcessCommands(void)
         else
         if (sub_cmd == CALIBRATE_COMPASS)
         {
-            if (hfc->comp_calibrate == COMP_CALIBRATING) {
-                hfc->comp_calibrate = COMP_CALIBRATE_DONE;
-                CompassCalDone();
+            int i = 0;
+
+            hfc->display_mode = DISPLAY_COMPASS;
+
+            hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
+            hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
+
+            for(i = 0; i < PITCH_COMP_LIMIT; i++)
+            {
+                hfc->comp_pitch_flags[i] = 0;
             }
-            else {
 
-                int i = 0;
-
-                hfc->display_mode = DISPLAY_COMPASS;
-
-                hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
-                hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
-
-                for(i = 0; i < PITCH_COMP_LIMIT; i++)
-                {
-                    hfc->comp_pitch_flags[i] = 0;
-                }
-
-                for(i = 0; i < ROLL_COMP_LIMIT; i++)
-                {
-                    hfc->comp_roll_flags[i] = 0;
-                }
-
-                if (hfc->comp_calibrate == COMP_CALIBRATING) {
-                    hfc->comp_calibrate = COMP_CALIBRATE_DONE;
-                    CompassCalDone();
-                }
-                else {
-                    hfc->comp_calibrate = COMP_CALIBRATING;
-                }
-
-                hfc->comp_calibrate = COMP_CALIBRATING;
-                //debug_print("Starting Compass Calibration\r\n");
+            for(i = 0; i < ROLL_COMP_LIMIT; i++)
+            {
+                hfc->comp_roll_flags[i] = 0;
             }
+
+
+            hfc->comp_calibrate = COMP_CALIBRATING;
+            //debug_print("Starting Compass Calibration\r\n");
         }
     }
     else

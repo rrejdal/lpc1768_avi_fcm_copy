@@ -1386,13 +1386,13 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                     int orient_val = (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT;
                     sPRINTd(str, (char*)"COMPASS P:%d", (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
+                    //debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
                 }
                 else if(i_roll != -1 ) {
                     int orient_val = (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT;
                     sPRINTd(str, (char*)"COMPASS R:%d", (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
+                    //debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
                 }
 
                 myLcd.SetLine(1, (char*)"CALIBRATING!  ", 0);
@@ -3573,7 +3573,7 @@ static void ProcessStats(void)
         }
 
         if (write_canbus_error > 0) {
-            debug_print("CAN write failed messages[%d]\r\n", write_canbus_error);
+            //debug_print("CAN write failed messages[%d]\r\n", write_canbus_error);
             hfc.stats.can_servo_tx_errors = write_canbus_error;
         }
     }
