@@ -53,11 +53,8 @@ void HeadingUpdate(float heading_rate, float dT);
 extern int LoadConfiguration(const ConfigData **pConfig);
 extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 extern int SaveNewConfig(void);
-extern int UpdateFlashConfig(FlightControlData *fcm_data);
+extern int SavePIDUpdates(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
-
-extern int EraseFlash(void);
-extern int SetJtag(int state);
 
 void CompassCalDone(void);
 
@@ -720,14 +717,12 @@ static void SetControlMode(void)
     	if (xbus.valuesf[XBUS_MODE_SW] < -0.5f) {
     		mode = CTRL_MODE_ANGLE;
     	}
+		else if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
+    		mode = CTRL_MODE_MANUAL;
+		}
 		else {
-		    if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
-		        mode = CTRL_MODE_MANUAL;
-		    }
-		    else {
-		        mode = CTRL_MODE_RATE;
-		    }
-        }
+    		mode = CTRL_MODE_RATE;
+		}
 
     	mode += pConfig->RCmodeSwitchOfs;	// shift the mode up
     	mode = min(mode, CTRL_MODE_POSITION);
@@ -809,14 +804,8 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 
     // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
-    if (hfc.full_auto) {
-        hfc.rw_cfg.elevator_gain = pConfig->elevator_gain;
-        hfc.rw_cfg.dcp_gain = pConfig->dcp_gain;
-    }
-    else {
-        hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);     // use only positive half
-        hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
-    }
+    hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
+    hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
 
     ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
     PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * hfc.rw_cfg.elevator_gain;
@@ -2026,7 +2015,9 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->touchdown_time = hfc->time_ms;
 
                 // TODO::SP: Error Handling on Flash write error??
-                UpdateFlashConfig(hfc);
+                if (hfc->pid_params_changed) {
+                	SavePIDUpdates(hfc);
+                }
             }
         }
         else
@@ -2098,7 +2089,6 @@ static void ServoUpdateRAW(float dT)
         debug_print("\r\n\r\n");
     }
 #endif
-
 
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
@@ -2201,12 +2191,7 @@ static void ServoUpdateRAW(float dT)
         if (pConfig->power_node) {
             WriteToPowerNodeServos();
         }
-
-        if (pConfig->can_servo) {
-            WriteToServoNodeServos(pConfig->num_servo_nodes);
-        }
-
-        if (pConfig->fcm_servo) {
+        else if (pConfig->fcm_servo) {
             WriteToFcmServos();
         }
     }
@@ -2258,16 +2243,21 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-    if (!hfc.full_auto && !hfc.throttle_armed) {
-        hfc.auto_throttle = false;
-    }
+    if (hfc.throttle_armed) {
+        if (!hfc.full_auto) {
+            hfc.auto_throttle = false;
+        }
 
-    if (!hfc.auto_throttle) {
-        hfc.throttle_value   = xbus.valuesf[XBUS_THR_LV];
+        if (!hfc.auto_throttle) {
+            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+        }
     }
-    else if (!hfc.throttle_armed) {
+    else {
         hfc.throttle_value = -pConfig->Stick100range;
     }
+
+//    if (!(hfc.print_counter&0x3f))
+//    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
@@ -2976,12 +2966,7 @@ static void ServoUpdate(float dT)
         if (pConfig->power_node) {
             WriteToPowerNodeServos();
         }
-
-        if (pConfig->can_servo) {
-            WriteToServoNodeServos(pConfig->num_servo_nodes);
-        }
-
-        if (pConfig->fcm_servo) {
+        else {
             WriteToFcmServos();
         }
     }
@@ -3139,10 +3124,8 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    // TODO::SP: This needs to be tested and made a configurable value
-    /* when current is below 20A (0.2A normally), battery is considered unloaded */
-    //if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
-    if (I < (0.02f * hfc.rw_cfg.battery_capacity)) {
+    /* when current is below 0.2C, battery is considered unloaded */
+    if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
@@ -3928,25 +3911,6 @@ void do_control()
         }
     }
 
-    // As ground speed increases, trust the gps heading more
-    if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
-         && (gps.gps_data_.PDOP*0.01f < 2.00f )
-         && (hfc.full_auto || (hfc.control_mode[PITCH] >= CTRL_MODE_SPEED) )
-         && (ABS(hfc.ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold) ) {
-
-        float current_offset = hfc.gps_heading - hfc.heading;
-        wrap180(&current_offset);
-
-        if ( ABS(current_offset) >= pConfig->heading_offset_threshold)   {
-            hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
-            wrap180(&hfc.heading_offset);
-        }
-    }
-
-    hfc.heading = hfc.compass_heading_lp + hfc.heading_offset;
-    wrap180(&hfc.heading);
-
-
     if (pConfig->baro_enable == 1) {
     	hfc.baro_dT += dT;
     	baro_altitude_raw_prev = hfc.baro_altitude_raw_lp;
@@ -3997,7 +3961,7 @@ void do_control()
         /* orient is in rad, gyro in deg */
         hfc.gyroOfs[PITCH] = -PID(&hfc.pid_IMU[PITCH], hfc.SmoothAcc[PITCH]*R2D-hfc.bankPitch,hfc.IMUorient[PITCH]*R2D, dT);
         hfc.gyroOfs[ROLL]  = -PID(&hfc.pid_IMU[ROLL],  hfc.SmoothAcc[ROLL]*R2D+hfc.bankRoll,  hfc.IMUorient[ROLL]*R2D,  dT);
-        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.heading,                hfc.IMUorient[YAW]*R2D,   dT);
+        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.compass_heading_lp,                hfc.IMUorient[YAW]*R2D,   dT);
         /*
         if (!(hfc.print_counter & 0x3ff)) {
             debug_print("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
@@ -4585,36 +4549,6 @@ static void ProcessUserCmnds(char c)
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
     }
-    else if (c == 'D') {
-        serial.scanf("%19s", request);
-        if (strcmp(request, "unlock") == 0) {
-            if (SetJtag(UNLOCK_JTAG) == 0) {
-                usb_print("ACK");
-            }
-            else {
-                usb_print("NACK");
-            }
-        }
-        else if (strcmp(request, "lock") == 0) {
-            if (SetJtag(LOCK_JTAG) == 0) {
-                usb_print("ACK");
-            }
-            else {
-                usb_print("NACK");
-            }
-        }
-        else if (strcmp(request, "eraseall") == 0) {
-            if (EraseFlash() == 0) {
-                usb_print("ACK");
-            }
-            else {
-                usb_print("NACK");
-            }
-        }
-        else {
-            usb_print("INVALID");
-        }
-    }
 }
 
 void ProcessButtonSelection()
@@ -5154,8 +5088,6 @@ void InitializeRuntimeData(void)
     }
 
     hfc.box_dropper_ = 0;
-
-    hfc.heading_offset = 0; //pConfig->heading_offset;
 }
 
 /**
@@ -5212,10 +5144,6 @@ static int InitCanbusNodes(void)
   */
 int main()
 {
-
-#if defined (CRP_LOCK)
-    SetJtag(LOCK_JTAG);
-#endif
 
     led1 = 1;
 
