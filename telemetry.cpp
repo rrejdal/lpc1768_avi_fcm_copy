@@ -464,8 +464,12 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accFilt[i]);
 //    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accGroundENUhp[i]);
     for (i=0; i<3; i++) msg->compass[i]  = Float32toFloat16(compass.dataXYZcalib[i]);
-//    msg->compass_heading = Float32toFloat16(hfc->compass_heading);
+#if defined(HEADING_OFFSET_ADJUST)
     msg->compass_heading = Float32toFloat16(hfc->heading);
+#else
+    msg->compass_heading = Float32toFloat16(hfc->compass_heading);
+#endif
+
     for (i=0; i<3; i++) msg->orient[i]   = Float32toFloat16(hfc->IMUorient[i]*R2D);
     msg->speedGroundENU[0] = Float32toFloat16(hfc->IMUspeedGroundENU[0]);
     msg->speedGroundENU[1] = Float32toFloat16(hfc->IMUspeedGroundENU[1]);
@@ -2082,15 +2086,25 @@ void TelemSerial::ResetIMU(bool print)
                                                     pConfig->fcm_orient, pConfig->comp_declination_offset,
                                                     hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
     hfc->compass_heading_lp = hfc->compass_heading;
+#if defined(HEADING_OFFSET_ADJUST)
     hfc->heading = hfc->compass_heading_lp + hfc->heading_offset;
     hfc->IMUorient[YAW] = hfc->heading*D2R;
+#else
+    hfc->IMUorient[YAW] = hfc->compass_heading_lp*D2R;
+#endif
+
     IMU_PRY2Q(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL], hfc->IMUorient[YAW]);
 
     for (i=0; i<3; i++) hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
     for (i=0; i<3; i++) hfc->gyro_lp_disp[i] = 0;
     PID_SetForEnable(&hfc->pid_IMU[0], hfc->SmoothAcc[PITCH]*R2D, hfc->IMUorient[PITCH]*R2D, -hfc->gyroOfs[0]);
     PID_SetForEnable(&hfc->pid_IMU[1], hfc->SmoothAcc[ROLL]*R2D,  hfc->IMUorient[ROLL]*R2D,  -hfc->gyroOfs[1]);
-    PID_SetForEnable(&hfc->pid_IMU[2], hfc->heading,      hfc->IMUorient[YAW]*R2D,   -hfc->gyroOfs[2]);
+#if defined(HEADING_OFFSET_ADJUST)
+    PID_SetForEnable(&hfc->pid_IMU[2], hfc->heading, hfc->IMUorient[YAW]*R2D, -hfc->gyroOfs[2]);
+#else
+    PID_SetForEnable(&hfc->pid_IMU[2], hfc->compass_heading, hfc->IMUorient[YAW]*R2D, -hfc->gyroOfs[2]);
+
+#endif
 
     /*mmri: just took out the carriage return so that gyrotemp
      * compensation output data is more easily read in .csv file*/

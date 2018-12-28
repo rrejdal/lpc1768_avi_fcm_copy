@@ -206,16 +206,23 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
     // copy config data from Flash to RAM
     memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
 
-    if (   (!fcm_data->pid_params_changed)
-        && (pConfigData->heading_offset == fcm_data->heading_offset) ) {
+#if defined(HEADING_OFFSET_ADJUST)
+    if ((!fcm_data->pid_params_changed)
+           && (pConfigData->heading_offset == fcm_data->heading_offset))
+#else
+    if (!fcm_data->pid_params_changed)
+#endif
+    {
         return 0;
     }
 
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
 
+#if defined(HEADING_OFFSET_ADJUST)
     // Overwrite heading offset value
     pConfigData->heading_offset = fcm_data->heading_offset;
+#endif
 
     // Recalculate checksum on file
     unsigned char *pData = (unsigned char *)pConfigData;

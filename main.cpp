@@ -3924,6 +3924,7 @@ void do_control()
         }
     }
 
+#if defined(HEADING_OFFSET_ADJUST)
     // As ground speed increases, trust the gps heading more
     if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
          && (gps.gps_data_.PDOP*0.01f < 2.00f )
@@ -3941,7 +3942,7 @@ void do_control()
 
     hfc.heading = hfc.compass_heading_lp + hfc.heading_offset;
     wrap180(&hfc.heading);
-
+#endif
 
     if (pConfig->baro_enable == 1) {
     	hfc.baro_dT += dT;
@@ -3993,7 +3994,12 @@ void do_control()
         /* orient is in rad, gyro in deg */
         hfc.gyroOfs[PITCH] = -PID(&hfc.pid_IMU[PITCH], hfc.SmoothAcc[PITCH]*R2D-hfc.bankPitch,hfc.IMUorient[PITCH]*R2D, dT);
         hfc.gyroOfs[ROLL]  = -PID(&hfc.pid_IMU[ROLL],  hfc.SmoothAcc[ROLL]*R2D+hfc.bankRoll,  hfc.IMUorient[ROLL]*R2D,  dT);
-        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.heading,                hfc.IMUorient[YAW]*R2D,   dT);
+#if defined(HEADING_OFFSET_ADJUST)
+        hfc.gyroOfs[YAW] = -PID(&hfc.pid_IMU[YAW], hfc.heading, hfc.IMUorient[YAW]*R2D, dT);
+#else
+        hfc.gyroOfs[YAW] = -PID(&hfc.pid_IMU[YAW], hfc.compass_heading_lp, hfc.IMUorient[YAW]*R2D, dT);
+
+#endif
         /*
         if (!(hfc.print_counter & 0x3ff)) {
             debug_print("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
