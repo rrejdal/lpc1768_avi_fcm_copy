@@ -30,8 +30,11 @@
 int LoadConfiguration(const ConfigData **pConfig);
 int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 int SaveNewConfig(void);
-int SavePIDUpdates(FlightControlData *fcm_data);
+int UpdateFlashConfig(FlightControlData *fcm_data);
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+int EraseFlash(void);
+int SetJtag(int state);
+
 
 // Config Info
 #define FLASH_CONFIG_ADDR       FLASH_SECTOR_29
@@ -181,7 +184,7 @@ static void UpdatePIDconfig(ConfigData *pConfigData, FlightControlData *fcm_data
   * @param  *fcm_data: pointer to runtime flight data
   * @retval -1 on error, 0 on success
   */
-int SavePIDUpdates(FlightControlData *fcm_data)
+int UpdateFlashConfig(FlightControlData *fcm_data)
 {
     // Re-Write config with PID update values from Telemetry.
     ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
@@ -203,8 +206,16 @@ int SavePIDUpdates(FlightControlData *fcm_data)
     // copy config data from Flash to RAM
     memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
 
+    if (   (!fcm_data->pid_params_changed)
+        && (pConfigData->heading_offset == fcm_data->heading_offset) ) {
+        return 0;
+    }
+
     // Overwrite PID config values
     UpdatePIDconfig(pConfigData, fcm_data);
+
+    // Overwrite heading offset value
+    pConfigData->heading_offset = fcm_data->heading_offset;
 
     // Recalculate checksum on file
     unsigned char *pData = (unsigned char *)pConfigData;
@@ -323,6 +334,88 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
     }
 
     if (iap.write((char *)pCalData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    __enable_irq();
+
+    return 0;
+}
+
+int EraseFlash(void)
+{
+    __disable_irq();
+
+    // Erase...
+    if (iap.prepare(0, (29)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.erase(0, (29)) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    __enable_irq();
+
+    return 0;
+}
+
+
+#define CRP_1       0x12345678
+#define CRP_2       0x87654321
+#define CRP_3       0x43218765
+#define CRP_UNLOCK  0xFFFFFFFF
+#define CRP_OFFSET  0x000002FC
+#define LOCK_JTAG   1
+
+int SetJtag(int state)
+{
+    // Copy sector 0 to RAM, update 0x2FC with Flag
+    // Erase Sector 0 and then re-write it
+    // sector 0 is only 4kB in size, we will make use of the reserved config RAM area
+    // Grab pointer to reserved RAM space (setup from Linker)
+    // This should contain new configuration data.
+    uint32_t *pRamScratch = (uint32_t *)&ram_config;
+    if (pRamScratch == NULL) {
+        return -1;
+    }
+
+    // Determine if lock state is already set to desired, return if nothing to do.
+    uint32_t *pCRP_key = (uint32_t *)CRP_OFFSET;
+    if (*pCRP_key == CRP_2) {
+        return 0;
+    }
+
+    memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
+
+    // TODO::SP - check value of state and write appropriate value
+    uint32_t *tmp = pRamScratch;
+    tmp += (CRP_OFFSET/4);
+
+    if (state == LOCK_JTAG) {
+        *tmp = (uint32_t)CRP_2;
+    }
+    else {
+        *tmp = (uint32_t)CRP_UNLOCK;
+    }
+
+    __disable_irq();
+
+    // Erase existing file
+    if (iap.prepare(0, 0) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.erase(0, 0) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    // Write new file
+    if (iap.prepare(0, 0) != CMD_SUCCESS) {
+        return -1;
+    }
+
+    if (iap.write((char *)pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15) != CMD_SUCCESS) {
         return -1;
     }
 

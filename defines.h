@@ -195,4 +195,7 @@ extern USBSerial   serial;
 #define PROFILING_ON        2   // active
 #define PROFILING_FINISH    3   // to be stopped
 
+#define LOCK_JTAG     (1)
+#define UNLOCK_JTAG   (!LOCK_JTAG)
+
 #endif

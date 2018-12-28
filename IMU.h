@@ -39,6 +39,7 @@ void LP4_Init(T_LP4 *lp, byte freq);
 float LP_RC(float new_value, float prev_out_value, float freq, float dT);
 float LP_16_Wrap180(float new_value, float prev_value);
 float LP_Wrap180(float new_value, float prev_value, float n_avgs);
+void  wrap180(float* value);
 
 void Rotate(float x, float y, float a, float *x1, float *y1);
 void Rotate2D(float *x, float *y, float a);

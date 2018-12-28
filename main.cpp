@@ -53,8 +53,13 @@ void HeadingUpdate(float heading_rate, float dT);
 extern int LoadConfiguration(const ConfigData **pConfig);
 extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 extern int SaveNewConfig(void);
-extern int SavePIDUpdates(FlightControlData *fcm_data);
+extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+
+extern int EraseFlash(void);
+extern int SetJtag(int state);
+
+void CompassCalDone(void);
 
 //USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
 USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
@@ -177,7 +182,6 @@ static void Buttons();
 static void PrintOrient();
 static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
-
 
 float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
 {
@@ -1373,30 +1377,34 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 int i_pitch = -1;
                 int i_roll = -1;
                 for(int j = 0; j < ROLL_COMP_LIMIT; j++) {
-                    if( (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS)
-                            && (j < PITCH_COMP_LIMIT)){
+                    if( (j < PITCH_COMP_LIMIT)  &&
+                        (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS) ){
                         i_pitch = j;
                         break;
                     }
-                    else if(hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) {
+                    else
+                    if( (j < ROLL_COMP_LIMIT)  &&
+                        (hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) ){
                         i_roll = j;
                         break;
                     }
                 }
 
                 if(i_pitch != -1) {
-                    sPRINTd(str, (char*)"COMPASS P:%d",
-                            (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
+                    int orient_val = (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT;
+                    sPRINTd(str, (char*)"COMPASS P:%d", (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("check i_pitch = %d\r\n",
-                            (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
+                    debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
+                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_PITCH, orient_val);
+                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
                 else if(i_roll != -1 ) {
-                    sPRINTd(str, (char*)"COMPASS R:%d",
-                            (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
+                    int orient_val = (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT;
+                    sPRINTd(str, (char*)"COMPASS R:%d", (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
-                    debug_print("check i_roll = %d\r\n",
-                            (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
+                    debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
+                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_ROLL, orient_val);
+                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
 
                 myLcd.SetLine(1, (char*)"CALIBRATING!  ", 0);
@@ -1708,6 +1716,9 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
                 CheckRangeAndSetB(&hfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
+            else
+            if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
+                CheckRangeAndSetI(&hfc->box_dropper_, item->value1.i, 0, 1);
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -2015,9 +2026,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->touchdown_time = hfc->time_ms;
 
                 // TODO::SP: Error Handling on Flash write error??
-                if (hfc->pid_params_changed) {
-                	SavePIDUpdates(hfc);
-                }
+                UpdateFlashConfig(hfc);
             }
         }
         else
@@ -2192,7 +2201,12 @@ static void ServoUpdateRAW(float dT)
         if (pConfig->power_node) {
             WriteToPowerNodeServos();
         }
-        else if (pConfig->fcm_servo) {
+
+        if (pConfig->can_servo) {
+            WriteToServoNodeServos(pConfig->num_servo_nodes);
+        }
+
+        if (pConfig->fcm_servo) {
             WriteToFcmServos();
         }
     }
@@ -2962,7 +2976,12 @@ static void ServoUpdate(float dT)
         if (pConfig->power_node) {
             WriteToPowerNodeServos();
         }
-        else {
+
+        if (pConfig->can_servo) {
+            WriteToServoNodeServos(pConfig->num_servo_nodes);
+        }
+
+        if (pConfig->fcm_servo) {
             WriteToFcmServos();
         }
     }
@@ -2975,6 +2994,9 @@ static void ServoUpdate(float dT)
         float led_pwm = hfc.throttle_armed ? 1 : -1;
         FCM_SERVO_CH6->pulsewidth_us((int)(1500.5f + led_pwm * 500));
     }
+
+    float box_dropper_pwm = hfc.box_dropper_ ? 1 : -1;
+    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + box_dropper_pwm * 500));
 
     if (FCMLinkLive) {
         ProcessFcmLinkLive();
@@ -3117,8 +3139,10 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    /* when current is below 0.2C, battery is considered unloaded */
-    if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
+    // TODO::SP: This needs to be tested and made a configurable value
+    /* when current is below 20A (0.2A normally), battery is considered unloaded */
+    //if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
+    if (I < (0.02f * hfc.rw_cfg.battery_capacity)) {
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
@@ -3406,6 +3430,8 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
         hfc.power.Vaux   = Vbec;
         hfc.power.Vaux   = ClipMinMax(hfc.power.Vaux, 0, hfc.power.Vaux);
 
+        hfc.esc_temp    = esc_temp;
+
         if (!pConfig->rpm_sensor) {
             hfc.RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
         }
@@ -3649,14 +3675,14 @@ static void RPM_Process(void)
  *
  * Inputs(not explicitly stated):
  *
- * 1. hfc.compassMin[3]: minimum values measured from compass in x, y and z.
+ * 1. hfc.compass_cal.compassMin[3]: minimum values measured from compass in x, y and z.
  *                       Reset to -9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
  *                       If new value is -200 less then current min then
  *                       assume it is an anomaly and IGNORE
  *
- * 2. hfc.compassMax[3]: maximum values measured from compass in x, y and z
+ * 2. hfc.compass_cal.compassMax[3]: maximum values measured from compass in x, y and z
  *                       Reset to +9999 when new calibration initiated.
  *                       Constantly being updated during flight so that
  *                       offsets and gains are always up-to-date.
@@ -3695,8 +3721,11 @@ static void CompassCalibration(void)
     int min_range = 450;
     int max_range = 1430;
 
-    if( hfc.comp_calibrate == NO_COMP_CALIBRATE )
-    {
+    if( hfc.comp_calibrate == NO_COMP_CALIBRATE ) {
+        return;
+    }
+    else if ( hfc.comp_calibrate == COMP_CALIBRATE_DONE ) {
+        hfc.comp_calibrate = NO_COMP_CALIBRATE;
         return;
     }
 
@@ -3757,58 +3786,69 @@ static void CompassCalibration(void)
     /*At this point i_pitch and i_roll are used as flags
      * to see if comp_pitch and comp_roll, respectively, have
      * been filled.*/
-    for(i = 0; i < PITCH_COMP_LIMIT; i++)
-    {
-        if(hfc.comp_pitch_flags[i] < NUM_ANGLE_POINTS)
-        {
+    i_pitch = 1;
+    i_roll = 1;
+    for(i = 0; i < ROLL_COMP_LIMIT; i++) {
+        if( (i < PITCH_COMP_LIMIT)  &&
+            (hfc.comp_pitch_flags[i] < NUM_ANGLE_POINTS) ){
             i_pitch = 0;
             break;
         }
-        if(i == (PITCH_COMP_LIMIT-1))
-        {
-            i_pitch = 1;
-        }
-    }
-
-    for(i = 0; i < ROLL_COMP_LIMIT; i++)
-    {
-        if( hfc.comp_roll_flags[i] < NUM_ANGLE_POINTS)
-        {
+        else
+        if( (i < ROLL_COMP_LIMIT)  &&
+            (hfc.comp_roll_flags[i] < NUM_ANGLE_POINTS) ){
             i_roll = 0;
             break;
         }
-        if(i == (ROLL_COMP_LIMIT-1))
-        {
-            i_roll = 1;
-        }
     }
 
-    if ((i_pitch == 1) && (mag_range[0] >= min_range)
-    		&& (i_roll == 1) && (mag_range[1] >= min_range)
-            && (mag_range[2] >= min_range)) {
+    if ( (i_pitch == 1) &&
+         (i_roll  == 1) &&
+         (mag_range[0] >= min_range) &&
+    	 (mag_range[1] >= min_range) &&
+         (mag_range[2] >= min_range)
+         ) {
 
         hfc.comp_calibrate = COMP_CALIBRATE_DONE;
     }
+    else //if we do all orientations but range is wrong then reset orientations
+    if ( (i_pitch == 1) &&
+         (i_roll  == 1) &&
+         (mag_range[0] <= min_range) &&
+         (mag_range[1] <= min_range) &&
+         (mag_range[2] <= min_range) ){
 
-
-    if(hfc.comp_calibrate == COMP_CALIBRATE_DONE)
-    {
-        for (i=0; i<3; i++)
-        {
-            hfc.compass_cal.comp_ofs[i] = (hfc.compass_cal.compassMin[i]+hfc.compass_cal.compassMax[i]+1)/2;
-
-            //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
-            hfc.compass_cal.comp_gains[i] = 537.37f/((hfc.compass_cal.compassMax[i]-hfc.compass_cal.compassMin[i])/2.0f);
+        for(i = 0; i < PITCH_COMP_LIMIT; i++) {
+            hfc.comp_pitch_flags[i] = 0;
         }
-
-        hfc.compass_cal.valid = 1;
-        hfc.compass_cal.version = COMPASS_CAL_VERSION;
-
-        // TODO::SP: Error handling...?
-        SaveCompassCalibration(&hfc.compass_cal);
-        hfc.comp_calibrate = NO_COMP_CALIBRATE;
+        for(i = 0; i < ROLL_COMP_LIMIT; i++) {
+            hfc.comp_roll_flags[i] = 0;
+        }
     }
 
+    if (hfc.comp_calibrate == COMP_CALIBRATE_DONE) {
+        CompassCalDone();
+    }
+
+}
+
+void CompassCalDone(void)
+{
+    for (int i=0; i<3; i++) {
+        hfc.compass_cal.comp_ofs[i] = (hfc.compass_cal.compassMin[i]+hfc.compass_cal.compassMax[i]+1)/2;
+
+        //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
+        hfc.compass_cal.comp_gains[i] = 537.37f/((hfc.compass_cal.compassMax[i]-hfc.compass_cal.compassMin[i])/2.0f);
+    }
+
+    hfc.compass_cal.valid = 1;
+    hfc.compass_cal.version = COMPASS_CAL_VERSION;
+
+    int size = telem.CalibrateCompassDone();
+    telem.AddMessage((unsigned char*)&hfc.telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
+
+    // TODO::SP: Error handling...?
+    SaveCompassCalibration(&hfc.compass_cal);
 }
 
 void do_control()
@@ -3888,6 +3928,25 @@ void do_control()
         }
     }
 
+    // As ground speed increases, trust the gps heading more
+    if(     (hfc.gps_speed >= pConfig->gps_speed_heading_threshold)
+         && (gps.gps_data_.PDOP*0.01f < 2.00f )
+         && (hfc.full_auto || (hfc.control_mode[PITCH] >= CTRL_MODE_SPEED) )
+         && (ABS(hfc.ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold) ) {
+
+        float current_offset = hfc.gps_heading - hfc.heading;
+        wrap180(&current_offset);
+
+        if ( ABS(current_offset) >= pConfig->heading_offset_threshold)   {
+            hfc.heading_offset = hfc.gps_heading - hfc.compass_heading_lp;
+            wrap180(&hfc.heading_offset);
+        }
+    }
+
+    hfc.heading = hfc.compass_heading_lp + hfc.heading_offset;
+    wrap180(&hfc.heading);
+
+
     if (pConfig->baro_enable == 1) {
     	hfc.baro_dT += dT;
     	baro_altitude_raw_prev = hfc.baro_altitude_raw_lp;
@@ -3938,7 +3997,7 @@ void do_control()
         /* orient is in rad, gyro in deg */
         hfc.gyroOfs[PITCH] = -PID(&hfc.pid_IMU[PITCH], hfc.SmoothAcc[PITCH]*R2D-hfc.bankPitch,hfc.IMUorient[PITCH]*R2D, dT);
         hfc.gyroOfs[ROLL]  = -PID(&hfc.pid_IMU[ROLL],  hfc.SmoothAcc[ROLL]*R2D+hfc.bankRoll,  hfc.IMUorient[ROLL]*R2D,  dT);
-        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.compass_heading_lp,                hfc.IMUorient[YAW]*R2D,   dT);
+        hfc.gyroOfs[YAW]   = -PID(&hfc.pid_IMU[YAW],   hfc.heading,                hfc.IMUorient[YAW]*R2D,   dT);
         /*
         if (!(hfc.print_counter & 0x3ff)) {
             debug_print("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
@@ -4216,6 +4275,13 @@ void do_control()
         power_update_avail = 0;
     }
 
+#if 0
+    if (hfc.debug_flags[0] == 1) {
+        serial.printf("New playlist command rxed, items[%d]\r\n", hfc.debug_flags[1]);
+        hfc.debug_flags[0] = 0;
+    }
+#endif
+
     hfc.gps_new_data = false;
     hfc.print_counter++;
 }
@@ -4276,6 +4342,14 @@ static void Servos_Init(void)
     if (FCM_SERVO_CH6) {
         FCM_SERVO_CH6->period_us(pConfig->pwm_period);
         FCM_SERVO_CH6->pulsewidth_us(1500);
+    }
+
+    // NOTE::SP: HACK OF THE DAY 12-09-2018
+    // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 5
+    // FOR USE WITH SPECIAL BOX DROPPER FOR INDRO Demo
+    if (FCM_SERVO_CH5) {
+        FCM_SERVO_CH5.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH5.pulsewidth_us(1500);
     }
 
     if (pConfig->fcm_servo) {
@@ -4469,6 +4543,15 @@ static void ProcessUserCmnds(char c)
             }
             can_power_coeff = 0;
         }
+        else if (strcmp(request, "compass") == 0) {
+            usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
+            usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[0],hfc.compass_cal.compassMin[0],
+                                                                     hfc.compass_cal.comp_gains[0],hfc.compass_cal.comp_ofs[0]);
+            usb_print("Y    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[1],hfc.compass_cal.compassMin[1],
+                                                                     hfc.compass_cal.comp_gains[1],hfc.compass_cal.comp_ofs[1]);
+            usb_print("Z    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[2],hfc.compass_cal.compassMin[2],
+                                                                     hfc.compass_cal.comp_gains[2],hfc.compass_cal.comp_ofs[2]);
+        }
     }
     else if (c == 'M') {
         // System Manifest
@@ -4501,6 +4584,36 @@ static void ProcessUserCmnds(char c)
         }
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
+    }
+    else if (c == 'D') {
+        serial.scanf("%19s", request);
+        if (strcmp(request, "unlock") == 0) {
+            if (SetJtag(UNLOCK_JTAG) == 0) {
+                usb_print("ACK");
+            }
+            else {
+                usb_print("NACK");
+            }
+        }
+        else if (strcmp(request, "lock") == 0) {
+            if (SetJtag(LOCK_JTAG) == 0) {
+                usb_print("ACK");
+            }
+            else {
+                usb_print("NACK");
+            }
+        }
+        else if (strcmp(request, "eraseall") == 0) {
+            if (EraseFlash() == 0) {
+                usb_print("ACK");
+            }
+            else {
+                usb_print("NACK");
+            }
+        }
+        else {
+            usb_print("INVALID");
+        }
     }
 }
 
@@ -5039,6 +5152,10 @@ void InitializeRuntimeData(void)
             hfc.compass_cal.compassMax[i] = -9999;
         }
     }
+
+    hfc.box_dropper_ = 0;
+
+    hfc.heading_offset = 0; //pConfig->heading_offset;
 }
 
 /**
@@ -5095,6 +5212,10 @@ static int InitCanbusNodes(void)
   */
 int main()
 {
+
+#if defined (CRP_LOCK)
+    SetJtag(LOCK_JTAG);
+#endif
 
     led1 = 1;
 

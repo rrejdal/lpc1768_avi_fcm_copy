@@ -8,11 +8,12 @@
 #include "IMU.h"
 #include "defines.h"
 
-extern int SavePIDUpdates(FlightControlData *fcm_data);
+extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern void ResetIterms(void);
 extern void GenerateSpeed2AngleLUT(void);
 extern void AltitudeUpdate(float alt_rate, float dT);
 extern void HeadingUpdate(float heading_rate, float dT);
+extern void CompassCalDone(void);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -305,6 +306,7 @@ void TelemSerial::AddInputByte(char ch)
     {
         if (hfc->playlist_status==PLAYLIST_STOPPED)
         {
+            hfc->debug_flags[0] = 1;
             T_Telem_Playlist6 *msg = (T_Telem_Playlist6*)telem_recv_buffer;
             int i;
                         
@@ -330,7 +332,8 @@ void TelemSerial::AddInputByte(char ch)
             hfc->tcpip_org_len  = hdr->len;
             hfc->tcpip_user1    = hfc->playlist_items;
             hfc->tcpip_user2    = PLAYLIST_SIZE;
-//            debug_print("new playlist item\r\n");
+            hfc->debug_flags[1] = hfc->playlist_items;
+            //debug_print("new playlist item\r\n");
         }
         telem_good_messages++;
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
@@ -461,7 +464,8 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accFilt[i]);
 //    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accGroundENUhp[i]);
     for (i=0; i<3; i++) msg->compass[i]  = Float32toFloat16(compass.dataXYZcalib[i]);
-    msg->compass_heading = Float32toFloat16(hfc->compass_heading);
+//    msg->compass_heading = Float32toFloat16(hfc->compass_heading);
+    msg->compass_heading = Float32toFloat16(hfc->heading);
     for (i=0; i<3; i++) msg->orient[i]   = Float32toFloat16(hfc->IMUorient[i]*R2D);
     msg->speedGroundENU[0] = Float32toFloat16(hfc->IMUspeedGroundENU[0]);
     msg->speedGroundENU[1] = Float32toFloat16(hfc->IMUspeedGroundENU[1]);
@@ -572,15 +576,14 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->telem_crc_errors          = telem_crc_errors;
     msg->telem_start_code_searches = telem_start_code_searches;
     msg->flight_time_left	= ClipMinMax(hfc->power.flight_time_left, 0, 65535);
-    msg->power.Iaux			= min(255, (int)(hfc->power.Iaux*32+0.5f));	// 0-8A		*32
-
-    msg->power.Iesc			= min(4095, (int)(hfc->power.Iesc*64+0.5f));	// 0-64V	*64
+    msg->power.Iaux         = min(127, (int)(hfc->power.Iaux*16+0.5f)); // 0-8A     *16
+    msg->power.Iesc         = min(8191, (int)(hfc->power.Iesc*32+0.5f));    // 0-256V   *32
     msg->power.Vaux			= min(1023, (int)(hfc->power.Vaux*64+0.5f));	// 0-16V	*64
     msg->power.Vesc			= min(4095, (int)(hfc->power.Vesc*64+0.5f));	// 0-64V	*64
     msg->power.Vmain		= min(4095, (int)(hfc->power.Vmain*64+0.5f));
     msg->power.Vservo		= min(1023, (int)(hfc->power.Vservo*64+0.5f));	// 0-16V	*64
-    msg->power.battery_level = ClipMinMax((int)(hfc->power.battery_level*2.5f+0.5f), 0, 255);	// in %, 250=100%	*250
-    msg->power.capacity_used = min(255, (int)(hfc->power.capacity_used*8/3600+0.5f));	// 0-32Ah			*8
+    msg->power.battery_level = ClipMinMax((int)(hfc->power.battery_level*1.2f+0.5f), 0, 127);   // in %, 120=100%   *120
+    msg->power.capacity_used = min(511, (int)(hfc->power.capacity_used*4/3600+0.5f));   // 0-128Ah          *4
     msg->gyro_temperature = Float32toFloat16(hfc->gyro_temp_lp);
     msg->baro_temperature = Float32toFloat16(hfc->baro_temperature);
     msg->gps_hdop = Float32toFloat16(gps_data.PDOP*0.01f);
@@ -650,6 +653,62 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->unused[2]          = 0;
 
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
+}
+
+int TelemSerial::CalibrateCompassOrient(byte orient_type, float orient_val)
+{
+    T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+
+    msg->data[0].param = TELEM_PARAM_CALIBRATE;
+    msg->data[0].sub_param= orient_type;
+    switch(orient_type)
+    {
+        case TELEM_PARAM_CAL_ORIENT_PITCH:
+        case TELEM_PARAM_CAL_ORIENT_ROLL:
+            //CheckRangeAndSetF(&msg->data[0].data[0], orient_val, -180, 180);
+            msg->data[0].data[0] = orient_val;
+            break;
+        default:
+            return 0;
+    }
+//    int size = 2 + sizeof(msg->data[0].data[0]);
+//    Telemetry_InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, size);
+    /*TODO:: mi, remove this comment*/
+    InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
+    return sizeof(T_Telem_Calibrate);
+}
+
+int TelemSerial::CalibrateCompassDone(void)
+{
+
+    T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+    int i;
+    msg->data[0].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[0].sub_param = TELEM_PARAM_CAL_DONE_OFS;
+    for(i=0; i<3; i++) {
+        msg->data[0].data[i] = hfc->compass_cal.comp_ofs[i];
+    }
+
+    msg->data[1].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[1].sub_param = TELEM_PARAM_CAL_DONE_GAINS;
+    for(i=0; i<3; i++) {
+        msg->data[1].data[i] = hfc->compass_cal.comp_gains[i];
+    }
+
+    msg->data[2].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[2].sub_param = TELEM_PARAM_CAL_DONE_MAX;
+    for(i=0; i<3; i++) {
+        msg->data[2].data[i] = (float)hfc->compass_cal.compassMax[i];
+    }
+
+    msg->data[3].param = TELEM_PARAM_CALIBRATE_DONE;
+    msg->data[3].sub_param = TELEM_PARAM_CAL_DONE_MIN;
+    for(i=0; i<3; i++) {
+        msg->data[3].data[i] = (float)hfc->compass_cal.compassMin[i];
+    }
+
+    InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
+    return sizeof(T_Telem_Calibrate);
 }
 
 void TelemSerial::Generate_Tcpip7(void)
@@ -1133,11 +1192,18 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             else
             if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
             {
+                // TODO::SP - Removing this for Indro demo, to hook up new box drop
+                // Another HACK OF THE DAY 09-12-2018
+                CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1);
+
+#if 0
                 if (CheckRangeAndSetI(&hfc->rw_cfg.battery_capacity, p->data, 1, 1000000))
                 {
                     hfc->power.capacity_total = hfc->rw_cfg.battery_capacity/1000.0f*3600; // As
                     hfc->power.energy_total   = hfc->power.capacity_total * pConfig->battery_cells * 3.7f;  // Ws
                 }
+#endif
+
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_WINDTAB_SCALE)
@@ -1593,12 +1659,10 @@ void TelemSerial::Disarm(void)
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
 
-	xbus.InitXbusValues();
+	//xbus.InitXbusValues();
 
 	// TODO::SP: Error handling on Flash write error??
-	if (hfc->pid_params_changed) {
-		SavePIDUpdates(hfc);
-	}
+    UpdateFlashConfig(hfc);
 }
 
 void TelemSerial::PlaylistSaveState(void)
@@ -1734,25 +1798,40 @@ void TelemSerial::ProcessCommands(void)
         else
         if (sub_cmd == CALIBRATE_COMPASS)
         {
-            int i = 0;
-
-            hfc->display_mode = DISPLAY_COMPASS;
-
-            hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
-            hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
-
-            for(i = 0; i < PITCH_COMP_LIMIT; i++)
-            {
-                hfc->comp_pitch_flags[i] = 0;
+            if (hfc->comp_calibrate == COMP_CALIBRATING) {
+                hfc->comp_calibrate = COMP_CALIBRATE_DONE;
+                CompassCalDone();
             }
+            else {
 
-            for(i = 0; i < ROLL_COMP_LIMIT; i++)
-            {
-                hfc->comp_roll_flags[i] = 0;
+                int i = 0;
+
+                hfc->display_mode = DISPLAY_COMPASS;
+
+                hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
+                hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
+
+                for(i = 0; i < PITCH_COMP_LIMIT; i++)
+                {
+                    hfc->comp_pitch_flags[i] = 0;
+                }
+
+                for(i = 0; i < ROLL_COMP_LIMIT; i++)
+                {
+                    hfc->comp_roll_flags[i] = 0;
+                }
+
+                if (hfc->comp_calibrate == COMP_CALIBRATING) {
+                    hfc->comp_calibrate = COMP_CALIBRATE_DONE;
+                    CompassCalDone();
+                }
+                else {
+                    hfc->comp_calibrate = COMP_CALIBRATING;
+                }
+
+                hfc->comp_calibrate = COMP_CALIBRATING;
+                //debug_print("Starting Compass Calibration\r\n");
             }
-
-            hfc->comp_calibrate = COMP_CALIBRATING;
-            //debug_print("Starting Compass Calibration\r\n");
         }
     }
     else
@@ -2003,14 +2082,15 @@ void TelemSerial::ResetIMU(bool print)
                                                     pConfig->fcm_orient, pConfig->comp_declination_offset,
                                                     hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
     hfc->compass_heading_lp = hfc->compass_heading;
-    hfc->IMUorient[YAW] = hfc->compass_heading_lp*D2R;
+    hfc->heading = hfc->compass_heading_lp + hfc->heading_offset;
+    hfc->IMUorient[YAW] = hfc->heading*D2R;
     IMU_PRY2Q(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL], hfc->IMUorient[YAW]);
 
     for (i=0; i<3; i++) hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
     for (i=0; i<3; i++) hfc->gyro_lp_disp[i] = 0;
     PID_SetForEnable(&hfc->pid_IMU[0], hfc->SmoothAcc[PITCH]*R2D, hfc->IMUorient[PITCH]*R2D, -hfc->gyroOfs[0]);
     PID_SetForEnable(&hfc->pid_IMU[1], hfc->SmoothAcc[ROLL]*R2D,  hfc->IMUorient[ROLL]*R2D,  -hfc->gyroOfs[1]);
-    PID_SetForEnable(&hfc->pid_IMU[2], hfc->compass_heading,      hfc->IMUorient[YAW]*R2D,   -hfc->gyroOfs[2]);
+    PID_SetForEnable(&hfc->pid_IMU[2], hfc->heading,      hfc->IMUorient[YAW]*R2D,   -hfc->gyroOfs[2]);
 
     /*mmri: just took out the carriage return so that gyrotemp
      * compensation output data is more easily read in .csv file*/
