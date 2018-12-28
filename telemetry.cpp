@@ -659,25 +659,25 @@ void TelemSerial::Generate_AircraftCfg(void)
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
-int TelemSerial::CalibrateCompassOrient(byte orient_type, float orient_val)
+int TelemSerial::CalibrateCompass(void)
 {
     T_Telem_Calibrate *msg = &hfc->telemCalibrate;
+    int i;
 
     msg->data[0].param = TELEM_PARAM_CALIBRATE;
-    msg->data[0].sub_param= orient_type;
-    switch(orient_type)
-    {
-        case TELEM_PARAM_CAL_ORIENT_PITCH:
-        case TELEM_PARAM_CAL_ORIENT_ROLL:
-            //CheckRangeAndSetF(&msg->data[0].data[0], orient_val, -180, 180);
-            msg->data[0].data[0] = orient_val;
-            break;
-        default:
-            return 0;
+    msg->data[0].sub_param= TELEM_PARAM_CAL_MAX_MIN;
+
+    for(int i = 0; i < 3; i++) {
+        msg->data[0].data[i] = (float)hfc->compass_cal.compassMax[i];
     }
-//    int size = 2 + sizeof(msg->data[0].data[0]);
-//    Telemetry_InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, size);
-    /*TODO:: mi, remove this comment*/
+
+    msg->data[1].param = TELEM_PARAM_CALIBRATE;
+    msg->data[1].sub_param = TELEM_PARAM_CAL_MAX_MIN;
+
+    for(i=0; i<3; i++) {
+        msg->data[1].data[i] = (float)hfc->compass_cal.compassMin[i];
+    }
+
     InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
     return sizeof(T_Telem_Calibrate);
 }
@@ -687,28 +687,29 @@ int TelemSerial::CalibrateCompassDone(void)
 
     T_Telem_Calibrate *msg = &hfc->telemCalibrate;
     int i;
+
     msg->data[0].param = TELEM_PARAM_CALIBRATE_DONE;
-    msg->data[0].sub_param = TELEM_PARAM_CAL_DONE_OFS;
+    msg->data[0].sub_param = TELEM_PARAM_CAL_DONE_MAX;
     for(i=0; i<3; i++) {
-        msg->data[0].data[i] = hfc->compass_cal.comp_ofs[i];
+        msg->data[0].data[i] = (float)hfc->compass_cal.compassMax[i];
     }
 
     msg->data[1].param = TELEM_PARAM_CALIBRATE_DONE;
-    msg->data[1].sub_param = TELEM_PARAM_CAL_DONE_GAINS;
+    msg->data[1].sub_param = TELEM_PARAM_CAL_DONE_MIN;
     for(i=0; i<3; i++) {
-        msg->data[1].data[i] = hfc->compass_cal.comp_gains[i];
+        msg->data[1].data[i] = (float)hfc->compass_cal.compassMin[i];
     }
 
     msg->data[2].param = TELEM_PARAM_CALIBRATE_DONE;
-    msg->data[2].sub_param = TELEM_PARAM_CAL_DONE_MAX;
+    msg->data[2].sub_param = TELEM_PARAM_CAL_DONE_OFS;
     for(i=0; i<3; i++) {
-        msg->data[2].data[i] = (float)hfc->compass_cal.compassMax[i];
+        msg->data[2].data[i] = hfc->compass_cal.comp_ofs[i];
     }
 
     msg->data[3].param = TELEM_PARAM_CALIBRATE_DONE;
-    msg->data[3].sub_param = TELEM_PARAM_CAL_DONE_MIN;
+    msg->data[3].sub_param = TELEM_PARAM_CAL_DONE_GAINS;
     for(i=0; i<3; i++) {
-        msg->data[3].data[i] = (float)hfc->compass_cal.compassMin[i];
+        msg->data[3].data[i] = hfc->compass_cal.comp_gains[i];
     }
 
     InitHdr32(TELEMETRY_CALIBRATE, (unsigned char*)msg, sizeof(T_Telem_Calibrate));
@@ -1792,6 +1793,12 @@ void TelemSerial::ProcessCommands(void)
     }
     if (cmd==TELEM_CMD_CALIBRATE)
     {
+        if (sub_cmd == CALIBRATE_STOP)  // STOP Compass Calibration
+        {
+            hfc->comp_calibrate = COMP_CALIBRATE_DONE;
+            CompassCalDone();
+        }
+        else
         if (sub_cmd == CALIBRATE_IMU)
         {
             if (!hfc->calibrate)
@@ -1802,40 +1809,26 @@ void TelemSerial::ProcessCommands(void)
         else
         if (sub_cmd == CALIBRATE_COMPASS)
         {
-            if (hfc->comp_calibrate == COMP_CALIBRATING) {
-                hfc->comp_calibrate = COMP_CALIBRATE_DONE;
-                CompassCalDone();
+            int i = 0;
+
+            hfc->display_mode = DISPLAY_COMPASS;
+
+            hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
+            hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
+
+            for(i = 0; i < PITCH_COMP_LIMIT; i++)
+            {
+                hfc->comp_pitch_flags[i] = 0;
             }
-            else {
 
-                int i = 0;
-
-                hfc->display_mode = DISPLAY_COMPASS;
-
-                hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
-                hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;
-
-                for(i = 0; i < PITCH_COMP_LIMIT; i++)
-                {
-                    hfc->comp_pitch_flags[i] = 0;
-                }
-
-                for(i = 0; i < ROLL_COMP_LIMIT; i++)
-                {
-                    hfc->comp_roll_flags[i] = 0;
-                }
-
-                if (hfc->comp_calibrate == COMP_CALIBRATING) {
-                    hfc->comp_calibrate = COMP_CALIBRATE_DONE;
-                    CompassCalDone();
-                }
-                else {
-                    hfc->comp_calibrate = COMP_CALIBRATING;
-                }
-
-                hfc->comp_calibrate = COMP_CALIBRATING;
-                //debug_print("Starting Compass Calibration\r\n");
+            for(i = 0; i < ROLL_COMP_LIMIT; i++)
+            {
+                hfc->comp_roll_flags[i] = 0;
             }
+
+
+            hfc->comp_calibrate = COMP_CALIBRATING;
+            //debug_print("Starting Compass Calibration\r\n");
         }
     }
     else

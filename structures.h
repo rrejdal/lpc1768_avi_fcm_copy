@@ -137,8 +137,7 @@
 
 #define TELEM_PARAM_CALIBRATE       5
 
-#define TELEM_PARAM_CAL_ORIENT_PITCH    0
-#define TELEM_PARAM_CAL_ORIENT_ROLL     1
+#define TELEM_PARAM_CAL_MAX_MIN         0
 
 
 #define TELEM_PARAM_CALIBRATE_DONE  6
@@ -206,8 +205,9 @@
 #define IMURESET_GPS            0
 #define IMURESET_ALTITUDE       1
 
-#define CALIBRATE_IMU           0
-#define CALIBRATE_COMPASS       1
+#define CALIBRATE_STOP          0
+#define CALIBRATE_IMU           1
+#define CALIBRATE_COMPASS       2
 
 /* control source, transition from RCradio to anything saves stick values */
 #define CTRL_SOURCE_RCRADIO     0
