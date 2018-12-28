@@ -1387,16 +1387,12 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                     sPRINTd(str, (char*)"COMPASS P:%d", (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
                     debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
-                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_PITCH, orient_val);
-                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
                 else if(i_roll != -1 ) {
                     int orient_val = (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT;
                     sPRINTd(str, (char*)"COMPASS R:%d", (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
                     myLcd.SetLine(0, str, 0);
                     debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
-                    int size = telem.CalibrateCompassOrient(TELEM_PARAM_CAL_ORIENT_ROLL, orient_val);
-                    telem.AddMessage((unsigned char*)&hfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
                 }
 
                 myLcd.SetLine(1, (char*)"CALIBRATING!  ", 0);
@@ -3729,11 +3725,15 @@ static void CompassCalibration(void)
      * - Always use new minimum value if in calibration mode, the assumption here
      *   is that the user knows only to calibrate in an area void of EM interference
      * - If not calibrating, only update max and min if limits are not exceeded*/
+    int max_min_changed = 0;
     for (i=0; i<3; i++)
     {
-        hfc.compass_cal.compassMin[i] = min(hfc.compass_cal.compassMin[i], compass.dataXYZ[i]);
-        hfc.compass_cal.compassMax[i] = max(hfc.compass_cal.compassMax[i], compass.dataXYZ[i]);
+        float fDataXYZ = compass.dataXYZ[i];
+        hfc.compass_cal.compassMin[i] = min(hfc.compass_cal.compassMin[i], fDataXYZ);
+        hfc.compass_cal.compassMax[i] = max(hfc.compass_cal.compassMax[i], fDataXYZ);
         mag_range[i] = hfc.compass_cal.compassMax[i] - hfc.compass_cal.compassMin[i];
+        if(hfc.compass_cal.compassMax[i] == fDataXYZ || hfc.compass_cal.compassMin[i] == fDataXYZ)
+            max_min_changed = 1;
     }
 
     for(i = 0; i<3; i++)
@@ -3743,6 +3743,13 @@ static void CompassCalibration(void)
             hfc.compass_cal.compassMax[i] = 0;
             hfc.compass_cal.compassMin[i] = 0;
         }
+    }
+
+    // The max and min values have changed, report to the ground station
+    if(0 != max_min_changed)
+    {
+        int size = telem.CalibrateCompass();
+        telem.AddMessage((unsigned char*)&hfc.telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
     }
 
     /*Set the pitch angle flag index and roll angle flag index to the
