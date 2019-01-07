@@ -3462,9 +3462,13 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 
 static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
 {
-    hfc.power.Vcoeff = *(float *)pdata;
+    hfc.power.Vslope  = *(float *)pdata;
     pdata += 4;
-    hfc.power.Icoeff =  *(float *)pdata;
+    hfc.power.Voffset = *(float *)pdata;
+    pdata += 4;
+    hfc.power.Islope  = *(float *)pdata;
+    pdata += 4;
+    hfc.power.Ioffset = *(float *)pdata;
 }
 
 //
@@ -4598,7 +4602,7 @@ static void ProcessUserCmnds(char c)
             usb_print("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
                         board_info[PN_PWR][i].serial_number2, board_info[PN_PWR][i].serial_number1, board_info[PN_PWR][i].serial_number0);
-            usb_print("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
+            usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",hfc.power.Vslope,hfc.power.Voffset,hfc.power.Islope,hfc.power.Ioffset);
         }
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
