@@ -3462,13 +3462,16 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 
 static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
 {
-    hfc.power.Vslope  = *(float *)pdata;
-    pdata += 4;
-    hfc.power.Voffset = *(float *)pdata;
-    pdata += 4;
-    hfc.power.Islope  = *(float *)pdata;
-    pdata += 4;
-    hfc.power.Ioffset = *(float *)pdata;
+    if (can_power_coeff == 1) {
+        hfc.power.Vslope  = *(float *)pdata;
+        pdata += 4;
+        hfc.power.Voffset = *(float *)pdata;
+    }
+    else if (can_power_coeff == 2) {
+        hfc.power.Islope  = *(float *)pdata;
+        pdata += 4;
+        hfc.power.Ioffset = *(float *)pdata;
+    }
 }
 
 //
@@ -3552,7 +3555,7 @@ static void can_handler(void)
                 can_node_found = 1;
             }
             else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
-                can_power_coeff = 1;
+                can_power_coeff++;
                 UpdatePowerNodeCoeff(node_id, pdata);
             }
             else {
@@ -4495,23 +4498,32 @@ static void ProcessUserCmnds(char c)
         // Wait for Load Type - config
         serial.scanf("%19s", request);
         if (strcmp(request, "pwr_read") == 0) {
-            can_tx_message.len = 0;
-            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                    DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
+                for( int i = 0; i < 2; i ++) {
+                can_tx_message.len = 0;
+                can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                        DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
 
-            while(!can_power_coeff && --timeout) {
-                if (!can.write(can_tx_message)) {
-                    ++write_canbus_error;
+                while( (can_power_coeff == i) && --timeout) {
+                    if (!can.write(can_tx_message)) {
+                        ++write_canbus_error;
+                    }
+                    wait_ms(20);
                 }
-                wait_ms(20);
-            }
 
-            if (!can_power_coeff) {
-                usb_print("ERROR");
-            }
-            else {
-                usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",
-                        hfc.power.Vslope,hfc.power.Voffset,hfc.power.Islope,hfc.power.Ioffset);
+                if (can_power_coeff == i) {
+                    usb_print("ERROR");
+                }
+                else {
+                    if (can_power_coeff == 1) {
+                        usb_print("\r\n---voltage: slope=%f offset=%f",
+                                  hfc.power.Vslope,hfc.power.Voffset);
+                    }
+                    else if (can_power_coeff == 2) {
+                        usb_print("\r\n---current: slope=%f offset=%f \r\n",
+                                  hfc.power.Islope,hfc.power.Ioffset);
+                    }
+
+                }
             }
             can_power_coeff = 0;
         }
