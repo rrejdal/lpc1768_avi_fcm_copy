@@ -4487,10 +4487,6 @@ static void ProcessUserCmnds(char c)
     }
     else if (c == 'C') {
         // Calibrate requested
-#if 0
-        // SP::NOTE: 28/12/2018
-        // TEMP REMOVING MECHANSIM FOR STARTING A CALIBRATION TO THE POWER NODE.
-        // THIS IS NO LONGER THE DESIRED WAY TO PERFORM POWER NODE CALIBRATION.
         usb_print("OK");
 
         int timeout = CAN_TIMEOUT;
@@ -4498,7 +4494,7 @@ static void ProcessUserCmnds(char c)
 
         // Wait for Load Type - config
         serial.scanf("%19s", request);
-        if (strcmp(request, "read") == 0) {
+        if (strcmp(request, "pwr_read") == 0) {
             can_tx_message.len = 0;
             can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
                                                     DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
@@ -4514,10 +4510,15 @@ static void ProcessUserCmnds(char c)
                 usb_print("ERROR");
             }
             else {
-                usb_print("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
+                usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",
+                        hfc.power.Vslope,hfc.power.Voffset,hfc.power.Islope,hfc.power.Ioffset);
             }
             can_power_coeff = 0;
         }
+#if 0
+        // SP::NOTE: 28/12/2018
+        // TEMP REMOVING MECHANSIM FOR STARTING A CALIBRATION TO THE POWER NODE.
+        // THIS IS NO LONGER THE DESIRED WAY TO PERFORM POWER NODE CALIBRATION.
         else if (strcmp(request, "start") == 0) {
             // Issue a request to start power node calibration
             can_power_coeff = 0;
@@ -4562,7 +4563,7 @@ static void ProcessUserCmnds(char c)
         }
         else
 #endif
-       if (strcmp(request, "compass") == 0) {
+       else if (strcmp(request, "compass") == 0) {
             usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
             usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[0],hfc.compass_cal.compassMin[0],
                                                                      hfc.compass_cal.comp_gains[0],hfc.compass_cal.comp_ofs[0]);
@@ -4572,7 +4573,7 @@ static void ProcessUserCmnds(char c)
                                                                      hfc.compass_cal.comp_gains[2],hfc.compass_cal.comp_ofs[2]);
        }
        else {
-           usb_print("NACK");
+           usb_print("NACK\r\n");
        }
     }
     else if (c == 'M') {
