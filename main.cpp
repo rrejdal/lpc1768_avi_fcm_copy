@@ -735,8 +735,9 @@ static void SetControlMode(void)
 		SetCtrlMode(&hfc, pConfig, YAW,   ClipMinMax(mode, pConfig->YawModeMin, pConfig->YawModeMax));
 
 		/* during profiling, force the given mode */
-	    if (hfc.profile_mode == PROFILING_ON)
+	    if (hfc.profile_mode == PROFILING_ON) {
 	        SetCtrlMode(&hfc, pConfig, hfc.profile_ctrl_variable, hfc.profile_ctrl_level+1);
+	    }
     }
 }
 
@@ -807,8 +808,6 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 
     // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
-    hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
-    hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);          // set transmitter correctly
 
     ROLL_Taileron  = hfc.mixer_in[ROLL]  * pConfig->AilRange;
     PITCH_Televator = hfc.mixer_in[PITCH] * pConfig->EleRange * hfc.rw_cfg.elevator_gain;
@@ -1064,6 +1063,18 @@ static void ServoMixer(void)
 
                 // Link Live Throttle on Rear Servo output 0
                 servo_node_pwm[2].servo_out[0] = servo_node_pwm[1].servo_out[0] + pConfig->RearRpmTrim;
+
+                if ((pConfig->dcp_gain == 0) && (pConfig->elevator_gain == 0)) {
+                    // Take values from xbus in this case
+                    hfc.rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
+                    hfc.rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);
+                }
+                else {
+                    // Take values for dcp and elevator gain from the config
+                    hfc.rw_cfg.elevator_gain = pConfig->elevator_gain;         // use only positive half
+                    hfc.rw_cfg.dcp_gain  = pConfig->dcp_gain;
+                }
+
                 MixerTandem(&servo_node_pwm[0]);
 
                 // Drive PWM Ch5 on front back servos for Fan Control
@@ -2204,8 +2215,8 @@ static void ServoUpdate(float dT)
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
-#if 0
-    if ((hfc.print_counter %500) == 0) {
+#if 1
+    if ((hfc.print_counter %1000) == 0) {
         debug_print("Xbus");
         for (int i=0; i < 16; i++) {
             debug_print("[%d]=%f ", i, xbus.valuesf[i]);
@@ -2220,15 +2231,33 @@ static void ServoUpdate(float dT)
                         hfc.full_auto, hfc.auto_throttle, hfc.ctrl_source,
                         hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value);
 
-        debug_print("Servo out : ");
+        debug_print("Mixer in [P,R,Y,C,T]: ");
         for (int i=0; i < 5; i++) {
+            debug_print("[%f] ", hfc.mixer_in[i]);
+        }
+
+        debug_print("\r\nServo out [1]: ");
+        for (int i=0; i < 8; i++) {
             debug_print("[%f] ", servo_node_pwm[1].servo_out[i]);
         }
 
-        debug_print("\r\npwm values : ");
-        for (int i=0; i < 5; i++) {
+        debug_print("\r\nServo out [2]: ");
+        for (int i=0; i < 8; i++) {
+            debug_print("[%f] ", servo_node_pwm[2].servo_out[i]);
+        }
+
+        debug_print("\r\npwm values [1]: ");
+        for (int i=0; i < 8; i++) {
             debug_print("[%d] ", pwm_values[0][i]);
         }
+
+        debug_print("\r\npwm values [2]: ");
+        for (int i=0; i < 8; i++) {
+            debug_print("[%d] ", pwm_values[1][i]);
+        }
+
+        debug_print("\r\nDCP gain: [%f]", hfc.rw_cfg.dcp_gain);
+        debug_print("\r\nELEV gain: [%f]", hfc.rw_cfg.elevator_gain);
 
         debug_print("\r\n\r\n");
     }
@@ -3490,6 +3519,7 @@ static void can_handler(void)
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
                 UpdateLidarHeight(node_id, *(uint32_t *)pdata);
+                UpdateLidarHeight(node_id+1, *(uint32_t *)pdata);
                 //UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
@@ -4573,13 +4603,13 @@ static void ProcessUserCmnds(char c)
     }
     else if (c == 'M') {
         // System Manifest
-        IAP iap;
-        int *fcm_serial_num;
-        fcm_serial_num = iap.read_serial();
+        //IAP iap;
+        //int *fcm_serial_num;
+        //fcm_serial_num = iap.read_serial();
 
         usb_print("Type[FCM], Node[%d], Version[%02x:%02x:%02x],  SERIAL[%08x:%08x:%08x:%08x]\r\n",
                             DEFAULT_NODE_ID, MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION,
-                            fcm_serial_num[0], fcm_serial_num[1], fcm_serial_num[2], fcm_serial_num[3]);
+                            hfc.fcm_serialnum_0, hfc.fcm_serialnum_1, hfc.fcm_serialnum_2, hfc.fcm_serialnum_3);
 
         usb_print("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
@@ -5017,6 +5047,15 @@ void InitializeRuntimeData(void)
 {
 	// Clear out the Runtime RAm copy of the config Data
 	memset(pRamConfigData, 0x00, sizeof(ConfigData));
+
+	// Setup FCM's serial number.
+    int *fcm_serial_num;
+    IAP iap;
+    fcm_serial_num = iap.read_serial();
+    hfc.fcm_serialnum_0 = fcm_serial_num[0];
+    hfc.fcm_serialnum_1 = fcm_serial_num[1];
+    hfc.fcm_serialnum_2 = fcm_serial_num[2];
+    hfc.fcm_serialnum_3 = fcm_serial_num[3];
 
     hfc.PRstick_rate  = pConfig->PRstickRate / pConfig->Stick100range;
     hfc.PRstick_angle = pConfig->PRstickAngle /pConfig->Stick100range;

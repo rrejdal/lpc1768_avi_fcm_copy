@@ -334,6 +334,15 @@ case LOG_PARAM_POSITION:            // heli position relative to home [horizonta
                 value = Float32toFloat16(course);
         }
         break;
+case LOG_PARAM_TANDEM:
+    if (index == 0) {
+        value = Float32toFloat16(hfc->rw_cfg.dcp_gain);
+    }
+    else if (index == 1) {
+        value = Float32toFloat16(hfc->rw_cfg.elevator_gain);
+    }
+    break;
+
     }
     return value;
 }

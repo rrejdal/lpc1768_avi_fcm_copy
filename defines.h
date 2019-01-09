@@ -184,6 +184,9 @@ extern USBSerial   serial;
 #define LOG_PARAM_CPU               23  // CPU stats [process_period in uS int / utilization in % f16]
 #define LOG_PARAM_TIME              24  // CPU time in ms (int)
 #define LOG_PARAM_POSITION          25  // heli position relative to home [horizontal distance in m / heading in deg / altitude difference in m] (f16)
+#define LOG_PARAM_TANDEM            26
+
+
 //#define LOG_PARAM_MOT_BAT_VOLT      7  // motor_bat_voltage (f16 hex)
 //#define LOG_PARAM_RECV_BAT_VOLT     8  // recv_bat_voltage (f16 volt)
 //#define LOG_PARAM_TEMPERATURE       13  // temperature in deg C from gyro (f16)

@@ -590,6 +590,12 @@ typedef struct
     f16         return_speed;       // m/s return to home or landing
     byte        bat_cells;          // number of lipo cells
     byte        unused[3];
+    uint32      fcm_serialnum_0;       // FCM Chip ID of form [3:2:1:0]
+    uint32      fcm_serialnum_1;
+    uint32      fcm_serialnum_2;
+    uint32      fcm_serialnum_3;
+    uint32      fcm_version_num;    // Version is Major:Minor:Build, each item is 8bits
+
 } T_AircraftConfig;
 
 typedef struct
@@ -1133,6 +1139,11 @@ typedef struct
     float gyro_ofs[3];
 
     int box_dropper_;
+
+    uint32_t fcm_serialnum_0;
+    uint32_t fcm_serialnum_1;
+    uint32_t fcm_serialnum_2;
+    uint32_t fcm_serialnum_3;
 
     ModifiableConfigData rw_cfg;
 

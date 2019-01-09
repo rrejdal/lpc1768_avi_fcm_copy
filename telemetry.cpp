@@ -656,6 +656,12 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->unused[1]          = 0;
     msg->unused[2]          = 0;
 
+    msg->fcm_serialnum_0 = hfc->fcm_serialnum_0;
+    msg->fcm_serialnum_1 = hfc->fcm_serialnum_1;
+    msg->fcm_serialnum_2 = hfc->fcm_serialnum_2;
+    msg->fcm_serialnum_3 = hfc->fcm_serialnum_3;
+    msg->fcm_version_num = (MAJOR_VERSION << 16) | (MINOR_VERSION << 8) | (BUILD_VERSION);
+
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
@@ -807,6 +813,11 @@ void TelemSerial::SelectCtrlSource(byte source)
     if (source==CTRL_SOURCE_RCRADIO || source==CTRL_SOURCE_JOYSTICK)
     {
     	ApplyDefaults();
+
+    	// Clear playlist items
+        hfc->playlist_items = 0;
+        hfc->playlist_position = 0;
+
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
         hfc->playlist_status = PLAYLIST_STOPPED;
     }
@@ -1408,9 +1419,9 @@ void TelemSerial::SendMsgToGround(int msg_id)
 /* returns true when everything is ok, false otherwise */
 char TelemSerial::PreFlightChecks(void)
 {
-    if (pConfig->disable_pre_flight) {
+    //if (pConfig->disable_pre_flight) {
         return true;
-    }
+    //}
 
     int gps_error;
 
