@@ -2215,7 +2215,7 @@ static void ServoUpdate(float dT)
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
-#if 1
+#if 0
     if ((hfc.print_counter %1000) == 0) {
         debug_print("Xbus");
         for (int i=0; i < 16; i++) {
@@ -3519,7 +3519,7 @@ static void can_handler(void)
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
                 UpdateLidarHeight(node_id, *(uint32_t *)pdata);
-                UpdateLidarHeight(node_id+1, *(uint32_t *)pdata);
+                //UpdateLidarHeight(node_id+1, *(uint32_t *)pdata); // NOTE::SP added to testing only
                 //UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
