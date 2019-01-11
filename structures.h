@@ -635,8 +635,10 @@ typedef struct
 	float	Vesc;
 	float	Iesc;
 	float	Iaux;
-	float   Vcoeff;
-	float   Icoeff;
+	float   Vslope;
+    float   Voffset;
+    float   Islope;
+	float   Ioffset;
 	float	battery_level;	// 0-100%, energy based, not capacity
 	float	capacity_used;	// AmpSeconds
 	float   capacity_total; // rated As

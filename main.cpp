@@ -3491,9 +3491,16 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 
 static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
 {
-    hfc.power.Vcoeff = *(float *)pdata;
-    pdata += 4;
-    hfc.power.Icoeff =  *(float *)pdata;
+    if (can_power_coeff == 1) {
+        hfc.power.Vslope  = *(float *)pdata;
+        pdata += 4;
+        hfc.power.Voffset = *(float *)pdata;
+    }
+    else if (can_power_coeff == 2) {
+        hfc.power.Islope  = *(float *)pdata;
+        pdata += 4;
+        hfc.power.Ioffset = *(float *)pdata;
+    }
 }
 
 //
@@ -3578,7 +3585,7 @@ static void can_handler(void)
                 can_node_found = 1;
             }
             else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
-                can_power_coeff = 1;
+                can_power_coeff++;
                 UpdatePowerNodeCoeff(node_id, pdata);
             }
             else {
@@ -4513,37 +4520,47 @@ static void ProcessUserCmnds(char c)
     }
     else if (c == 'C') {
         // Calibrate requested
+        usb_print("OK");
+        serial.scanf("%19s", request);
+
+        // Wait for Load Type - config
+        if (strcmp(request, "pwr_read") == 0) {
+            int timeout = CAN_TIMEOUT;
+            CANMessage can_tx_message;
+
+            for( int i = 0; i < 2; i ++) {
+                can_tx_message.len = 0;
+                can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
+                                                        DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
+
+                while( (can_power_coeff == i) && --timeout) {
+                    if (!can.write(can_tx_message)) {
+                        ++write_canbus_error;
+                    }
+                    wait_ms(20);
+                }
+
+                if (can_power_coeff == i) {
+                    usb_print("ERROR");
+                }
+                else {
+                    if (can_power_coeff == 1) {
+                        usb_print("\r\n---voltage: slope=%f offset=%f",
+                                  hfc.power.Vslope,hfc.power.Voffset);
+                    }
+                    else if (can_power_coeff == 2) {
+                        usb_print("\r\n---current: slope=%f offset=%f \r\n",
+                                  hfc.power.Islope,hfc.power.Ioffset);
+                    }
+
+                }
+            }
+            can_power_coeff = 0;
+        }
 #if 0
         // SP::NOTE: 28/12/2018
         // TEMP REMOVING MECHANSIM FOR STARTING A CALIBRATION TO THE POWER NODE.
         // THIS IS NO LONGER THE DESIRED WAY TO PERFORM POWER NODE CALIBRATION.
-        usb_print("OK");
-
-        int timeout = CAN_TIMEOUT;
-        CANMessage can_tx_message;
-
-        // Wait for Load Type - config
-        serial.scanf("%19s", request);
-        if (strcmp(request, "read") == 0) {
-            can_tx_message.len = 0;
-            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                    DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
-
-            while(!can_power_coeff && --timeout) {
-                if (!can.write(can_tx_message)) {
-                    ++write_canbus_error;
-                }
-                wait_ms(20);
-            }
-
-            if (!can_power_coeff) {
-                usb_print("ERROR");
-            }
-            else {
-                usb_print("Vcoeff[%f], Icoeff[%f]", hfc.power.Vcoeff, hfc.power.Icoeff);
-            }
-            can_power_coeff = 0;
-        }
         else if (strcmp(request, "start") == 0) {
             // Issue a request to start power node calibration
             can_power_coeff = 0;
@@ -4588,7 +4605,8 @@ static void ProcessUserCmnds(char c)
         }
         else
 #endif
-       if (strcmp(request, "compass") == 0) {
+        else if (strcmp(request, "compass") == 0) {
+
             usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
             usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[0],hfc.compass_cal.compassMin[0],
                                                                      hfc.compass_cal.comp_gains[0],hfc.compass_cal.comp_ofs[0]);
@@ -4596,10 +4614,11 @@ static void ProcessUserCmnds(char c)
                                                                      hfc.compass_cal.comp_gains[1],hfc.compass_cal.comp_ofs[1]);
             usb_print("Z    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", hfc.compass_cal.compassMax[2],hfc.compass_cal.compassMin[2],
                                                                      hfc.compass_cal.comp_gains[2],hfc.compass_cal.comp_ofs[2]);
-       }
-       else {
-           usb_print("NACK");
-       }
+        }
+        else {
+            usb_print("NACK\r\n");
+        }
+
     }
     else if (c == 'M') {
         // System Manifest
@@ -4628,7 +4647,7 @@ static void ProcessUserCmnds(char c)
             usb_print("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
                         board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
                         board_info[PN_PWR][i].serial_number2, board_info[PN_PWR][i].serial_number1, board_info[PN_PWR][i].serial_number0);
-            usb_print("---Vcoeff[%f], Icoeff[%f]\r\n", hfc.power.Vcoeff, hfc.power.Icoeff);
+            usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",hfc.power.Vslope,hfc.power.Voffset,hfc.power.Islope,hfc.power.Ioffset);
         }
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
