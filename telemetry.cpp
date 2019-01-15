@@ -619,6 +619,8 @@ void TelemSerial::Generate_System2(int time_ms)
         msg->esc_temp = Float32toFloat16(hfc->gyro_temp_lp);
     }
 
+    msg->num_landing_sites = hfc->landing_sites_num;
+
     InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
 

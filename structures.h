@@ -402,7 +402,8 @@ typedef struct
     //-------------------------------- size 68
     f16     gyro_offsets[3];    // P/R/Y, deg/s
     f16     esc_temp;           // ESC temperature in degC
-    //-------------------------------- size 76
+    byte    num_landing_sites;
+    //-------------------------------- size 77
 } T_Telem_System2;
 
 /* Telemetry - DataStream 3       sent at the full rate (1200Hz) divided by the number of elements,
