@@ -860,6 +860,11 @@ typedef struct ConfigurationData {
     float heading_offset;
     float yaw_heading_threshold;
 
+    float voltage_slope_percent_mod;
+    float current_slope_percent_mod;
+    float current_offset;
+
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 

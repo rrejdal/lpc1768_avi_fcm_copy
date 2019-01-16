@@ -3482,10 +3482,19 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
 
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 {
-    hfc.power.Vmain = *(float *)pdata;
-    hfc.power.Vesc = hfc.power.Vmain;
+    float v, v_slope, i, i_slope;
+
+    v = *(float *)pdata;
     pdata += 4;
-    hfc.power.Iesc =  *(float *)pdata;
+    i = *(float *)pdata;
+
+    v_slope = (pConfig->voltage_slope_percent_mod / 100.0f) + 1.0f;
+    hfc.power.Vmain = v*v_slope;
+    hfc.power.Vesc  = hfc.power.Vmain;
+
+    i_slope = (pConfig->current_slope_percent_mod / 100.0f) + 1.0f;
+    hfc.power.Iesc =  i*i_slope + pConfig->current_offset;
+
     power_update_avail = 1;
 }
 
