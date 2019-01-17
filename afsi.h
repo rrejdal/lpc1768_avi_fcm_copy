@@ -4,8 +4,8 @@
 #include "mbed.h"
 #include "structures.h"
 
-#define MAX_TELEM_MESSAGES  10
-#define TELEM_BUFFER_SIZE   (256+8+16)  // 16 for some slack
+#define MAX_AFSI_MESSAGES  10
+#define AFSI_BUFFER_SIZE   (256+8+16)  // 16 for some slack
 
 ///////////AFSI_THINGS/////////////
 #define AFSI_CMD_CLASS_CTRL     0x01
@@ -60,9 +60,9 @@ typedef struct{
 class AFSI_Serial
 {
 public:
-    unsigned int telem_good_messages;
-    unsigned int telem_crc_errors;
-    unsigned int telem_start_code_searches;
+    unsigned int afsi_good_messages;
+    unsigned int afsi_crc_errors;
+    unsigned int afsi_start_code_searches;
 
     AFSI_Serial(RawSerial *m_serial);
 
@@ -124,11 +124,15 @@ private:
     FlightControlData *hfc;
     const ConfigData *pConfig;
     T_Tentry curr_msg;
-    T_Tentry Q[MAX_TELEM_MESSAGES];
+    T_Tentry Q[MAX_AFSI_MESSAGES];
     unsigned char messages;
 
-    unsigned int telem_recv_bytes;
-    byte telem_recv_buffer[TELEM_BUFFER_SIZE];
+    unsigned int afsi_recv_bytes;
+    byte afsi_recv_buffer[AFSI_BUFFER_SIZE];
+
+
+    int ProcessAsfiCtrlCommands(TELEM_AFSI_MSG *msg);
+    int ProcessAsfiStatusCommands(TELEM_AFSI_MSG *msg);
 
     bool ProcessParameters(T_Telem_Params4 *msg);
     bool CopyCommand(T_Telem_Commands5 *msg);

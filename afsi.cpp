@@ -31,10 +31,10 @@ AFSI_Serial::AFSI_Serial(RawSerial *m_serial)
     messages      = 0;
     serial = m_serial;
 
-    telem_good_messages       = 0;
-    telem_crc_errors          = 0;
-    telem_start_code_searches = 0;
-    telem_recv_bytes          = 0;
+    afsi_good_messages       = 0;
+    afsi_crc_errors          = 0;
+    afsi_start_code_searches = 0;
+    afsi_recv_bytes          = 0;
 
 }
 
@@ -155,363 +155,163 @@ void AFSI_Serial::AddInputByte(char ch)
 {
     bool foundSC_AFSI = false;
 
-//  debug_print("Telem c=%d\r\n", ch);
-
     /* if full, just clear it */
-    if (telem_recv_bytes >= TELEM_BUFFER_SIZE) {
-        telem_recv_bytes = 0;
+    if (afsi_recv_bytes >= AFSI_BUFFER_SIZE) {
+        afsi_recv_bytes = 0;
     }
 
     /* add input byte into the recv buffer and increment telem_recv_bytes*/
-    telem_recv_buffer[telem_recv_bytes++] = ch;
+    afsi_recv_buffer[afsi_recv_bytes++] = ch;
 
     /* if first byte is not the start code find it, by discarding all data in front of it */
-    if (telem_recv_buffer[0]!= AFSI_SNC_CH_1)
+    if (afsi_recv_buffer[0]!= AFSI_SNC_CH_1)
     {
         unsigned int i;
 
-        for (i=0; i<telem_recv_bytes; i++)
+        for (i=0; i<afsi_recv_bytes; i++)
         {
-            if (telem_recv_buffer[i]==AFSI_SNC_CH_1)
+            if (afsi_recv_buffer[i]==AFSI_SNC_CH_1)
             {
-                telem_recv_bytes = RemoveBytes(telem_recv_buffer,i,telem_recv_bytes);
+                afsi_recv_bytes = RemoveBytes(afsi_recv_buffer,i,afsi_recv_bytes);
                 foundSC_AFSI = true;
                 break;
             }
         }
-        telem_start_code_searches++;
+        afsi_start_code_searches++;
         if (!foundSC_AFSI)
         {
-            telem_recv_bytes = 0;
+            afsi_recv_bytes = 0;
             return;
         }
     }
-    else if (telem_recv_buffer[0] == AFSI_SNC_CH_1)
+    else if (afsi_recv_buffer[0] == AFSI_SNC_CH_1)
     {
         foundSC_AFSI = true;
     }
 
-    if (!telem_recv_bytes)
+    if (!afsi_recv_bytes)
         return;
 
     /* still did not find it, this case should never happen */
-    if (telem_recv_buffer[0] != AFSI_SNC_CH_1)
-    {
-//        debug_print("NSC: %2d ", telem_recv_bytes);
-//        for (i=0; i<8; i++) printf("%02x ", telem_recv_buffer[i]);
-//        debug_print("\r\n");
-        telem_recv_bytes = 0;
+    if (afsi_recv_buffer[0] != AFSI_SNC_CH_1) {
+        afsi_recv_bytes = 0;
         return;
     }
 
     //Check if enough bytes for header
-    if (telem_recv_bytes < 6)
+    if (afsi_recv_bytes < 6)
     {
         return;
     }
 
     //Populate header
-    hdr_afsi->sync1 = telem_recv_buffer[0];
-    hdr_afsi->sync2 = telem_recv_buffer[1];
-    hdr_afsi->msg_class = telem_recv_buffer[2];
-    hdr_afsi->id = telem_recv_buffer[3];
-    hdr_afsi->len = (telem_recv_buffer[4]<<8) + telem_recv_buffer[5];
+    hdr_afsi->sync1 = afsi_recv_buffer[0];
+    hdr_afsi->sync2 = afsi_recv_buffer[1];
+    hdr_afsi->msg_class = afsi_recv_buffer[2];
+    hdr_afsi->id = afsi_recv_buffer[3];
+    hdr_afsi->len = (afsi_recv_buffer[4]<<8) + afsi_recv_buffer[5];
 
     //Check if enough bytes for rest of message
     //+2 at the end added for CRC
-    if (telem_recv_bytes < 6+msg_afsi->hdr->len+2)
-    {
+    if (afsi_recv_bytes < 6+msg_afsi->hdr->len+2) {
         return;
     }
 
     //Populate rest of the message
-    for (int i = 0; i<msg_afsi->hdr->len; i++)
-    {
-        msg_afsi->payload[i] = telem_recv_buffer[i+6];
+    for (int i = 0; i<msg_afsi->hdr->len; i++) {
+        msg_afsi->payload[i] = afsi_recv_buffer[i+6];
     }
-    msg_afsi->crc[0] = telem_recv_buffer[6+msg_afsi->hdr->len];
-    msg_afsi->crc[1] = telem_recv_buffer[6+msg_afsi->hdr->len+1];
+    msg_afsi->crc[0] = afsi_recv_buffer[6+msg_afsi->hdr->len];
+    msg_afsi->crc[1] = afsi_recv_buffer[6+msg_afsi->hdr->len+1];
 
     //Check CRC
     int c1 = 0;
     int c2 = 0;
-    for (int i=0; i<msg_afsi->hdr->len; i++)
-    {
+    for (int i=0; i<msg_afsi->hdr->len; i++) {
         c1 += msg_afsi->payload[i];
         c2 += c1;
     }
     //CRC check failed
-    if (c1 != msg_afsi->crc[0] || c2 != msg_afsi->crc[1])
-    {
-        telem_recv_buffer[0] = 0;
-        telem_crc_errors++;
+    if (c1 != msg_afsi->crc[0] || c2 != msg_afsi->crc[1]) {
+        afsi_recv_buffer[0] = 0;
+        afsi_crc_errors++;
         return;
     }
 
-    ///////////////////////Population of normal hdr/////////////////////////
-    //Message type
-    if (msg_afsi->hdr->id == AFSI_CMD_ID_ARM ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_DISARM ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_TAKEOFF ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_HOME ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_LAND ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_HOLD)
-    {
-        msg_cmd->command = TELEM_CMD_NONE;
-        msg_cmd->sub_cmd = TELEM_CMD_NONE;
-        hdr->type = TELEMETRY_COMMANDS5;
-        hdr->len = msg_afsi->hdr->len;
-        switch (msg_afsi->hdr->id){
-            case AFSI_CMD_ID_ARM:
-                msg_cmd ->command = TELEM_CMD_ARMING;
-                msg_cmd->sub_cmd = CMD_ARM;
-                break;
-            case AFSI_CMD_ID_DISARM:
-                msg_cmd->command = TELEM_CMD_ARMING;
-                break;
-            case AFSI_CMD_ID_TAKEOFF:
-                msg_cmd->command = TELEM_CMD_TAKEOFF;
-                msg_cmd->sub_cmd = TAKEOFF_ARM;
-                break;
-            case  AFSI_CMD_ID_LAND:
-                msg_cmd->command = TELEM_CMD_LAND;
-                msg_cmd->sub_cmd = LANDING_CURRENT;
-                break;
-            case AFSI_CMD_ID_HOME:
-                msg_cmd->command = TELEM_CMD_GOTO_HOME;
-                break;
-            case AFSI_CMD_ID_HOLD:
-                msg_cmd->command = TELEM_CMD_POS_HOLD;
-                break;
-            default:
-                msg_cmd->command = TELEM_CMD_NONE;
+    if ( msg_afsi->hdr->msg_class == AFSI_CTRL ) {
+        if (ProcessAsfiCtrlCommands(msg_afsi)) {
+            afsi_good_messages++;
         }
-        //Transfer data
-        for (int i = 0; i<msg_afsi->hdr->len; i++)
-        {
-            msg_cmd->data[i] = msg_afsi->payload[i];
-        }
-
-    }
-    else if (msg_afsi->hdr->id == AFSI_CMD_ID_FWD_SPEED ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_AFT_SPEED ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_RIGHT_SPEED ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_LEFT_SPEED ||
-        msg_afsi->hdr->id == AFSI_CMD_ID_SET_ALT)
-    {
-        hdr->type = TELEMETRY_PARAMETERS4;
-        hfc->joystick_new_values = true;
-
-        switch (msg_afsi->hdr->id)
-        {
-            case AFSI_CMD_ID_SET_ALT:
-                msg_par->data[0].param = TELEM_PARAM_WAYPOINT;
-                msg_par->data[0].sub_param = TELEM_PARAM_WP_ALTITUDE;
-                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
-                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
-                break;
-            case AFSI_CMD_ID_FWD_SPEED:
-                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
-                msg_par->data[0].sub_param = TELEM_PARAM_JOY_PITCH;
-                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
-                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
-                break;
-            case AFSI_CMD_ID_AFT_SPEED:
-                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
-                msg_par->data[0].sub_param = TELEM_PARAM_JOY_PITCH;
-                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
-                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
-                break;
-            case AFSI_CMD_ID_LEFT_SPEED:
-                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
-                msg_par->data[0].sub_param = TELEM_PARAM_JOY_ROLL;
-                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
-                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
-                break;
-            case AFSI_CMD_ID_RIGHT_SPEED:
-                msg_par->data[0].param = TELEM_PARAM_JOYSTICK;
-                msg_par->data[0].sub_param = TELEM_PARAM_JOY_ROLL;
-                msg_par->data[0].data[1] = (processU2(msg_afsi->payload,1e3)>>8);
-                msg_par->data[0].data[0] = (processU2(msg_afsi->payload,1e3)&0xFF);
-                break;
-        }
-    }
-
-
-
-//    debug_print("Telem Msg type=%d\r\n", hdr->type);
-
-    if (hdr->type==TELEMETRY_PARAMETERS4)
-    {
-        T_Telem_Params4 *msg = (T_Telem_Params4*)telem_recv_buffer;
-        if (foundSC_AFSI)
-        {
-            return;
-        }
-
-        if (ProcessParameters(msg))
-        {
-            telem_good_messages++;
-            /* do not confirm new joystick values */
-            if (!hfc->joystick_new_values)
-            {
-                /* this might be produced before the previous one was transmitted !!!!!!! */
-                hfc->tcpip_confirm  = true;
-                hfc->tcpip_org_type = hdr->type;
-                hfc->tcpip_org_len  = hdr->len;
-                hfc->tcpip_user1    = 0;
-                hfc->tcpip_user2    = 0;
-            }
-        }
-        telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
+        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr->len+8+1, afsi_recv_bytes);
         return;
     }
-    else if (hdr->type==TELEMETRY_COMMANDS5)
-    {
-        T_Telem_Commands5 *msg = (T_Telem_Commands5*)telem_recv_buffer;
-        if (foundSC_AFSI)
+    else if ( msg_afsi->hdr->msg_class == AFSI_STATUS ) {
+        if (ProcessAsfiStatusCommands(msg_afsi))
         {
-            msg = msg_cmd;
+            afsi_good_messages++;
         }
-        if (CopyCommand(msg)) {
-            telem_good_messages++;
-            /* this might be produced before the previous one was transmitted !!!!!!! */
-            hfc->tcpip_confirm  = true;
-            hfc->tcpip_org_type = hdr->type;
-            hfc->tcpip_org_len  = hdr->len;
-            hfc->tcpip_user1    = 0;
-            hfc->tcpip_user2    = 0;
-        }
-
-        telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
-
+        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr->len+8+1, afsi_recv_bytes);
         return;
     }
-    else
-    if (hdr->type==TELEMETRY_PLAYLIST)
-    {
-        if (hfc->playlist_status==PLAYLIST_STOPPED)
-        {
-            T_Telem_Playlist6 *msg = (T_Telem_Playlist6*)telem_recv_buffer;
-            int i;
-
-            if (msg->page==0)
-            {
-                hfc->playlist_items = 0;
-                hfc->playlist_position = 0;
-            }
-
-            if (hfc->playlist_items != 21*msg->page)
-            {
-//                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
-                hfc->playlist_items = 21*msg->page;
-            }
-
-            if ((hfc->playlist_items+msg->lines) <= PLAYLIST_SIZE)
-            {
-                for (i=0; i<msg->lines; i++)
-                    hfc->playlist[hfc->playlist_items++] = msg->items[i];
-            }
-            /* this might be produced before the previous one was transmitted !!!!!!! */
-            hfc->tcpip_confirm  = true;
-            hfc->tcpip_org_type = hdr->type;
-            hfc->tcpip_org_len  = hdr->len;
-            hfc->tcpip_user1    = hfc->playlist_items;
-            hfc->tcpip_user2    = PLAYLIST_SIZE;
-//            debug_print("new playlist item\r\n");
-        }
-        telem_good_messages++;
-        telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
-        return;
-    }
-    else
-    if (hdr->type == TELEMETRY_PROFILE_CMD)
-    {
-        T_Telem_Profile8 *msg = (T_Telem_Profile8*)telem_recv_buffer;
-        int i;
-
-        hfc->streaming_enable = msg->stream_enable;     // enables data streaming
-
-        /* error checking */
-        if (hfc->streaming_enable && (msg->stream_channels<1 || msg->stream_channels>7))
-            hfc->streaming_enable = false;
-
-        if (hfc->streaming_enable)
-        {
-            for (i=0; i<7; i++)
-                hfc->streaming_types[i] = msg->stream_data_types[i];     // selects individual data types for streaming
-            hfc->streaming_channels = msg->stream_channels;   // number of channels included
-            hfc->streaming_channel  = 0;      // current channel
-            hfc->streaming_samples  = 120 / hfc->streaming_channels;
-            hfc->streaming_sample   = 0;       // current sample
-            // msg->stream_period;
-//            debug_print("Streaming ch %d s %d \r\n", hfc->streaming_channels, hfc->streaming_samples);
-        }
-
-        if (msg->profile_enable)
-        {
-            if (msg->profile_ctrl_level==3) { // speed - set home position since this profiling is relative to home
-                SetHome();
-            }
-
-            hfc->profile_ctrl_variable = msg->profile_ctrl_variable;    // selects the controlled variable for auto-profiling (P, R, Y, C, T)
-            hfc->profile_ctrl_level    = msg->profile_ctrl_level;       // selects the level of control for auto-profiling (raw/rate/angle/speed)
-            hfc->profile_lag           = msg->profile_lag;              // initial lag (T1) in ms
-            hfc->profile_period        = msg->profile_period;           // test period (Tt) in ms
-            hfc->profile_delta         = msg->profile_delta;            // control value (dC) in % of stick
-            hfc->profile_mode = PROFILING_START;
-//            debug_print("profiling started channel %d level %d lag %d period %d delta %d\r\n",
-//                    hfc->profile_ctrl_variable, hfc->profile_ctrl_level, hfc->profile_lag, hfc->profile_period, hfc->profile_delta);
-        }
-
-        telem_good_messages++;
-        /* this might be produced before the previous one was transmitted !!!!!!! */
-        hfc->tcpip_confirm  = true;
-        hfc->tcpip_org_type = hdr->type;
-        hfc->tcpip_org_len  = hdr->len;
-        hfc->tcpip_user1    = 0;
-        hfc->tcpip_user2    = 0;
-        telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
-        return;
-    }
-    else
-    if (hdr->type==TELEMETRY_LANDINGSITES)
-    {
-        T_Telem_LandingSites *msg = (T_Telem_LandingSites*)telem_recv_buffer;
-        int i;
-
-        if (msg->page==0)
-        {
-            hfc->landing_sites_num = 0;
-        }
-
-        if (hfc->landing_sites_num != 15*msg->page)
-        {
-//                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
-            hfc->landing_sites_num = 15*msg->page;
-        }
-        if ((hfc->landing_sites_num+msg->lines) <= LANDING_SITES)
-        {
-            for (i=0; i<msg->lines; i++)
-                hfc->landing_sites[hfc->landing_sites_num++] = msg->items[i];
-        }
-        /* this might be produced before the previous one was transmitted !!!!!!! */
-        hfc->tcpip_confirm  = true;
-        hfc->tcpip_org_type = hdr->type;
-        hfc->tcpip_org_len  = hdr->len;
-        hfc->tcpip_user1    = hfc->landing_sites_num;
-        hfc->tcpip_user2    = LANDING_SITES;
-//            debug_print("new playlist item\r\n");
-
-        telem_good_messages++;
-        telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
-        return;
-    }
-    else
-    {
+    else {
         /* unknown message, wipe out the start code so the search can be restarted */
-        telem_recv_buffer[0] = 0;
+        afsi_recv_buffer[0] = 0;
     }
+}
+
+int AFSI_Serial::ProcessAsfiCtrlCommands(TELEM_AFSI_MSG *msg)
+{
+    switch (msg->hdr->id){
+        case AFSI_CMD_ID_ARM:
+            break;
+        case AFSI_CMD_ID_DISARM:
+            break;
+        case AFSI_CMD_ID_TAKEOFF:
+            break;
+        case  AFSI_CMD_ID_LAND:
+            break;
+        case AFSI_CMD_ID_SET_POS:
+            break;
+        case AFSI_CMD_ID_FWD_SPEED:
+            break;
+        case AFSI_CMD_ID_AFT_SPEED:
+            break;
+        case AFSI_CMD_ID_RIGHT_SPEED:
+            break;
+        case AFSI_CMD_ID_LEFT_SPEED:
+            break;
+        case AFSI_CMD_ID_SET_ALT:
+            break;
+        case AFSI_CMD_ID_HOME:
+            break;
+        case AFSI_CMD_ID_HOLD:
+            break;
+        case AFSI_CMD_ID_HEADING:
+            break;
+        default:
+            return 0;
+    }
+
+    return 1;
+}
+
+int AFSI_Serial::ProcessAsfiStatusCommands(TELEM_AFSI_MSG *msg)
+{
+    switch (msg->hdr->id)
+    {
+        case AFSI_CMD_ID_STAT_POW:
+            break;
+        case AFSI_CMD_ID_STAT_GPS:
+            break;
+        case AFSI_CMD_ID_STAT_OP:
+            break;
+        case  AFSI_CMD_ID_STAT_FCM:
+            break;
+        default:
+            return 0;
+    }
+
+    return 1;
 }
 
 void AFSI_Serial::InitHdr(unsigned char *msg, int msg_size)
@@ -656,9 +456,9 @@ void AFSI_Serial::Generate_System2(int time_ms)
     msg->gps_date = gps_data.date;
     msg->precess_period_lp = (hfc->ticks_lp+32)>>6;      // in us
     msg->precess_period_max = hfc->ticks_max;     // in us
-    msg->telem_good_messages       = telem_good_messages;
-    msg->telem_crc_errors          = telem_crc_errors;
-    msg->telem_start_code_searches = telem_start_code_searches;
+    msg->telem_good_messages       = afsi_good_messages;
+    msg->telem_crc_errors          = afsi_crc_errors;
+    msg->telem_start_code_searches = afsi_start_code_searches;
     msg->flight_time_left   = ClipMinMax(hfc->power.flight_time_left, 0, 65535);
     msg->power.Iaux         = min(255, (int)(hfc->power.Iaux*32+0.5f)); // 0-8A     *32
 
