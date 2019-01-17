@@ -83,14 +83,11 @@ GPS gps;
 //Serial pc(TRGT_TXD, TRGT_RXD);  // Debug Serial Port
 //Serial pc(GPS_TX, GPS_RX);  // Debug Serial Port
 
-//RawSerial telemetry(TELEM_TX, TELEM_RX);
-//TelemSerial telem(&telemetry);
-//
-//RawSerial afsi_raw(AFSI_TX, AFSI_RX);
-//AFSI_Serial afsi(&afsi_raw);
+RawSerial telemetry(TELEM_TX, TELEM_RX);
+TelemSerial telem(&telemetry);
 
-RawSerial telemetry(TELEM_TX,TELEM_RX);
-AFSI_Serial telem(&telemetry);
+RawSerial afsi_serial(TELEM_TX,TELEM_RX);
+AFSI_Serial afsi(&afsi_serial);
 
 InterruptIn  lidar(LIDAR_PWM);
 InterruptIn  *rpm = NULL;
@@ -2136,6 +2133,7 @@ static void ServoUpdateRAW(float dT)
         hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)
                                                 * pConfig->throttle_values[1] + pConfig->throttle_values[0];
     }
+
 
     Display_Process(&hfc, xbus_new_values, dT);
 

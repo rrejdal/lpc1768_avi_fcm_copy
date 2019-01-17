@@ -62,14 +62,14 @@ extern USBSerial   serial;
 #define AFSI_STATUS    1
 
 /* AFSI VALUES */
-#define LONG           0
-#define LAT            1
-#define SPEED_FWD      2
-#define SPEED_AFT      3
-#define SPEED_RIGHT    4
-#define SPEED_LEFT     5
-#define ALTITUDE       6
-#define HEADING        7
+#define AFSI_LONG           0
+#define AFSI_LAT            1
+#define AFSI_SPEED_FWD      2
+#define AFSI_SPEED_AFT      3
+#define AFSI_SPEED_RIGHT    4
+#define AFSI_SPEED_LEFT     5
+#define AFSI_ALTITUDE       6
+#define AFSI_HEADING        7
 
 /* low-pass selectors for sensors */
 #define LP_GYRO     0

@@ -894,6 +894,7 @@ typedef struct
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio
     
     float afsi_values[10];  //
+    unsigned char afsi_new_values;
 
     /* playlist stuff */
     unsigned int playlist_items;
