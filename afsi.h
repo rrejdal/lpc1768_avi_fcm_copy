@@ -156,9 +156,12 @@ private:
     unsigned int afsi_recv_bytes;
     byte afsi_recv_buffer[AFSI_BUFFER_SIZE];
 
+    AFSI_MSG *msg_afsi = new AFSI_MSG;
+    AFSI_HDR *hdr_afsi= msg_afsi->hdr;
 
     int ProcessAsfiCtrlCommands(AFSI_MSG *msg);
     int ProcessAsfiStatusCommands(AFSI_MSG *msg);
+    int GetCRC(uint8_t *data, int len, uint8_t *CRC);
 
     bool ProcessParameters(T_Telem_Params4 *msg);
     bool CopyCommand(T_Telem_Commands5 *msg);
@@ -176,14 +179,6 @@ private:
 
     char PreFlightChecks(void);
     int FindNearestLandingSite(void);
-
-
-
-    AFSI_MSG *msg_afsi = new AFSI_MSG;
-    AFSI_HDR *hdr_afsi= msg_afsi->hdr;
-    T_Telem_Commands5 * msg_cmd = new T_Telem_Commands5;
-    T_Telem_Params4 * msg_par = new T_Telem_Params4;
-    T_TelemUpHdr *hdr = new T_TelemUpHdr;
 
 };
 

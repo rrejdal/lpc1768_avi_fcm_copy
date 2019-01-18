@@ -39,13 +39,6 @@ AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
 
 }
 
-void AFSI_Serial::ProcessInputBytes(RawSerial &telemetry)
-{
-    while (telemetry.readable()) {
-        AddInputByte(telemetry.getc());
-    }
-}
-
 bool AFSI_Serial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority)
 {
     if (messages >= MAX_TELEM_MESSAGES) {
@@ -152,9 +145,15 @@ unsigned int AFSI_Serial::RemoveBytes(unsigned char *b, int remove, int size)
     return size;
 }
 
+void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
+{
+    while (afsi_serial.readable()) {
+        AddInputByte(afsi_serial.getc());
+    }
+}
+
 void AFSI_Serial::AddInputByte(char ch)
 {
-    bool foundSC_AFSI = false;
 
     /* if full, just clear it */
     if (afsi_recv_bytes >= AFSI_BUFFER_SIZE) {
@@ -168,7 +167,7 @@ void AFSI_Serial::AddInputByte(char ch)
     if (afsi_recv_buffer[0]!= AFSI_SNC_CH_1)
     {
         unsigned int i;
-
+        bool foundSC_AFSI = false;
         for (i=0; i<afsi_recv_bytes; i++)
         {
             if (afsi_recv_buffer[i]==AFSI_SNC_CH_1)
@@ -185,10 +184,6 @@ void AFSI_Serial::AddInputByte(char ch)
             return;
         }
     }
-    else if (afsi_recv_buffer[0] == AFSI_SNC_CH_1)
-    {
-        foundSC_AFSI = true;
-    }
 
     if (!afsi_recv_bytes)
         return;
@@ -200,21 +195,20 @@ void AFSI_Serial::AddInputByte(char ch)
     }
 
     //Check if enough bytes for header
-    if (afsi_recv_bytes < 6)
-    {
+    if (afsi_recv_bytes < 6) {
         return;
     }
 
-    //Populate header
-    hdr_afsi->sync1 = afsi_recv_buffer[0];
-    hdr_afsi->sync2 = afsi_recv_buffer[1];
+    //Populate AFSI message header
+    hdr_afsi->sync1     = afsi_recv_buffer[0];
+    hdr_afsi->sync2     = afsi_recv_buffer[1];
     hdr_afsi->msg_class = afsi_recv_buffer[2];
-    hdr_afsi->id = afsi_recv_buffer[3];
-    hdr_afsi->len = (afsi_recv_buffer[4]<<8) + afsi_recv_buffer[5];
+    hdr_afsi->id        = afsi_recv_buffer[3];
+    hdr_afsi->len       = (afsi_recv_buffer[4]<<8) + afsi_recv_buffer[5];
 
     //Check if enough bytes for rest of message
     //+2 at the end added for CRC
-    if (afsi_recv_bytes < 6+msg_afsi->hdr->len+2) {
+    if (afsi_recv_bytes < sizeof(AFSI_HDR)+hdr_afsi->len+2) {
         return;
     }
 
@@ -222,18 +216,9 @@ void AFSI_Serial::AddInputByte(char ch)
     for (int i = 0; i<msg_afsi->hdr->len; i++) {
         msg_afsi->payload[i] = afsi_recv_buffer[i+6];
     }
-    msg_afsi->crc[0] = afsi_recv_buffer[6+msg_afsi->hdr->len];
-    msg_afsi->crc[1] = afsi_recv_buffer[6+msg_afsi->hdr->len+1];
 
-    //Check CRC
-    int c1 = 0;
-    int c2 = 0;
-    for (int i=0; i<msg_afsi->hdr->len; i++) {
-        c1 += msg_afsi->payload[i];
-        c2 += c1;
-    }
-    //CRC check failed
-    if (c1 != msg_afsi->crc[0] || c2 != msg_afsi->crc[1]) {
+    //Get, set, and check CRC failed
+    if (GetCRC(&(afsi_recv_buffer[2]), 4 + hdr_afsi->len, &(msg_afsi->crc[0]))) {
         afsi_recv_buffer[0] = 0;
         afsi_crc_errors++;
         return;
@@ -254,7 +239,7 @@ void AFSI_Serial::AddInputByte(char ch)
             // Send NACK message????
             /////////////////////////////////////
         }
-        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr->len+8+1, afsi_recv_bytes);
+        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr_afsi->len+6, afsi_recv_bytes);
         return;
     }
     else if ( msg_afsi->hdr->msg_class == AFSI_STATUS ) {
@@ -272,7 +257,7 @@ void AFSI_Serial::AddInputByte(char ch)
             // Send NACK message
             /////////////////////////////////////
         }
-        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr->len+8+1, afsi_recv_bytes);
+        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr_afsi->len+6, afsi_recv_bytes);
         return;
     }
     else {
@@ -280,6 +265,32 @@ void AFSI_Serial::AddInputByte(char ch)
         afsi_recv_buffer[0] = 0;
     }
 }
+
+int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
+{
+    int i;
+    uint8_t CK_A = 0;
+    uint8_t CK_B = 0;
+
+    for (i=0; i<len; i++) {
+        CK_A = CK_A + data[i];
+        CK_B = CK_B + CK_A;
+    }
+
+    CRC[0] = CK_A;
+    CRC[1] = CK_B;
+
+    if (CK_A != data[len+0]) {
+        return 0;
+    }
+
+    if (CK_B != data[len+1]) {
+        return 0;
+    }
+
+    return 1;
+}
+
 
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
