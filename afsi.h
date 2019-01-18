@@ -88,13 +88,12 @@ public:
     unsigned int afsi_crc_errors;
     unsigned int afsi_start_code_searches;
 
-    AFSI_Serial(RawSerial *m_serial);
+    AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem);
 
     uint8_t processU1(uint8_t data, int scaling);
     float processU2(uint8_t*data, int scaling);
     uint8_t processI1(char*data, int len, float scaling);
 
-    void Initialize(FlightControlData *p_hfc, const ConfigData *p_config) { hfc = p_hfc, pConfig = p_config; }
     /* receiving stuff */
     void ProcessCommands(void);
     bool AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority);
@@ -103,38 +102,6 @@ public:
     bool IsTypeInQ(unsigned char type);
     void ProcessInputBytes(RawSerial &telemetry);
     void AddInputByte(char ch);
-
-    /* transmit stuff */
-    void SendMsgToGround(int msg_id);
-
-    void Generate_Ctrl0(int time_ms);
-    void Generate_GPS1(int time_ms);
-    void Generate_System2(int time_ms);
-    int  Generate_Streaming(void);
-    void Generate_Tcpip7(void);
-    void Generate_Msg2Ground(void);
-    void Generate_AircraftCfg(void);
-    void SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire);
-
-    /* control stuff */
-    void SelectCtrlSource(byte source);
-    void SaveValuesForAbort(void);
-    void ApplyDefaults(void);
-
-    void CalcDynYawRate(void);
-    float CalcFTWPlimit(char gps_in_cruise);
-    void SetPositionHold(void);
-    void SetHome(void);
-    void Arm(void);
-    void Disarm(void);
-
-    void CommandTakeoffArm(void);
-    void CommandLanding(bool final, bool setWP);
-    void CommandLandingWP(float lat, float lon, float alt_ground);
-    void PlaylistSaveState(void);
-    void PlaylistRestoreState(void);
-
-    void ResetIMU(bool print);
 
 private:
     typedef struct {
@@ -147,8 +114,6 @@ private:
     RawSerial *serial;
     TelemSerial *telem;
 
-    FlightControlData *hfc;
-    const ConfigData *pConfig;
     T_Tentry curr_msg;
     T_Tentry Q[MAX_AFSI_MESSAGES];
     unsigned char messages;
@@ -161,24 +126,15 @@ private:
 
     int ProcessAsfiCtrlCommands(AFSI_MSG *msg);
     int ProcessAsfiStatusCommands(AFSI_MSG *msg);
+    int AFSI_Serial::EnableAFSI(void);
     int GetCRC(uint8_t *data, int len, uint8_t *CRC);
 
-    bool ProcessParameters(T_Telem_Params4 *msg);
-    bool CopyCommand(T_Telem_Commands5 *msg);
-
-    unsigned int CalcCRC32(byte *data, unsigned int len);
     unsigned int RemoveBytes(unsigned char *b, int remove, int size);
-    void InitHdr(unsigned char *msg, int msg_size);
-    void InitHdr32(unsigned char type, unsigned char *msg, int msg_size);
-    float WinSpeedEst(float Wangle);
 
     bool CheckRangeAndSetI(int *pvalue, uint8_t *pivalue, float vmin, float vmax)
     bool CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax);
     bool CheckRangeI(int value, int vmin, int vmax);
     bool CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax);
-
-    char PreFlightChecks(void);
-    int FindNearestLandingSite(void);
 
 };
 

@@ -9,20 +9,8 @@
 #include "afsi.h"
 #include "telemetry.h"
 
-extern int SavePIDUpdates(FlightControlData *fcm_data);
-extern void ResetIterms(void);
-extern void GenerateSpeed2AngleLUT(void);
-extern void AltitudeUpdate(float alt_rate, float dT);
-extern void HeadingUpdate(float heading_rate, float dT);
-
-extern HMC5883L compass;
-extern GPS gps;
-extern XBus xbus;
-
-
-#include "NOKIA_5110.h"
-#include "hardware.h"
-extern NokiaLcd myLcd;
+extern FlightControlData hfc;
+extern ConfigData *pConfig;
 
 AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
 {
@@ -93,16 +81,6 @@ void AFSI_Serial::Update()
     }
 }
 
-bool AFSI_Serial::IsEmpty()
-{
-    if (!curr_msg.size && !messages) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
 bool AFSI_Serial::IsTypeInQ(unsigned char type)
 {
     int i;
@@ -118,18 +96,6 @@ bool AFSI_Serial::IsTypeInQ(unsigned char type)
     }
 
     return false;
-}
-
-unsigned int AFSI_Serial::CalcCRC32(byte *data, unsigned int len)
-{
-  unsigned int i;
-  unsigned int result = 0xffffffff;
-
-  for (i=0; i<len; i++) {
-    result=(result << 8) ^ crc32_table[(result >> 24) ^ data[i]];
-  }
-
-  return result;
 }
 
 unsigned int AFSI_Serial::RemoveBytes(unsigned char *b, int remove, int size)
@@ -291,6 +257,40 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
     return 1;
 }
 
+int AFSI_Serial::EnableAFSI(void) {
+
+    hfc.afsi_values[PITCH]= 0;
+    hfc.afsi_values[ROLL] = 0;
+    hfc.afsi_values[YAW]  = 0;
+    hfc.afsi_values[COLL] = 0;
+    hfc.afsi_values[THRO] = 0;
+    hfc.afsi_values = true;
+
+    /* altitude hold and yaw angle */
+    SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+    SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+    SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+    SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+    /* set target altitude and heading to the current one */
+    hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
+    hfc.joystick_new_values = 1;
+
+    if (hfc.playlist_status==PLAYLIST_PLAYING)
+    {
+        telem->PlaylistSaveState();
+        telem->SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+        hfc.playlist_status = PLAYLIST_PAUSED;
+    }
+    else
+    if (hfc.playlist_status==PLAYLIST_PAUSED)
+    {
+        telem->SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+        hfc.playlist_status = PLAYLIST_PAUSED;
+    }
+    else
+        telem->SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+
+}
 
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
@@ -310,8 +310,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case  AFSI_CMD_ID_LAND:
-            hfc->playlist_status = PLAYLIST_STOP;
-            // TODO MMRI: check if this is imediate landing
+            hfc.playlist_status = PLAYLIST_STOP;
+            // TODO MMRI: check if this is immediate landing
             telem->CommandLanding(false, true);
             break;
 
@@ -329,12 +329,12 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
             /* since this is asynchronous to the main loop, the control_mode change might be detected and the init skipped,
             ** thus it needs to be done here */
-            if (hfc->control_mode[PITCH] < CTRL_MODE_POSITION)
+            if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION)
             {
-                PID_SetForEnable(&hfc->pid_Dist2T, 0, 0, hfc->gps_speed);
-                PID_SetForEnable(&hfc->pid_Dist2P, 0, 0, 0);
-                hfc->speedCtrlPrevEN[0] = 0;
-                hfc->speedCtrlPrevEN[1] = 0;
+                PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
+                PID_SetForEnable(&hfc.pid_Dist2P, 0, 0, 0);
+                hfc.speedCtrlPrevEN[0] = 0;
+                hfc.speedCtrlPrevEN[1] = 0;
             }
 
             telem->SetWaypoint(lat, lon, -9999, WAYPOINT_GOTO, false);
@@ -344,8 +344,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc->afsi_values = 1;
-                hfc->afsi_new_values[AFSI_SPEED_FWD] = speed;
+                hfc.afsi_values = 1;
+                hfc.afsi_new_values[AFSI_SPEED_FWD] = speed;
             }
             else {
                 return 0;
@@ -356,8 +356,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc->afsi_values = 1;
-                hfc->afsi_new_values[AFSI_SPEED_AFT] = speed;
+                hfc.afsi_values = 1;
+                hfc.afsi_new_values[AFSI_SPEED_AFT] = speed;
             }
             else {
                 return 0;
@@ -368,8 +368,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc->afsi_values = 1;
-                hfc->afsi_new_values[AFSI_SPEED_RIGHT] = speed;
+                hfc.afsi_values = 1;
+                hfc.afsi_new_values[AFSI_SPEED_RIGHT] = speed;
             }
             else {
                 return 0;
@@ -380,8 +380,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc->afsi_values = 1;
-                hfc->afsi_new_values[AFSI_SPEED_LEFT] = speed;
+                hfc.afsi_values = 1;
+                hfc.afsi_new_values[AFSI_SPEED_LEFT] = speed;
             }
             else {
                 return 0;
@@ -392,8 +392,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             alt = processU2(msg->payload,AFSI_SCALE_ALT);
 
             if (CheckRangeI(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
-                hfc->afsi_values = 1;
-                hfc->afsi_new_values[AFSI_ALTITUDE] = alt;
+                hfc.afsi_values = 1;
+                hfc.afsi_new_values[AFSI_ALTITUDE] = alt;
             }
             else {
                 return 0;
@@ -403,9 +403,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CMD_ID_HOME:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc->pid_Dist2T.COmax = speed;
+                hfc.pid_Dist2T.COmax = speed;
                 telem->ApplyDefaults();
-                telem->SetWaypoint(hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0);
+                telem->SetWaypoint(hfc.home_pos[0], hfc.home_pos[1], -9999, WAYPOINT_GOTO, 0);
             }
             else {
                 return 0;
@@ -420,8 +420,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             heading = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
-                hfc->afsi_values = 1;
-                hfc->afsi_new_values[AFSI_HEADING] = heading;
+                hfc.afsi_values = 1;
+                hfc.afsi_new_values[AFSI_HEADING] = heading;
             }
             else {
                 return 0;
@@ -454,27 +454,6 @@ int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
     return 1;
 }
 
-void AFSI_Serial::InitHdr(unsigned char *msg, int msg_size)
-{
-    msg[0] = 0x47;
-    msg[1] = msg_size-4-1;
-    msg[2] = 0x39;      // initial value
-    msg[2] = CalcCRC8(msg, msg_size);
-}
-
-void AFSI_Serial::InitHdr32(unsigned char type, unsigned char *msg, int msg_size)
-{
-    T_TelemUpHdr *hdr = (T_TelemUpHdr*)msg;
-
-    hdr->start_code = 0x47;
-    hdr->type       = type;
-    hdr->len        = msg_size-8-1;
-    hdr->crc8       = 0x39;
-    hdr->crc8       = CalcCRC8(msg, 4);
-
-    hdr->crc        = 0x12345678;
-    hdr->crc        = CalcCRC32((unsigned char*)msg, msg_size);
-}
 
 bool AFSI_Serial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
 {
@@ -518,23 +497,6 @@ bool AFSI_Serial::CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int v
 
     *pvalue = value;
     return true;
-}
-
-void AFSI_Serial::SendMsgToGround(int msg_id)
-{
-    hfc->msg2ground_id = msg_id;
-    hfc->msg2ground_count = MSG2GROUND_RESEND_COUNT;
-}
-
-void AFSI_Serial::SetPositionHold(void)
-{
-    /* set heading to the current one */
-    hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
-    /* set vcontrol to max to make sure it can hold the pos */
-    ApplyDefaults();
-    SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1],
-                                (hfc->altitude - hfc->altitude_base), WAYPOINT_GOTO, 0);
-    hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
 }
 
 float AFSI_Serial::processU2(uint8_t*data, int scaling)
