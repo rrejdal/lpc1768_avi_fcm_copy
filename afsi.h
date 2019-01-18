@@ -48,7 +48,7 @@
 #define AFSI_SCALE_HEADING        1e-2
 
 #define AFSI_MAX_SPEED            10/AFSI_SCALE_SPEED
-#define AFSI_MIN_SPEED            0
+#define AFSI_MIN_SPEED           -10/AFSI_SCALE_SPEED
 
 #define AFSI_MAX_ALT              50/AFSI_SCALE_ALT
 #define AFSI_MIN_ALT               5/AFSI_SCALE_ALT

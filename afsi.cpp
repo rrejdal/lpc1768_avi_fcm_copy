@@ -259,12 +259,12 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(void) {
 
-    hfc.afsi_values[PITCH]= 0;
-    hfc.afsi_values[ROLL] = 0;
-    hfc.afsi_values[YAW]  = 0;
-    hfc.afsi_values[COLL] = 0;
-    hfc.afsi_values[THRO] = 0;
-    hfc.afsi_values = true;
+    hfc.afsi_new_value[PITCH]= 0;
+    hfc.afsi_new_value[ROLL] = 0;
+    hfc.afsi_new_value[YAW]  = 0;
+    hfc.afsi_new_value[COLL] = 0;
+    hfc.afsi_new_value[THRO] = 0;
+    hfc.afsi_new_value = true;
 
     /* altitude hold and yaw angle */
     SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
@@ -273,7 +273,7 @@ void AFSI_Serial::EnableAFSI(void) {
     SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
     /* set target altitude and heading to the current one */
     hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
-    hfc.afsi_new_values = 1;
+    hfc.afsi_values = 1;
 
     if (hfc.playlist_status==PLAYLIST_PLAYING)
     {
@@ -347,9 +347,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CTRL_ID_SPEED_FWD:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc.afsi_values = 1;
-                hfc.afsi_new_values[AFSI_SPEED_FWD] = speed;
+            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
+                hfc.afsi_new_value = 1;
+                hfc.afsi_values[AFSI_SPEED_FWD] = speed;
             }
             else {
                 return 0;
@@ -359,9 +359,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CTRL_ID_SPEED_RIGHT:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc.afsi_values = 1;
-                hfc.afsi_new_values[AFSI_SPEED_RIGHT] = speed;
+            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
+                hfc.afsi_new_value = 1;
+                hfc.afsi_values[AFSI_SPEED_RIGHT] = speed;
             }
             else {
                 return 0;
@@ -372,8 +372,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             alt = processU2(msg->payload,AFSI_SCALE_ALT);
 
             if (CheckRangeI(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
-                hfc.afsi_values = 1;
-                hfc.afsi_new_values[AFSI_ALTITUDE] = alt;
+                hfc.afsi_new_value = 1;
+                hfc.afsi_values[AFSI_ALTITUDE] = alt;
             }
             else {
                 return 0;
@@ -382,7 +382,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
         case AFSI_CTRL_ID_HOME:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
+            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed > 0) ) {
                 hfc.pid_Dist2T.COmax = speed;
                 telem->ApplyDefaults();
                 telem->SetWaypoint(hfc.home_pos[0], hfc.home_pos[1], -9999, WAYPOINT_GOTO, 0);
@@ -400,8 +400,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             heading = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
-                hfc.afsi_values = 1;
-                hfc.afsi_new_values[AFSI_HEADING] = heading;
+                hfc.afsi_new_value = 1;
+                hfc.afsi_values[AFSI_HEADING] = heading;
             }
             else {
                 return 0;
