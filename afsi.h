@@ -13,24 +13,23 @@
 #define AFSI_CMD_CLASS_STAT       0x02
 #define AFSI_CMD_CLASS_ACK        0x03
 
-#define AFSI_CMD_ID_ARM           0x00
-#define AFSI_CMD_ID_DISARM        0x01
-#define AFSI_CMD_ID_TAKEOFF       0x02`
-#define AFSI_CMD_ID_LAND          0x03
-#define AFSI_CMD_ID_SET_POS       0x04
-#define AFSI_CMD_ID_SPEED_FWD     0x05
-#define AFSI_CMD_ID_SPEED_AFT     0x06
-#define AFSI_CMD_ID_SPEED_RIGHT   0x07
-#define AFSI_CMD_ID_SPEED_LEFT    0x08
-#define AFSI_CMD_ID_SET_ALT       0x09
-#define AFSI_CMD_ID_HOME          0x0A
-#define AFSI_CMD_ID_HOLD          0x0B
-#define AFSI_CMD_ID_HEADING       0x0C
+#define AFSI_CTRL_ID_ARM          0x00
+#define AFSI_CTRL_ID_DISARM       0x01
+#define AFSI_CTRL_ID_TAKEOFF      0x02
+#define AFSI_CTRL_ID_LAND         0x03
+#define AFSI_CTRL_ID_SET_POS      0x04
+#define AFSI_CTRL_ID_SPEED_FWD    0x05
+#define AFSI_CTRL_ID_SPEED_RIGHT  0x06
+#define AFSI_CTRL_ID_SET_ALT      0x07
+#define AFSI_CTRL_ID_HOME         0x08
+#define AFSI_CTRL_ID_HOLD         0x09
+#define AFSI_CTRL_ID_HEADING      0x0A
+#define AFSI_CTRL_ID_RESUME       0x0B
 
-#define AFSI_CMD_ID_STAT_POW      0x00
-#define AFSI_CMD_ID_STAT_GPS      0x01
-#define AFSI_CMD_ID_STAT_OP       0x02
-#define AFSI_CMD_ID_STAT_FCM      0x03
+#define AFSI_STAT_ID_POW          0x00
+#define AFSI_STAT_ID_GPS          0x01
+#define AFSI_STAT_ID_OP           0x02
+#define AFSI_STAT_ID_FCM          0x03
 
 #define AFSI_SNC_CH_1             0xB5
 #define AFSI_SNC_CH_2             0x62
@@ -126,7 +125,7 @@ private:
 
     int ProcessAsfiCtrlCommands(AFSI_MSG *msg);
     int ProcessAsfiStatusCommands(AFSI_MSG *msg);
-    int AFSI_Serial::EnableAFSI(void);
+    void EnableAFSI(void);
     int GetCRC(uint8_t *data, int len, uint8_t *CRC);
 
     unsigned int RemoveBytes(unsigned char *b, int remove, int size);

@@ -257,7 +257,7 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
     return 1;
 }
 
-int AFSI_Serial::EnableAFSI(void) {
+void AFSI_Serial::EnableAFSI(void) {
 
     hfc.afsi_values[PITCH]= 0;
     hfc.afsi_values[ROLL] = 0;
@@ -273,49 +273,52 @@ int AFSI_Serial::EnableAFSI(void) {
     SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
     /* set target altitude and heading to the current one */
     hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
-    hfc.joystick_new_values = 1;
+    hfc.afsi_new_values = 1;
 
     if (hfc.playlist_status==PLAYLIST_PLAYING)
     {
         telem->PlaylistSaveState();
-        telem->SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+        telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
         hfc.playlist_status = PLAYLIST_PAUSED;
     }
     else
     if (hfc.playlist_status==PLAYLIST_PAUSED)
     {
-        telem->SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+        telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
         hfc.playlist_status = PLAYLIST_PAUSED;
     }
-    else
-        telem->SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+    else {
+        telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
+    }
 
+    return;
 }
 
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
     float speed, alt, heading = {0};
+    EnableAFSI();
 
     switch (msg->hdr->id){
-        case AFSI_CMD_ID_ARM:
+        case AFSI_CTRL_ID_ARM:
             telem->Arm();
             break;
 
-        case AFSI_CMD_ID_DISARM:
+        case AFSI_CTRL_ID_DISARM:
             telem->Disarm();
             break;
 
-        case AFSI_CMD_ID_TAKEOFF:
+        case AFSI_CTRL_ID_TAKEOFF:
             telem->CommandTakeoffArm();
             break;
 
-        case  AFSI_CMD_ID_LAND:
+        case  AFSI_CTRL_ID_LAND:
             hfc.playlist_status = PLAYLIST_STOP;
             // TODO MMRI: check if this is immediate landing
             telem->CommandLanding(false, true);
             break;
 
-        case AFSI_CMD_ID_SET_POS:
+        case AFSI_CTRL_ID_SET_POS:
             float lat, lon;
             AFSI_POS_DATA *pos = &msg->payload[0];
 
@@ -327,8 +330,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             lat = pos->latitude  * AFSI_SCALE_POS;
             lon = pos->longitude * AFSI_SCALE_POS;
 
-            /* since this is asynchronous to the main loop, the control_mode change might be detected and the init skipped,
-            ** thus it needs to be done here */
+            /* since this is asynchronous to the main loop, the control_mode
+             * change might be detected and the init skipped,
+             * thus it needs to be done here */
             if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION)
             {
                 PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
@@ -340,7 +344,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             telem->SetWaypoint(lat, lon, -9999, WAYPOINT_GOTO, false);
             break;
 
-        case AFSI_CMD_ID_SPEED_FWD:
+        case AFSI_CTRL_ID_SPEED_FWD:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
@@ -352,19 +356,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             }
             break;
 
-        case AFSI_CMD_ID_SPEED_AFT:
-            speed = processU2(msg->payload,AFSI_SCALE_SPEED);
-
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc.afsi_values = 1;
-                hfc.afsi_new_values[AFSI_SPEED_AFT] = speed;
-            }
-            else {
-                return 0;
-            }
-            break;
-
-        case AFSI_CMD_ID_SPEED_RIGHT:
+        case AFSI_CTRL_ID_SPEED_RIGHT:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
@@ -376,19 +368,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             }
             break;
 
-        case AFSI_CMD_ID_SPEED_LEFT:
-            speed = processU2(msg->payload,AFSI_SCALE_SPEED);
-
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
-                hfc.afsi_values = 1;
-                hfc.afsi_new_values[AFSI_SPEED_LEFT] = speed;
-            }
-            else {
-                return 0;
-            }
-            break;
-
-        case AFSI_CMD_ID_SET_ALT:
+        case AFSI_CTRL_ID_SET_ALT:
             alt = processU2(msg->payload,AFSI_SCALE_ALT);
 
             if (CheckRangeI(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
@@ -400,7 +380,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             }
             break;
 
-        case AFSI_CMD_ID_HOME:
+        case AFSI_CTRL_ID_HOME:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed != 0) ) {
                 hfc.pid_Dist2T.COmax = speed;
@@ -412,11 +392,11 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             }
             break;
 
-        case AFSI_CMD_ID_HOLD:
+        case AFSI_CTRL_ID_HOLD:
             telem->SetPositionHold();
             break;
 
-        case AFSI_CMD_ID_HEADING:
+        case AFSI_CTRL_ID_HEADING:
             heading = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
@@ -426,6 +406,14 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             else {
                 return 0;
             }
+            break;
+
+        case AFSI_CTRL_ID_RESUME:
+            /* disabling joystick */
+            if (hfc.playlist_status == PLAYLIST_PAUSED)
+                telem->PlaylistRestoreState();
+            else
+                telem->SelectCtrlSource(CTRL_SOURCE_RCRADIO);
             break;
 
         default:
@@ -439,13 +427,13 @@ int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
 {
     switch (msg->hdr->id)
     {
-        case AFSI_CMD_ID_STAT_POW:
+        case AFSI_STAT_ID_POW:
             break;
-        case AFSI_CMD_ID_STAT_GPS:
+        case AFSI_STAT_ID_GPS:
             break;
-        case AFSI_CMD_ID_STAT_OP:
+        case AFSI_STAT_ID_OP:
             break;
-        case  AFSI_CMD_ID_STAT_FCM:
+        case  AFSI_STAT_ID_FCM:
             break;
         default:
             return 0;
