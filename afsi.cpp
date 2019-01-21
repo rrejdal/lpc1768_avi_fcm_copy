@@ -338,7 +338,7 @@ void AFSI_Serial::EnableAFSI(void) {
     SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
     /* set target altitude and heading to the current one */
     hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
-    hfc.afsi_values = 1;
+    hfc.afsi_new_value = 1;
 
     if (hfc.playlist_status==PLAYLIST_PLAYING)
     {
@@ -496,9 +496,34 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
     return 1;
 }
 
+void AFSI_Serial::InitStatusHdr(void) {
+    afsi_hdr.sync1     = AFSI_SYNC_BYTE_1;
+    afsi_hdr.sync2     = AFSI_SYNC_BYTE_2;
+    afsi_hdr.msg_class = AFSI_CMD_CLASS_STAT;
+}
+
+void AFSI_Serial::GeneratePwrStatus(void) {
+
+    InitStatusHdr();
+    afsi_hdr.id        = AFSI_STAT_ID_POW;
+    afsi_hdr.len       = 12;
+    msg_pwr_status.hdr = &afsi_hdr;
+
+    msg_pwr_status.bat_capacity_used  = hfc.power.capacity_used;
+    msg_pwr_status.total_bat_capacity = hfc.power.capacity_total;
+    msg_pwr_status.bat_percent_used   = hfc.power.battery_level;
+    msg_pwr_status.current            = hfc.power.Iesc;
+    msg_pwr_status.voltage            = hfc.power.Vmain;
+    msg_pwr_status.flight_time        = hfc.power.flight_time_left;
+}
+
 int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
 {
-    switch (msg->hdr->id)
+    if (rx_payload_len != AFSI_RX_STAT_PAYLOAD) {
+        return 0;
+    }
+
+    switch (msg->hdr.id)
     {
         case AFSI_STAT_ID_POW:
             break;
