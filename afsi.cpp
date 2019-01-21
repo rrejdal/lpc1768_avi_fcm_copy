@@ -23,8 +23,11 @@ AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
     afsi_good_messages       = 0;
     afsi_crc_errors          = 0;
     afsi_start_code_searches = 0;
-    afsi_recv_bytes          = 0;
 
+    afsi_rx_bytes  = 0;
+    rx_payload_len = 0;
+    rx_msg_state   = AFSI_STATE_INIT;
+    rx_msg_rdy     = 0;
 }
 
 bool AFSI_Serial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority)
@@ -118,9 +121,58 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
     }
 }
 
-void AFSI_Serial::AddInputByte(char ch)
+void AFSI_Serial::AddInputByte(char rx_byte)
 {
+    switch (rx_msg_state)
+    {
+        case AFSI_STATE_INIT:
+            if(rx_byte == AFSI_SYNC_BYTE_1) {
+                afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
+                afsi_rx_bytes++;
+                rx_msg_state = AFSI_STATE_SYNC;
+            }
+            break;
+        case AFSI_STATE_SYNC:
+            if(rx_byte == AFSI_SYNC_BYTE_2) {
+                afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
+                afsi_rx_bytes++;
+                rx_msg_state = AFSI_STATE_CLASS_ID;
+            }
+            else {
+                afsi_rx_bytes = 0;
+                rx_msg_state = AFSI_STATE_INIT;
+            }
+            break;
+        case AFSI_STATE_CLASS_ID:
+            afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
+            afsi_rx_bytes++;
+            if( afsi_rx_bytes >= 4 ) {
+                rx_msg_state = AFSI_STATE_LEN;
+            }
+            break;
+        case AFSI_STATE_LEN:
+            afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
+            afsi_rx_bytes++;
+            if( afsi_rx_bytes >= 6 ) {
+                rx_msg_state = AFSI_STATE_READ;
+                rx_payload_len = ((uint16_t)afsi_rx_buffer[5] << 8 ) + (uint16_t)afsi_rx_buffer[4];
+            }
+            break;
+        case AFSI_STATE_READ:
+            afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
+            afsi_rx_bytes++;
 
+            if( afsi_rx_bytes >= (sizeof(AFSI_HDR) + rx_payload_len + 2)) {
+                afsi_rx_bytes = 0;
+                rx_msg_rdy = 1;
+                rx_msg_state = AFSI_STATE_INIT;
+            }
+            break;
+        default:
+            break;
+    }
+
+#if 0
     /* if full, just clear it */
     if (afsi_recv_bytes >= AFSI_BUFFER_SIZE) {
         afsi_recv_bytes = 0;
@@ -182,54 +234,67 @@ void AFSI_Serial::AddInputByte(char ch)
     for (int i = 0; i<msg_afsi->hdr->len; i++) {
         msg_afsi->payload[i] = afsi_recv_buffer[i+6];
     }
+#endif
 
-    //Get, set, and check CRC failed
-    if (GetCRC(&(afsi_recv_buffer[2]), 4 + hdr_afsi->len, &(msg_afsi->crc[0]))) {
-        afsi_recv_buffer[0] = 0;
-        afsi_crc_errors++;
-        return;
+    if (rx_msg_rdy == 1) {
+        memcpy(&msg_afsi, afsi_rx_buffer, afsi_rx_bytes);
+
+        //Get, set, and check CRC
+        if (GetCRC(&(afsi_rx_buffer[2]), 4 + rx_payload_len, &(msg_afsi.crc[0])) == 0) {
+            afsi_crc_errors++;
+            ResetRxMsgData();
+            return;
+        }
+
+        if ( msg_afsi.hdr.msg_class == AFSI_CTRL ) {
+            if (ProcessAsfiCtrlCommands(&msg_afsi)) {
+                afsi_good_messages++;
+
+                /////////////////////////////////////
+                // Send ACK message
+                /////////////////////////////////////
+
+            }
+            else {
+                afsi_crc_errors++;
+                /////////////////////////////////////
+                // Send NACK
+                /////////////////////////////////////
+            }
+            return;
+        }
+        else if ( msg_afsi.hdr.msg_class == AFSI_STATUS ) {
+            if (ProcessAsfiStatusCommands(&msg_afsi)){
+                afsi_good_messages++;
+
+                /////////////////////////////////////
+                // Send appropriate STATUS?
+                /////////////////////////////////////
+
+            }
+            else {
+                afsi_crc_errors++;
+                /////////////////////////////////////
+                // Send NACK message
+                /////////////////////////////////////
+            }
+            return;
+        }
+
+        ResetRxMsgData();
     }
 
-    if ( msg_afsi->hdr->msg_class == AFSI_CTRL ) {
-        if (ProcessAsfiCtrlCommands(msg_afsi)) {
-            afsi_good_messages++;
+    return;
 
-            /////////////////////////////////////
-            // Send ACK message
-            /////////////////////////////////////
+}
 
-        }
-        else {
-
-            /////////////////////////////////////
-            // Send NACK message????
-            /////////////////////////////////////
-        }
-        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr_afsi->len+6, afsi_recv_bytes);
-        return;
-    }
-    else if ( msg_afsi->hdr->msg_class == AFSI_STATUS ) {
-        if (ProcessAsfiStatusCommands(msg_afsi)){
-            afsi_good_messages++;
-
-            /////////////////////////////////////
-            // Send ACK message OR JUST STATUS?
-            /////////////////////////////////////
-
-        }
-        else {
-
-            /////////////////////////////////////
-            // Send NACK message
-            /////////////////////////////////////
-        }
-        afsi_recv_bytes = RemoveBytes(afsi_recv_buffer, hdr_afsi->len+6, afsi_recv_bytes);
-        return;
-    }
-    else {
-        /* unknown message, wipe out the start code so the search can be restarted */
-        afsi_recv_buffer[0] = 0;
-    }
+void AFSI_Serial::ResetRxMsgData(void)
+{
+    rx_payload_len = 0;
+    rx_msg_rdy = 0;
+    afsi_rx_bytes = 0;
+    rx_msg_state = AFSI_STATE_INIT;
+    return;
 }
 
 int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
@@ -296,10 +361,14 @@ void AFSI_Serial::EnableAFSI(void) {
 
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
-    float speed, alt, heading = {0};
+    float lat, lon, speed, alt, heading = {0};
     EnableAFSI();
 
-    switch (msg->hdr->id){
+    if (rx_payload_len != ctrl_msg_lengths[msg->hdr.id]) {
+        return 0;
+    }
+
+    switch (msg->hdr.id){
         case AFSI_CTRL_ID_ARM:
             telem->Arm();
             break;
@@ -319,22 +388,26 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_SET_POS:
-            float lat, lon;
-            AFSI_POS_DATA *pos = &msg->payload[0];
+            lat = (int)((uint32_t)(msg_afsi.payload[0])       |
+                        (uint32_t)(msg_afsi.payload[1] << 8)  |
+                        (uint32_t)(msg_afsi.payload[2] << 16) |
+                        (uint32_t)(msg_afsi.payload[3] << 24)   ) * AFSI_SCALE_POS;
 
-            if ( CheckRangeI(pos->latitude, -90, 90)    ||
-                 CheckRangeI(pos->longitude, -180, 180)    ) {
+
+            lon = (int)((uint32_t)(msg_afsi.payload[4])       |
+                        (uint32_t)(msg_afsi.payload[5] << 8)  |
+                        (uint32_t)(msg_afsi.payload[6] << 16) |
+                        (uint32_t)(msg_afsi.payload[7] << 24)   ) * AFSI_SCALE_POS;
+
+            if ( CheckRangeI(lat, -90, 90)   ||
+                 CheckRangeI(lon, -180, 180)    ) {
                 return 0;
             }
-
-            lat = pos->latitude  * AFSI_SCALE_POS;
-            lon = pos->longitude * AFSI_SCALE_POS;
 
             /* since this is asynchronous to the main loop, the control_mode
              * change might be detected and the init skipped,
              * thus it needs to be done here */
-            if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION)
-            {
+            if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION) {
                 PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
                 PID_SetForEnable(&hfc.pid_Dist2P, 0, 0, 0);
                 hfc.speedCtrlPrevEN[0] = 0;
@@ -441,7 +514,6 @@ int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
 
     return 1;
 }
-
 
 bool AFSI_Serial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
 {
