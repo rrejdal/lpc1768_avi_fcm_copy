@@ -299,12 +299,10 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(void) {
 
-    hfc.afsi_new_value[PITCH]= 0;
-    hfc.afsi_new_value[ROLL] = 0;
-    hfc.afsi_new_value[YAW]  = 0;
-    hfc.afsi_new_value[COLL] = 0;
-    hfc.afsi_new_value[THRO] = 0;
-    hfc.afsi_new_value = true;
+    hfc.afsi_values[AFSI_SPEED_FWD]   = 0;
+    hfc.afsi_values[AFSI_SPEED_RIGHT] = 0;
+    hfc.afsi_values[AFSI_ALTITUDE]    = 0;
+    hfc.afsi_values[AFSI_HEADING]     = 0;
 
     /* altitude hold and yaw angle */
     SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
@@ -313,7 +311,6 @@ void AFSI_Serial::EnableAFSI(void) {
     SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
     /* set target altitude and heading to the current one */
     hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
-    hfc.afsi_new_value = 1;
 
     if (hfc.playlist_status==PLAYLIST_PLAYING)
     {
@@ -337,7 +334,9 @@ void AFSI_Serial::EnableAFSI(void) {
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
     float lat, lon, speed, alt, heading = {0};
-    EnableAFSI();
+    if (hfc.afsi_enable == 0) {
+        EnableAFSI();
+    }
 
     if (rx_payload_len != ctrl_msg_lengths[msg->hdr.id]) {
         return 0;
@@ -396,7 +395,6 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
-                hfc.afsi_new_value = 1;
                 hfc.afsi_values[AFSI_SPEED_FWD] = speed;
             }
             else {
@@ -408,7 +406,6 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
-                hfc.afsi_new_value = 1;
                 hfc.afsi_values[AFSI_SPEED_RIGHT] = speed;
             }
             else {
@@ -420,7 +417,6 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             alt = processU2(msg->payload,AFSI_SCALE_ALT);
 
             if (CheckRangeI(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
-                hfc.afsi_new_value = 1;
                 hfc.afsi_values[AFSI_ALTITUDE] = alt;
             }
             else {
@@ -448,7 +444,6 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             heading = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
-                hfc.afsi_new_value = 1;
                 hfc.afsi_values[AFSI_HEADING] = heading;
             }
             else {
@@ -494,6 +489,75 @@ void AFSI_Serial::GeneratePwrStatus(void) {
     msg_pwr_status.flight_time        = hfc.power.flight_time_left;
 }
 
+void AFSI_Serial::GenerateGpsStatus(void)
+{
+    InitStatusHdr();
+    afsi_hdr.id        = AFSI_STAT_ID_GPS;
+    afsi_hdr.len       = 23;
+    msg_gps_status.hdr = &afsi_hdr;
+
+    msg_gps_status.hour  = gps.gps_data_.time;
+    msg_gps_status.min   = gps.gps_data_.time;
+    msg_gps_status.sec   = gps.gps_data_.time;
+    msg_gps_status.year  = gps.gps_data_.time;
+    msg_gps_status.month = gps.gps_data_.time;
+    msg_gps_status.day   = gps.gps_data_.time;
+    msg_gps_status.altitude  = gps.gps_data_.altitude;
+    msg_gps_status.latitude  = gps.gps_data_.lat;
+    msg_gps_status.longitude = gps.gps_data_.lon;
+    msg_gps_status.pDOP  = gps.gps_data_.PDOP;
+    msg_gps_status.numSV = gps.gps_data_.sats;
+}
+
+void AFSI_Serial::GenerateSensorsStatus(void)
+{
+    InitStatusHdr();
+    afsi_hdr.id  = AFSI_STAT_ID_SENSORS;
+    afsi_hdr.len = 22;
+
+    msg_sensors_status.hdr = &afsi_hdr;
+
+    msg_sensors_status.gyro_temp       = hfc.gyro_temp_lp;
+    msg_sensors_status.baro_temp       = hfc.baro_temperature;
+    msg_sensors_status.esc_temp        = hfc.esc_temp;
+    msg_sensors_status.baro_pressure   = hfc.baro_pressure;
+    msg_sensors_status.wind_speed      = hfc.wind_speed;
+    msg_sensors_status.wind_course     = hfc.wind_course;
+    msg_sensors_status.rpm             = hfc.RPM;
+    msg_sensors_status.lidar_altitude  = hfc.altitude_lidar;
+    msg_sensors_status.compass_heading = hfc.compass_heading_lp;
+    msg_sensors_status.altitude        = hfc.altitude;
+}
+
+void AFSI_Serial::GenerateFcmStatus(void)
+{
+    uint8_t waypoint_ctrl_mode = ( (hfc.ctrl_source == CTRL_SOURCE_AUTO2D) ||
+                                   (hfc.ctrl_source == CTRL_SOURCE_AUTO3D)    ) ? 1 : 0;
+
+    uint8_t joystick_ctrl_mode =   (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ? 1 : 0;
+
+    InitStatusHdr();
+    afsi_hdr.id  = AFSI_STAT_ID_FCM;
+    afsi_hdr.len = 6;
+
+    msg_fcm_status.hdr = &afsi_hdr;
+
+    msg_fcm_status.ctrl_mode_pitch      = hfc.control_mode[PITCH];
+    msg_fcm_status.ctrl_mode_roll       = hfc.control_mode[ROLL];
+    msg_fcm_status.ctrl_mode_yaw        = hfc.control_mode[YAW];
+    msg_fcm_status.ctrl_mode_collective = hfc.control_mode[COLL];
+    msg_fcm_status.ctrl_mode_throttle   = hfc.control_mode[THRO];
+
+
+
+    msg_fcm_status.ctrl_status   =          ( xbus.receiving & 1 )          |
+                                   (          (waypoint_ctrl_mode)   << 1 ) |
+                                   ( ( (!hfc.throttle_armed) & 1   ) << 2 ) |
+                                   (     (joystick_ctrl_mode & 1   ) << 3 ) |
+                                   (   ( hfc.playlist_status & 0x3 ) << 4 ) |
+                                   (         ( hfc.full_auto & 1   ) << 6 );
+}
+
 int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
 {
     if (rx_payload_len != AFSI_RX_STAT_PAYLOAD) {
@@ -503,12 +567,16 @@ int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
     switch (msg->hdr.id)
     {
         case AFSI_STAT_ID_POW:
+            GeneratePwrStatus();
             break;
         case AFSI_STAT_ID_GPS:
+            GenerateGpsStatus();
             break;
-        case AFSI_STAT_ID_OP:
+        case AFSI_STAT_ID_SENSORS:
+            GenerateSensorsStatus();
             break;
         case  AFSI_STAT_ID_FCM:
+            GenerateFcmStatus();
             break;
         default:
             return 0;

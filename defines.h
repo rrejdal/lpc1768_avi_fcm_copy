@@ -58,18 +58,17 @@ extern USBSerial   serial;
 #define NUM_CTRL_MODES  5   // number of control layers
 
 /* AFSI COMMAND CLASS */
-#define AFSI_CTRL      0
-#define AFSI_STATUS    1
+#define AFSI_CTRL      0x01
+#define AFSI_STATUS    0x02
+#define AFSI_ACK       0x03
 
 /* AFSI VALUES */
-#define AFSI_LONG           0
-#define AFSI_LAT            1
+#define AFSI_LONGITUDE      0
+#define AFSI_LATITUDE       1
 #define AFSI_SPEED_FWD      2
-#define AFSI_SPEED_AFT      3
-#define AFSI_SPEED_RIGHT    4
-#define AFSI_SPEED_LEFT     5
-#define AFSI_ALTITUDE       6
-#define AFSI_HEADING        7
+#define AFSI_SPEED_RIGHT    3
+#define AFSI_ALTITUDE       4
+#define AFSI_HEADING        5
 
 /* low-pass selectors for sensors */
 #define LP_GYRO     0

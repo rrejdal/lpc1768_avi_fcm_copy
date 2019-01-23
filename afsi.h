@@ -13,18 +13,18 @@
 #define AFSI_CMD_CLASS_STAT       0x02
 #define AFSI_CMD_CLASS_ACK        0x03
 
-#define AFSI_CTRL_ID_ARM          0
-#define AFSI_CTRL_ID_DISARM       1
-#define AFSI_CTRL_ID_TAKEOFF      2
-#define AFSI_CTRL_ID_LAND         3
-#define AFSI_CTRL_ID_SET_POS      4
-#define AFSI_CTRL_ID_SPEED_FWD    5
-#define AFSI_CTRL_ID_SPEED_RIGHT  6
-#define AFSI_CTRL_ID_SET_ALT      7
-#define AFSI_CTRL_ID_HOME         8
-#define AFSI_CTRL_ID_HOLD         9
-#define AFSI_CTRL_ID_HEADING      10
-#define AFSI_CTRL_ID_RESUME       11
+#define AFSI_CTRL_ID_ARM          0x00
+#define AFSI_CTRL_ID_DISARM       0x01
+#define AFSI_CTRL_ID_TAKEOFF      0x02
+#define AFSI_CTRL_ID_LAND         0x03
+#define AFSI_CTRL_ID_SET_POS      0x04
+#define AFSI_CTRL_ID_SPEED_FWD    0x05
+#define AFSI_CTRL_ID_SPEED_RIGHT  0x06
+#define AFSI_CTRL_ID_SET_ALT      0x07
+#define AFSI_CTRL_ID_HOME         0x08
+#define AFSI_CTRL_ID_HOLD         0x09
+#define AFSI_CTRL_ID_HEADING      0x0A
+#define AFSI_CTRL_ID_RESUME       0x0B
 
 #define AFSI_NUM_CTRL_MSGS        12
 
@@ -43,7 +43,7 @@
 
 #define AFSI_STAT_ID_POW          0x00
 #define AFSI_STAT_ID_GPS          0x01
-#define AFSI_STAT_ID_OP           0x02
+#define AFSI_STAT_ID_SENSORS      0x02
 #define AFSI_STAT_ID_FCM          0x03
 
 #define AFSI_NUM_STAT_MSGS        4
@@ -123,6 +123,7 @@ typedef struct{
     uint16_t   lidar_altitude;
     uint16_t   compass_heading;
     uint16_t   altitude;
+
 }AFSI_SENSORS_STATUS;
 
 typedef struct{
@@ -130,7 +131,7 @@ typedef struct{
     uint8_t    ctrl_mode_pitch;
     uint8_t    ctrl_mode_roll;
     uint8_t    ctrl_mode_yaw;
-    uint8_t    ctrl_mode_colective;
+    uint8_t    ctrl_mode_collective;
     uint8_t    ctrl_mode_throttle;
     int8_t     ctrl_status;
 }AFSI_FCM_STATUS;
@@ -167,7 +168,7 @@ private:
         unsigned char  msg_type;
     } T_Tentry;
 
-    RawSerial *serial;
+//    RawSerial *serial;
     TelemSerial *telem;
 
     T_Tentry curr_msg;
@@ -187,7 +188,7 @@ private:
     uint32_t rx_payload_len;
     int      rx_msg_state;
     int      rx_msg_rdy;
-    const int ctrl_msg_lengths[AFSI_NUM_CTRL_MSGS] = {
+    const uint32_t ctrl_msg_lengths[AFSI_NUM_CTRL_MSGS] = {
             AFSI_PAYLOAD_LEN_ARM,
             AFSI_PAYLOAD_LEN_DISARM,
             AFSI_PAYLOAD_LEN_TAKEOFF,
@@ -210,6 +211,9 @@ private:
 
     void InitStatusHdr(void);
     void GeneratePwrStatus(void);
+    void GenerateGpsStatus(void);
+    void GenerateSensorsStatus(void);
+    void GenerateFcmStatus(void);
 
     unsigned int RemoveBytes(unsigned char *b, int remove, int size);
 
