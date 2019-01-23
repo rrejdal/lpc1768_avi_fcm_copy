@@ -8,16 +8,18 @@
 #include "defines.h"
 #include "afsi.h"
 #include "telemetry.h"
+#include "pGPS.h"
 
 extern FlightControlData hfc;
 extern ConfigData *pConfig;
+extern GPS gps;
+extern XBus xbus;
 
 AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
 {
     curr_msg.msg = NULL;
     curr_msg.size = 0;
     messages      = 0;
-    serial = m_serial;
     telem = m_telem;
 
     afsi_good_messages       = 0;
@@ -43,45 +45,6 @@ bool AFSI_Serial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_m
     messages++;
 
     return true;
-}
-
-void AFSI_Serial::Update()
-{
-    while(1) {
-        unsigned int i;
-        int index = 0;
-        int priority;
-
-        /* if current message is in progress, keep sending it till serial buffer is full */
-        while (curr_msg.size) {
-            if (!serial->writeable()) {
-                return;
-            }
-            serial->putc(*curr_msg.msg++);
-            curr_msg.size--;
-        }
-
-        /* if no more messages, exit */
-        if (!messages) {
-            return;
-        }
-
-        /* find the first highest priority message and move it to the current message to go out */
-        priority = -1;
-        for (i=0; i<messages; i++) {
-            if (Q[i].priority>priority) {
-                priority = Q[i].priority;
-                index = i;
-            }
-        }
-        curr_msg = Q[index];
-
-        for (i=index+1; i<messages; i++) {
-            Q[i-1] = Q[i];
-        }
-
-        messages--;
-    }
 }
 
 bool AFSI_Serial::IsTypeInQ(unsigned char type)
@@ -123,6 +86,8 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
 
 void AFSI_Serial::AddInputByte(char rx_byte)
 {
+    printf("BYTES reading...\r\n");
+
     switch (rx_msg_state)
     {
         case AFSI_STATE_INIT:
@@ -130,6 +95,10 @@ void AFSI_Serial::AddInputByte(char rx_byte)
                 afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
                 afsi_rx_bytes++;
                 rx_msg_state = AFSI_STATE_SYNC;
+                debug_print("AFSI_SYNC_BYTE_1 has been FOUND!\r\n");
+            }
+            else {
+                ResetRxMsgData();
             }
             break;
         case AFSI_STATE_SYNC:
@@ -137,10 +106,10 @@ void AFSI_Serial::AddInputByte(char rx_byte)
                 afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
                 afsi_rx_bytes++;
                 rx_msg_state = AFSI_STATE_CLASS_ID;
+                debug_print("AFSI_SYNC_BYTE_2 has been FOUND!\r\n");
             }
             else {
-                afsi_rx_bytes = 0;
-                rx_msg_state = AFSI_STATE_INIT;
+                ResetRxMsgData();
             }
             break;
         case AFSI_STATE_CLASS_ID:
@@ -148,6 +117,7 @@ void AFSI_Serial::AddInputByte(char rx_byte)
             afsi_rx_bytes++;
             if( afsi_rx_bytes >= 4 ) {
                 rx_msg_state = AFSI_STATE_LEN;
+                debug_print("AFSI CLASS ID byte has been FOUND!\r\n");
             }
             break;
         case AFSI_STATE_LEN:
@@ -155,17 +125,17 @@ void AFSI_Serial::AddInputByte(char rx_byte)
             afsi_rx_bytes++;
             if( afsi_rx_bytes >= 6 ) {
                 rx_msg_state = AFSI_STATE_READ;
+                debug_print("AFSI LENGTH data has been FOUND!\r\n");
                 rx_payload_len = ((uint16_t)afsi_rx_buffer[5] << 8 ) + (uint16_t)afsi_rx_buffer[4];
             }
             break;
         case AFSI_STATE_READ:
             afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
             afsi_rx_bytes++;
-
-            if( afsi_rx_bytes >= (sizeof(AFSI_HDR) + rx_payload_len + 2)) {
-                afsi_rx_bytes = 0;
+            if( afsi_rx_bytes >= (sizeof(AFSI_HDR) + rx_payload_len + 2) ) {
                 rx_msg_rdy = 1;
                 rx_msg_state = AFSI_STATE_INIT;
+                debug_print("AFSI PAYLOAD and CRC data has been FOUND!\r\n");
             }
             break;
         default:
@@ -237,6 +207,13 @@ void AFSI_Serial::AddInputByte(char rx_byte)
 #endif
 
     if (rx_msg_rdy == 1) {
+
+        debug_print("RAW DATA: ");
+        for (int i = 0; i < (int)afsi_rx_bytes; i++) {
+            debug_print("%d ", afsi_rx_buffer[i]);
+        }
+        debug_print("\r\n");
+
         memcpy(&msg_afsi, afsi_rx_buffer, afsi_rx_bytes);
 
         //Get, set, and check CRC
@@ -261,7 +238,6 @@ void AFSI_Serial::AddInputByte(char rx_byte)
                 // Send NACK
                 /////////////////////////////////////
             }
-            return;
         }
         else if ( msg_afsi.hdr.msg_class == AFSI_STATUS ) {
             if (ProcessAsfiStatusCommands(&msg_afsi)){
@@ -278,7 +254,6 @@ void AFSI_Serial::AddInputByte(char rx_byte)
                 // Send NACK message
                 /////////////////////////////////////
             }
-            return;
         }
 
         ResetRxMsgData();
@@ -483,10 +458,12 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
         case AFSI_CTRL_ID_RESUME:
             /* disabling joystick */
-            if (hfc.playlist_status == PLAYLIST_PAUSED)
+            if (hfc.playlist_status == PLAYLIST_PAUSED) {
                 telem->PlaylistRestoreState();
-            else
+            }
+            else {
                 telem->SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            }
             break;
 
         default:

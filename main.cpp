@@ -86,8 +86,8 @@ GPS gps;
 RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
 
-RawSerial afsi_serial(TELEM_TX,TELEM_RX);
-AFSI_Serial afsi(&afsi_serial);
+RawSerial afsi_serial(AFSI_TX,AFSI_RX);
+AFSI_Serial afsi(&afsi_serial,&telem);
 
 InterruptIn  lidar(LIDAR_PWM);
 InterruptIn  *rpm = NULL;
@@ -4202,6 +4202,7 @@ void do_control()
 //    debug_print("CALLING\n");
     telem.ProcessInputBytes(telemetry);
 //    debug_print("CALLED\n")
+    afsi.ProcessInputBytes(afsi_serial);
 
     AutoReset();
 
@@ -5210,9 +5211,9 @@ int main()
 
         telem.Initialize(&hfc, pConfig);
         telemetry.baud(pConfig->telem_baudrate);
-//
+
 //        afsi.Initialize(&hfc,pConfig);
-//        afsi_raw.baud(pConfig->telem_baudrate);
+        afsi_serial.baud(38400);
 
         Servos_Init();
 
