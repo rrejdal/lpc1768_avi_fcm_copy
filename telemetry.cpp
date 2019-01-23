@@ -740,8 +740,7 @@ void TelemSerial::SelectCtrlSource(byte source)
     }
     
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
-    if (source==CTRL_SOURCE_RCRADIO || source==CTRL_SOURCE_JOYSTICK)
-    {
+    if ( (source==CTRL_SOURCE_RCRADIO) || (source==CTRL_SOURCE_JOYSTICK) || (source==CTRL_SOURCE_AFSI)) {
         ApplyDefaults();
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
         hfc->playlist_status = PLAYLIST_STOPPED;
@@ -751,6 +750,16 @@ void TelemSerial::SelectCtrlSource(byte source)
         hfc->telem_ctrl_period = 100000;   // in us - 10Hz
     }
     else {
+        hfc->telem_ctrl_period = 0;
+    }
+
+
+    if (source == CTRL_SOURCE_AFSI) {
+        hfc->afsi_enable = 1;
+        hfc->telem_ctrl_period = 100000;   // in us - 10Hz
+    }
+    else {
+        hfc->afsi_enable = 0;
         hfc->telem_ctrl_period = 0;
     }
 
