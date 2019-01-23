@@ -877,6 +877,9 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     float Sx, Sy, Tx, Ty;
 //    float prev_STcourse;
     
+    hfc->waypoint_pos[0] = lat;
+    hfc->waypoint_pos[1] = lon;
+
     if (hfc->playlist_status==PLAYLIST_PLAYING)
     {
         /* in playlist mode, copy the current waypoint to the previous */
@@ -901,16 +904,13 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         source = CTRL_SOURCE_AUTO3D;
     else
         source = CTRL_SOURCE_AUTO2D;    // 2D otherwise
+
     SelectCtrlSource(source);
     
-    hfc->waypoint_pos[0] = lat;
-    hfc->waypoint_pos[1] = lon;
-    
+    hfc->waypoint_retire = wp_retire;
+    hfc->waypoint_type = waypoint_type;
+
     /* turn on horizontal position mode, yaw angle and keep collective and throttle as is */
-    hfc->waypoint_retire    = wp_retire;
-
-    hfc->waypoint_type  = waypoint_type;
-
     SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
     SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
     SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
@@ -1687,7 +1687,8 @@ void TelemSerial::PlaylistSaveState(void)
 {
 	T_State *state = &hfc->state;
 	int i;
-    state->pid_CollAlt_COmax = hfc->pid_CollAlt.COmax;
+
+	state->pid_CollAlt_COmax = hfc->pid_CollAlt.COmax;
     state->pid_CollAlt_COmin = hfc->pid_CollAlt.COmin;
     state->pid_CollAlt_acc   = hfc->pid_CollAlt.acceleration;
     state->pid_Dist2T_COmax  = hfc->pid_Dist2T.COmax;
@@ -1697,8 +1698,15 @@ void TelemSerial::PlaylistSaveState(void)
     state->telem_ctrl_period = hfc->telem_ctrl_period;
     state->ctrl_source       = hfc->ctrl_source;
     state->waypoint_type     = hfc->waypoint_type;
-    for (i=0; i<5; i++)
+
+    for (i=0; i<5; i++) {
     	state->control_mode[i] = hfc->control_mode[i];
+    }
+
+    hfc->waypoint_pos_resume[0] = hfc->waypoint_pos[0];
+    hfc->waypoint_pos_resume[1] = hfc->waypoint_pos[1];
+    hfc->waypoint_pos_resume[2] = hfc->waypoint_pos[2];
+    hfc->waypoint_retire_resume = hfc->waypoint_retire;
 }
 
 void TelemSerial::PlaylistRestoreState(void)
@@ -1715,13 +1723,16 @@ void TelemSerial::PlaylistRestoreState(void)
 	hfc->telem_ctrl_period        = state->telem_ctrl_period;
 	hfc->ctrl_source              = state->ctrl_source;
 	hfc->waypoint_type            = state->waypoint_type;
-    for (i=0; i<5; i++)
+	hfc->waypoint_retire          = hfc->waypoint_retire_resume;
+
+    for (i=0; i<5; i++) {
     	hfc->control_mode[i] = state->control_mode[i];
+    }
 
     /* re-initialize the waypoint and everything related, since the playlist is not in PLAYING yet,
      * it will use the current position as the starting point */
-    SetWaypoint(hfc->waypoint_pos[0], hfc->waypoint_pos[1],
-                    (hfc->waypoint_pos[2] - hfc->altitude_base), hfc->waypoint_type, hfc->waypoint_retire);
+    SetWaypoint(hfc->waypoint_pos_resume[0], hfc->waypoint_pos_resume[1],
+                    (hfc->waypoint_pos_resume[2] - hfc->altitude_base), hfc->waypoint_type, hfc->waypoint_retire);
 
     SaveValuesForAbort();
 	hfc->playlist_status = PLAYLIST_PLAYING;

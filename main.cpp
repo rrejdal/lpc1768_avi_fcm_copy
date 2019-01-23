@@ -1803,6 +1803,8 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     {
         /* stop playlist and waypoint mode */
         hfc->playlist_status = PLAYLIST_STOPPED;
+        hfc->playlist_position++;
+
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc->throttle_armed) {
         	telem.SetPositionHold();
@@ -2036,7 +2038,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
                 hfc->waypoint_stage = FM_LANDING_LANDED;
-                hfc->playlist_status = PLAYLIST_STOPPED;
+                hfc->playlist_position++;
             }
         }
     }
@@ -3482,10 +3484,19 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
 
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 {
-    hfc.power.Vmain = *(float *)pdata;
-    hfc.power.Vesc = hfc.power.Vmain;
+    float v, v_slope, i, i_slope;
+
+    v = *(float *)pdata;
     pdata += 4;
-    hfc.power.Iesc =  *(float *)pdata;
+    i = *(float *)pdata;
+
+    v_slope = (pConfig->voltage_slope_percent_mod / 100.0f) + 1.0f;
+    hfc.power.Vmain = v*v_slope;
+    hfc.power.Vesc  = hfc.power.Vmain;
+
+    i_slope = (pConfig->current_slope_percent_mod / 100.0f) + 1.0f;
+    hfc.power.Iesc =  i*i_slope + pConfig->current_offset;
+
     power_update_avail = 1;
 }
 
