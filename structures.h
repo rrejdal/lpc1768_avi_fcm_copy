@@ -1038,6 +1038,8 @@ typedef struct
     float  altitude_base;				// reference value for altitude control
     double waypoint_pos[3];             // waypoint position [lat/long/alt] in meters
     double waypoint_pos_prev[3];        // starting waypoint position [lat/long/alt] in meters
+    double waypoint_pos_resume[3];      // waypoint position to resume to [lat/long/alt] in meters
+    bool waypoint_retire_resume;
     float  waypoint_STdist;             // distance between current and prev waypoints, in m
     float  waypoint_STofs;
     float  waypoint_STcourse;           // course from prev to curr waypoint in deg, CW

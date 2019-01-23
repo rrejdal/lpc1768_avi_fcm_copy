@@ -1803,6 +1803,8 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     {
         /* stop playlist and waypoint mode */
         hfc->playlist_status = PLAYLIST_STOPPED;
+        hfc->playlist_position++;
+
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc->throttle_armed) {
         	telem.SetPositionHold();
@@ -2036,7 +2038,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
                 hfc->waypoint_stage = FM_LANDING_LANDED;
-                hfc->playlist_status = PLAYLIST_STOPPED;
+                hfc->playlist_position++;
             }
         }
     }
