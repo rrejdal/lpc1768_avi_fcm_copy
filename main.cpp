@@ -4187,6 +4187,22 @@ void do_control()
 
     telem.Update();
 
+    for( int id = 0; id < AFSI_MAX_STAT_MSGS; id++) {
+        afsi.stat_msg_cnt[id]++;
+
+        if ( (afsi.stat_msg_enable[id] == 1) && (!afsi.IsTypeInQ(id)) ) {
+            if ( (afsi.stat_msg_cnt[id] % hfc.print_counter) == (afsi.stat_msg_period[id]*1000) ) {
+                afsi.GenerateStatMsg(id);
+            }
+            else if( afsi.stat_msg_period[id] == 0 ) {
+                afsi.GenerateStatMsg(id);
+                afsi.stat_msg_enable[id] = 0;
+            }
+        }
+    }
+
+    afsi.SendMsgs();
+
     myLcd.Update();
 
     ProcessStats();
