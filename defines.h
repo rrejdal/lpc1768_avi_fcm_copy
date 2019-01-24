@@ -70,6 +70,14 @@ extern USBSerial   serial;
 #define AFSI_ALTITUDE       4
 #define AFSI_HEADING        5
 
+/* AFSI VALUES */
+#define AFSI_STAT_PWR      0
+#define AFSI_STAT_GPS      1
+#define AFSI_STAT_SEN      2
+#define AFSI_STAT_FCM      3
+
+#define AFSI_MAX_STAT_MSGS        4
+
 /* low-pass selectors for sensors */
 #define LP_GYRO     0
 #define LP_ACC      1

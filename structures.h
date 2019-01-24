@@ -894,7 +894,6 @@ typedef struct
     unsigned char joy_PRmode;
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio
     
-    float afsi_values[10];
     int afsi_enable;
 
     /* playlist stuff */

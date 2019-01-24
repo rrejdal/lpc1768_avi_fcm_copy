@@ -17,9 +17,10 @@ extern XBus xbus;
 
 AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
 {
-    curr_msg.msg = NULL;
+    curr_msg.msg  = NULL;
     curr_msg.size = 0;
-    messages      = 0;
+    num_msgs_in_q = 0;
+    afsi_serial = m_serial;
     telem = m_telem;
 
     afsi_good_messages       = 0;
@@ -32,31 +33,58 @@ AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
     rx_msg_rdy     = 0;
 }
 
-bool AFSI_Serial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_msg_type, unsigned char m_priority)
+bool AFSI_Serial::QueueMsg(uint8_t *msg, int size, int msg_type)
 {
-    if (messages >= MAX_TELEM_MESSAGES) {
+    if (num_msgs_in_q >= MAX_AFSI_MSGS) {
         return false;
     }
 
-    Q[messages].msg  = m_msg;
-    Q[messages].size = m_size;
-    Q[messages].msg_type = m_msg_type;
-    Q[messages].priority = m_priority;
-    messages++;
+    msg_queue[num_msgs_in_q].msg  = msg;
+    msg_queue[num_msgs_in_q].size = size;
+    msg_queue[num_msgs_in_q].msg_type = msg_type;
+    num_msgs_in_q++;
 
     return true;
 }
 
-bool AFSI_Serial::IsTypeInQ(unsigned char type)
+void AFSI_Serial::SendMsgs()
 {
     int i;
 
-    if (curr_msg.msg_type==type) {
+    while(1) {
+        /* if current message is in progress, keep sending it till serial buffer is full */
+        while (curr_msg.size) {
+            if (!afsi_serial->writeable()) {
+                return;
+            }
+            afsi_serial->putc(*curr_msg.msg++);
+            curr_msg.size--;
+        }
+
+        /* if no more messages, exit */
+        if (!num_msgs_in_q) {
+            return;
+        }
+
+        for ( i = 0; i < num_msgs_in_q; i++ ) {
+            msg_queue[i-1] = msg_queue[i];
+        }
+
+        curr_msg = msg_queue[0];
+        num_msgs_in_q--;
+    }
+}
+
+bool AFSI_Serial::IsTypeInQ(int type)
+{
+    int i;
+
+    if (curr_msg.msg_type == type) {
         return true;
     }
 
-    for (i=0; i<messages; i++) {
-        if (Q[i].msg_type==type) {
+    for (i = 0; i < num_msgs_in_q; i++) {
+        if (msg_queue[i].msg_type == type) {
             return true;
         }
     }
@@ -64,18 +92,6 @@ bool AFSI_Serial::IsTypeInQ(unsigned char type)
     return false;
 }
 
-unsigned int AFSI_Serial::RemoveBytes(unsigned char *b, int remove, int size)
-{
-    int j;
-
-    for (j=remove; j<size; j++) {
-      b[j-remove] = b[j];
-    }
-
-    size -= remove;
-
-    return size;
-}
 
 void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
 {
@@ -132,7 +148,7 @@ void AFSI_Serial::AddInputByte(char rx_byte)
         case AFSI_STATE_READ:
             afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
             afsi_rx_bytes++;
-            if( afsi_rx_bytes >= (sizeof(AFSI_HDR) + rx_payload_len + 2) ) {
+            if( afsi_rx_bytes >= (AFSI_HEADER_LEN + rx_payload_len + AFSI_CRC_LEN) ) {
                 rx_msg_rdy = 1;
                 rx_msg_state = AFSI_STATE_INIT;
                 debug_print("AFSI PAYLOAD and CRC data has been FOUND!\r\n");
@@ -141,70 +157,6 @@ void AFSI_Serial::AddInputByte(char rx_byte)
         default:
             break;
     }
-
-#if 0
-    /* if full, just clear it */
-    if (afsi_recv_bytes >= AFSI_BUFFER_SIZE) {
-        afsi_recv_bytes = 0;
-    }
-
-    /* add input byte into the recv buffer and increment telem_recv_bytes*/
-    afsi_recv_buffer[afsi_recv_bytes++] = ch;
-
-    /* if first byte is not the start code find it, by discarding all data in front of it */
-    if (afsi_recv_buffer[0]!= AFSI_SNC_CH_1)
-    {
-        unsigned int i;
-        bool foundSC_AFSI = false;
-        for (i=0; i<afsi_recv_bytes; i++)
-        {
-            if (afsi_recv_buffer[i]==AFSI_SNC_CH_1)
-            {
-                afsi_recv_bytes = RemoveBytes(afsi_recv_buffer,i,afsi_recv_bytes);
-                foundSC_AFSI = true;
-                break;
-            }
-        }
-        afsi_start_code_searches++;
-        if (!foundSC_AFSI)
-        {
-            afsi_recv_bytes = 0;
-            return;
-        }
-    }
-
-    if (!afsi_recv_bytes)
-        return;
-
-    /* still did not find it, this case should never happen */
-    if (afsi_recv_buffer[0] != AFSI_SNC_CH_1) {
-        afsi_recv_bytes = 0;
-        return;
-    }
-
-    //Check if enough bytes for header
-    if (afsi_recv_bytes < 6) {
-        return;
-    }
-
-    //Populate AFSI message header
-    hdr_afsi->sync1     = afsi_recv_buffer[0];
-    hdr_afsi->sync2     = afsi_recv_buffer[1];
-    hdr_afsi->msg_class = afsi_recv_buffer[2];
-    hdr_afsi->id        = afsi_recv_buffer[3];
-    hdr_afsi->len       = (afsi_recv_buffer[4]<<8) + afsi_recv_buffer[5];
-
-    //Check if enough bytes for rest of message
-    //+2 at the end added for CRC
-    if (afsi_recv_bytes < sizeof(AFSI_HDR)+hdr_afsi->len+2) {
-        return;
-    }
-
-    //Populate rest of the message
-    for (int i = 0; i<msg_afsi->hdr->len; i++) {
-        msg_afsi->payload[i] = afsi_recv_buffer[i+6];
-    }
-#endif
 
     if (rx_msg_rdy == 1) {
 
@@ -217,42 +169,31 @@ void AFSI_Serial::AddInputByte(char rx_byte)
         memcpy(&msg_afsi, afsi_rx_buffer, afsi_rx_bytes);
 
         //Get, set, and check CRC
-        if (GetCRC(&(afsi_rx_buffer[2]), 4 + rx_payload_len, &(msg_afsi.crc[0])) == 0) {
+        if ( !GetCRC( &(afsi_rx_buffer[2]),
+                      AFSI_HEADER_LEN - AFSI_SYCN_LEN + rx_payload_len,
+                      &(msg_afsi.crc[0]) )   ) {
             afsi_crc_errors++;
             ResetRxMsgData();
             return;
         }
 
-        if ( msg_afsi.hdr.msg_class == AFSI_CTRL ) {
+        if ( msg_afsi.msg_class == AFSI_CTRL ) {
             if (ProcessAsfiCtrlCommands(&msg_afsi)) {
                 afsi_good_messages++;
-
-                /////////////////////////////////////
-                // Send ACK message
-                /////////////////////////////////////
-
+                GenerateACK(msg_afsi.msg_class,msg_afsi.id);
             }
             else {
                 afsi_crc_errors++;
-                /////////////////////////////////////
-                // Send NACK
-                /////////////////////////////////////
+                GenerateNACK(msg_afsi.msg_class,msg_afsi.id);
             }
         }
-        else if ( msg_afsi.hdr.msg_class == AFSI_STATUS ) {
+        else if ( msg_afsi.msg_class == AFSI_STATUS ) {
             if (ProcessAsfiStatusCommands(&msg_afsi)){
                 afsi_good_messages++;
-
-                /////////////////////////////////////
-                // Send appropriate STATUS?
-                /////////////////////////////////////
-
             }
             else {
                 afsi_crc_errors++;
-                /////////////////////////////////////
-                // Send NACK message
-                /////////////////////////////////////
+                GenerateNACK(msg_afsi.msg_class,msg_afsi.id);
             }
         }
 
@@ -286,11 +227,7 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
     CRC[0] = CK_A;
     CRC[1] = CK_B;
 
-    if (CK_A != data[len+0]) {
-        return 0;
-    }
-
-    if (CK_B != data[len+1]) {
+    if ( (CK_A != data[len+0]) || (CK_B != data[len+1]) ) {
         return 0;
     }
 
@@ -299,10 +236,10 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(void) {
 
-    hfc.afsi_values[AFSI_SPEED_FWD]   = 0;
-    hfc.afsi_values[AFSI_SPEED_RIGHT] = 0;
-    hfc.afsi_values[AFSI_ALTITUDE]    = 0;
-    hfc.afsi_values[AFSI_HEADING]     = 0;
+    ctrl_out[AFSI_SPEED_FWD]   = 0;
+    ctrl_out[AFSI_SPEED_RIGHT] = 0;
+    ctrl_out[AFSI_ALTITUDE]    = 0;
+    ctrl_out[AFSI_HEADING]     = 0;
 
     /* altitude hold and yaw angle */
     SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
@@ -338,11 +275,11 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         EnableAFSI();
     }
 
-    if (rx_payload_len != ctrl_msg_lengths[msg->hdr.id]) {
+    if (rx_payload_len != ctrl_msg_lengths[msg->id]) {
         return 0;
     }
 
-    switch (msg->hdr.id){
+    switch (msg->id){
         case AFSI_CTRL_ID_ARM:
             telem->Arm();
             break;
@@ -395,7 +332,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
-                hfc.afsi_values[AFSI_SPEED_FWD] = speed;
+                ctrl_out[AFSI_SPEED_FWD] = speed;
             }
             else {
                 return 0;
@@ -406,7 +343,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
-                hfc.afsi_values[AFSI_SPEED_RIGHT] = speed;
+                ctrl_out[AFSI_SPEED_RIGHT] = speed;
             }
             else {
                 return 0;
@@ -417,7 +354,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             alt = processU2(msg->payload,AFSI_SCALE_ALT);
 
             if (CheckRangeI(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
-                hfc.afsi_values[AFSI_ALTITUDE] = alt;
+                ctrl_out[AFSI_ALTITUDE] = alt;
             }
             else {
                 return 0;
@@ -444,7 +381,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             heading = processU2(msg->payload,AFSI_SCALE_SPEED);
 
             if (CheckRangeI(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
-                hfc.afsi_values[AFSI_HEADING] = heading;
+                ctrl_out[AFSI_HEADING] = heading;
             }
             else {
                 return 0;
@@ -468,65 +405,113 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
     return 1;
 }
 
-void AFSI_Serial::InitStatusHdr(void) {
-    afsi_hdr.sync1     = AFSI_SYNC_BYTE_1;
-    afsi_hdr.sync2     = AFSI_SYNC_BYTE_2;
-    afsi_hdr.msg_class = AFSI_CMD_CLASS_STAT;
+int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
+{
+    if (rx_payload_len != AFSI_RX_STAT_PAYL_LEN) {
+        return 0;
+    }
+
+    int period = msg->payload[0];
+
+    if( msg->id < AFSI_NUM_STAT_MSGS) {
+        stat_msg_enable[msg->id] = 1;
+        stat_msg_cnt[msg->id]    = 0;
+        stat_msg_period[msg->id] = period;
+    }
+    else {
+        return 0;
+    }
+
+    return 1;
+}
+
+void AFSI_Serial::GenerateStatMsg(int id)
+{
+    switch (id) {
+        case AFSI_STAT_ID_PWR:
+            GeneratePwrStatus();
+            break;
+        case AFSI_STAT_ID_GPS:
+            GenerateGpsStatus();
+            break;
+        case AFSI_STAT_ID_SEN:
+            GenerateSensorsStatus();
+            break;
+        case AFSI_STAT_ID_FCM:
+            GenerateFcmStatus();
+            break;
+        default:
+            break;
+    }
 }
 
 void AFSI_Serial::GeneratePwrStatus(void) {
 
-    InitStatusHdr();
-    afsi_hdr.id        = AFSI_STAT_ID_POW;
-    afsi_hdr.len       = 12;
-    msg_pwr_status.hdr = &afsi_hdr;
+    msg_stat_pwr.bat_capacity_used  = hfc.power.capacity_used;
+    msg_stat_pwr.total_bat_capacity = hfc.power.capacity_total;
+    msg_stat_pwr.bat_percent_used   = hfc.power.battery_level;
+    msg_stat_pwr.current            = hfc.power.Iesc;
+    msg_stat_pwr.voltage            = hfc.power.Vmain;
+    msg_stat_pwr.flight_time        = hfc.power.flight_time_left;
 
-    msg_pwr_status.bat_capacity_used  = hfc.power.capacity_used;
-    msg_pwr_status.total_bat_capacity = hfc.power.capacity_total;
-    msg_pwr_status.bat_percent_used   = hfc.power.battery_level;
-    msg_pwr_status.current            = hfc.power.Iesc;
-    msg_pwr_status.voltage            = hfc.power.Vmain;
-    msg_pwr_status.flight_time        = hfc.power.flight_time_left;
+    GetCRC( (uint8_t*)&(msg_stat_pwr),
+            msg_stat_pwr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            &(msg_stat_pwr.crc[0]) );
+
+    QueueMsg( (uint8_t*)&(msg_stat_pwr),
+               msg_stat_pwr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               AFSI_STAT_ID_PWR );
+    return;
+
 }
 
 void AFSI_Serial::GenerateGpsStatus(void)
 {
-    InitStatusHdr();
-    afsi_hdr.id        = AFSI_STAT_ID_GPS;
-    afsi_hdr.len       = 23;
-    msg_gps_status.hdr = &afsi_hdr;
+    msg_stat_gps.hour  = gps.gps_data_.time;
+    msg_stat_gps.min   = gps.gps_data_.time;
+    msg_stat_gps.sec   = gps.gps_data_.time;
+    msg_stat_gps.year  = gps.gps_data_.time;
+    msg_stat_gps.month = gps.gps_data_.time;
+    msg_stat_gps.day   = gps.gps_data_.time;
+    msg_stat_gps.altitude  = gps.gps_data_.altitude;
+    msg_stat_gps.latitude  = gps.gps_data_.lat;
+    msg_stat_gps.longitude = gps.gps_data_.lon;
+    msg_stat_gps.pDOP  = gps.gps_data_.PDOP;
+    msg_stat_gps.numSV = gps.gps_data_.sats;
 
-    msg_gps_status.hour  = gps.gps_data_.time;
-    msg_gps_status.min   = gps.gps_data_.time;
-    msg_gps_status.sec   = gps.gps_data_.time;
-    msg_gps_status.year  = gps.gps_data_.time;
-    msg_gps_status.month = gps.gps_data_.time;
-    msg_gps_status.day   = gps.gps_data_.time;
-    msg_gps_status.altitude  = gps.gps_data_.altitude;
-    msg_gps_status.latitude  = gps.gps_data_.lat;
-    msg_gps_status.longitude = gps.gps_data_.lon;
-    msg_gps_status.pDOP  = gps.gps_data_.PDOP;
-    msg_gps_status.numSV = gps.gps_data_.sats;
+    GetCRC( (uint8_t*)&(msg_stat_gps),
+            msg_stat_gps.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            &(msg_stat_gps.crc[0]) );
+
+    QueueMsg( (uint8_t*)&(msg_stat_gps),
+               msg_stat_gps.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               AFSI_STAT_ID_GPS );
+
+    return;
 }
 
 void AFSI_Serial::GenerateSensorsStatus(void)
 {
-    InitStatusHdr();
-    afsi_hdr.id  = AFSI_STAT_ID_SENSORS;
-    afsi_hdr.len = 22;
+    msg_stat_sensors.gyro_temp       = hfc.gyro_temp_lp;
+    msg_stat_sensors.baro_temp       = hfc.baro_temperature;
+    msg_stat_sensors.esc_temp        = hfc.esc_temp;
+    msg_stat_sensors.baro_pressure   = hfc.baro_pressure;
+    msg_stat_sensors.wind_speed      = hfc.wind_speed;
+    msg_stat_sensors.wind_course     = hfc.wind_course;
+    msg_stat_sensors.rpm             = hfc.RPM;
+    msg_stat_sensors.lidar_altitude  = hfc.altitude_lidar;
+    msg_stat_sensors.compass_heading = hfc.compass_heading_lp;
+    msg_stat_sensors.altitude        = hfc.altitude;
 
-    msg_sensors_status.hdr = &afsi_hdr;
+    GetCRC( (uint8_t*)&(msg_stat_sensors),
+            msg_stat_sensors.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            &(msg_stat_sensors.crc[0]) );
 
-    msg_sensors_status.gyro_temp       = hfc.gyro_temp_lp;
-    msg_sensors_status.baro_temp       = hfc.baro_temperature;
-    msg_sensors_status.esc_temp        = hfc.esc_temp;
-    msg_sensors_status.baro_pressure   = hfc.baro_pressure;
-    msg_sensors_status.wind_speed      = hfc.wind_speed;
-    msg_sensors_status.wind_course     = hfc.wind_course;
-    msg_sensors_status.rpm             = hfc.RPM;
-    msg_sensors_status.lidar_altitude  = hfc.altitude_lidar;
-    msg_sensors_status.compass_heading = hfc.compass_heading_lp;
-    msg_sensors_status.altitude        = hfc.altitude;
+    QueueMsg( (uint8_t*)&(msg_stat_sensors),
+               msg_stat_sensors.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               AFSI_STAT_ID_SEN );
+
+    return;
 }
 
 void AFSI_Serial::GenerateFcmStatus(void)
@@ -536,77 +521,62 @@ void AFSI_Serial::GenerateFcmStatus(void)
 
     uint8_t joystick_ctrl_mode =   (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ? 1 : 0;
 
-    InitStatusHdr();
-    afsi_hdr.id  = AFSI_STAT_ID_FCM;
-    afsi_hdr.len = 6;
 
-    msg_fcm_status.hdr = &afsi_hdr;
+    msg_stat_fcm.ctrl_mode_pitch      = hfc.control_mode[PITCH];
+    msg_stat_fcm.ctrl_mode_roll       = hfc.control_mode[ROLL];
+    msg_stat_fcm.ctrl_mode_yaw        = hfc.control_mode[YAW];
+    msg_stat_fcm.ctrl_mode_collective = hfc.control_mode[COLL];
+    msg_stat_fcm.ctrl_mode_throttle   = hfc.control_mode[THRO];
 
-    msg_fcm_status.ctrl_mode_pitch      = hfc.control_mode[PITCH];
-    msg_fcm_status.ctrl_mode_roll       = hfc.control_mode[ROLL];
-    msg_fcm_status.ctrl_mode_yaw        = hfc.control_mode[YAW];
-    msg_fcm_status.ctrl_mode_collective = hfc.control_mode[COLL];
-    msg_fcm_status.ctrl_mode_throttle   = hfc.control_mode[THRO];
-
-
-
-    msg_fcm_status.ctrl_status   =          ( xbus.receiving & 1 )          |
+    msg_stat_fcm.ctrl_status   =   (          xbus.receiving & 1          ) |
                                    (          (waypoint_ctrl_mode)   << 1 ) |
                                    ( ( (!hfc.throttle_armed) & 1   ) << 2 ) |
                                    (     (joystick_ctrl_mode & 1   ) << 3 ) |
                                    (   ( hfc.playlist_status & 0x3 ) << 4 ) |
                                    (         ( hfc.full_auto & 1   ) << 6 );
+
+    GetCRC( (uint8_t*)&(msg_stat_fcm),
+            msg_stat_fcm.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            &(msg_stat_fcm.crc[0]) );
+
+    QueueMsg( (uint8_t*)&(msg_stat_fcm),
+               msg_stat_fcm.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               AFSI_STAT_ID_FCM );
+
+    return;
 }
 
-int AFSI_Serial::ProcessAsfiStatusCommands(AFSI_MSG *msg)
+
+void AFSI_Serial::GenerateACK(int msg_class, int msg_id)
 {
-    if (rx_payload_len != AFSI_RX_STAT_PAYLOAD) {
-        return 0;
-    }
+    msg_ack.ackd_msg_class = msg_class;
+    msg_ack.ackd_msg_id    = msg_id;
 
-    switch (msg->hdr.id)
-    {
-        case AFSI_STAT_ID_POW:
-            GeneratePwrStatus();
-            break;
-        case AFSI_STAT_ID_GPS:
-            GenerateGpsStatus();
-            break;
-        case AFSI_STAT_ID_SENSORS:
-            GenerateSensorsStatus();
-            break;
-        case  AFSI_STAT_ID_FCM:
-            GenerateFcmStatus();
-            break;
-        default:
-            return 0;
-    }
+    GetCRC( (uint8_t*)&(msg_ack),
+            msg_ack.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            &(msg_ack.crc[0]) );
 
-    return 1;
+    QueueMsg( (uint8_t*)&(msg_ack),
+               msg_ack.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               AFSI_ACK_ID_ACK );
+
+    return;
 }
 
-bool AFSI_Serial::CheckRangeAndSetF(float *pvalue, byte *pivalue, float vmin, float vmax)
+void AFSI_Serial::GenerateNACK(int msg_class, int msg_id)
 {
-    float value = *((float*)pivalue);
-//  debug_print("%f\r\n", value);
-    if (!pvalue || value>vmax || value<vmin) {
-        return false;
-    }
+    msg_nack.nackd_msg_class = msg_class;
+    msg_nack.nackd_msg_id    = msg_id;
 
-    *pvalue = value;
-    return true;
-}
+    GetCRC( (uint8_t*)&(msg_nack),
+            msg_nack.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            &(msg_nack.crc[0]) );
 
-bool AFSI_Serial::CheckRangeAndSetI(int *pvalue, uint8_t *pivalue, float vmin, float vmax)
-{
-    float value = *((int*)pivalue);
-//  debug_print("%f\r\n", value);
-    if (!pvalue || value>vmax || value<vmin) {
-        return false;
-    }
+    QueueMsg( (uint8_t*)&(msg_nack),
+               msg_nack.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               AFSI_ACK_ID_ACK );
 
-    *pvalue = value;
-    return true;
+    return;
 }
 
 bool AFSI_Serial::CheckRangeI(int value, int vmin, int vmax)
@@ -615,17 +585,6 @@ bool AFSI_Serial::CheckRangeI(int value, int vmin, int vmax)
         return false;
     }
 
-    return true;
-}
-
-bool AFSI_Serial::CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax)
-{
-    int value = *((int*)pivalue);
-    if (!pvalue || value>vmax || value<vmin) {
-        return false;
-    }
-
-    *pvalue = value;
     return true;
 }
 
