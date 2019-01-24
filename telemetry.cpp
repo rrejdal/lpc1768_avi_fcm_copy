@@ -815,13 +815,16 @@ void TelemSerial::SelectCtrlSource(byte source)
     if (source==CTRL_SOURCE_RCRADIO || source==CTRL_SOURCE_JOYSTICK)
     {
     	ApplyDefaults();
-
-    	// Clear playlist items
-        hfc->playlist_items = 0;
-        hfc->playlist_position = 0;
-
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
-        hfc->playlist_status = PLAYLIST_STOPPED;
+
+        if (hfc->playlist_status == PLAYLIST_PLAYING) {
+            hfc->playlist_status = PLAYLIST_PAUSED;
+        }
+        else if (hfc->playlist_status == PLAYLIST_STOPPED) {
+            // Clear playlist items
+            hfc->playlist_items = 0;
+            hfc->playlist_position = 0;
+        }
     }
     
     if (source == CTRL_SOURCE_JOYSTICK) {
@@ -1965,6 +1968,8 @@ void TelemSerial::ProcessCommands(void)
         else
         if (sub_cmd==PLAYLIST_STOP)
         {
+            hfc->playlist_status = PLAYLIST_STOPPED;
+
             /* stop playlist and waypoint mode */
             SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         }
