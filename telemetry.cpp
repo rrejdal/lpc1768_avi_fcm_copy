@@ -1683,11 +1683,13 @@ void TelemSerial::Arm(void)
     if (hfc->throttle_armed)
         return;
 
-    /* throttle level needs to be low */
-    if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
-    {
-        SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
-        return;
+    if( hfc->ctrl_source != CTRL_SOURCE_AFSI ) {
+        /* throttle level needs to be low */
+        if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
+        {
+            SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
+            return;
+        }
     }
 
     /* cannot arm in manual mode unless explicitly allowed */

@@ -49,42 +49,42 @@
 #define AFSI_CTRL_PAYL_LEN_RESUME       0
 
 // STATUS message defines
-#define AFSI_STAT_ID_PWR               AFSI_STAT_PWR
-#define AFSI_STAT_ID_GPS               AFSI_STAT_GPS
-#define AFSI_STAT_ID_SEN               AFSI_STAT_SEN
-#define AFSI_STAT_ID_FCM               AFSI_STAT_FCM
+#define AFSI_STAT_ID_PWR                AFSI_STAT_PWR
+#define AFSI_STAT_ID_GPS                AFSI_STAT_GPS
+#define AFSI_STAT_ID_SEN                AFSI_STAT_SEN
+#define AFSI_STAT_ID_FCM                AFSI_STAT_FCM
 
-#define AFSI_STAT_PAYL_LEN_PWR         12
-#define AFSI_STAT_PAYL_LEN_GPS         23
-#define AFSI_STAT_PAYL_LEN_SEN         22
-#define AFSI_STAT_PAYL_LEN_FCM         6
+#define AFSI_STAT_PAYL_LEN_PWR          12
+#define AFSI_STAT_PAYL_LEN_GPS          23
+#define AFSI_STAT_PAYL_LEN_SEN          22
+#define AFSI_STAT_PAYL_LEN_FCM          6
 
-#define AFSI_NUM_STAT_MSGS        AFSI_MAX_STAT_MSGS
+#define AFSI_NUM_STAT_MSGS              AFSI_MAX_STAT_MSGS
 
-#define AFSI_RX_STAT_PAYL_LEN          1
+#define AFSI_RX_STAT_PAYL_LEN           1
 
 // ACK message defines
-#define AFSI_ACK_ID_NACK          0x00
-#define AFSI_ACK_ID_ACK           0x01
+#define AFSI_ACK_ID_NACK                0x00
+#define AFSI_ACK_ID_ACK                 0x01
 
-#define AFSI_ACK_PAYL_LEN      2
+#define AFSI_ACK_PAYL_LEN               2
 
 // SYNC bytes
-#define AFSI_SYNC_BYTE_1          0xB5
-#define AFSI_SYNC_BYTE_2          0x62
+#define AFSI_SYNC_BYTE_1                0xB5
+#define AFSI_SYNC_BYTE_2                0x62
 
 // STATE MACHINE
-#define AFSI_STATE_INIT           0
-#define AFSI_STATE_SYNC           1
-#define AFSI_STATE_CLASS_ID       2
-#define AFSI_STATE_LEN            3
-#define AFSI_STATE_READ           4
+#define AFSI_STATE_INIT                 0
+#define AFSI_STATE_SYNC                 1
+#define AFSI_STATE_CLASS_ID             2
+#define AFSI_STATE_LEN                  3
+#define AFSI_STATE_READ                 4
 
 // SCALING for different variables
-#define AFSI_SCALE_POS            1e-7
-#define AFSI_SCALE_SPEED          1e-3
-#define AFSI_SCALE_ALT            1e-3
-#define AFSI_SCALE_HEADING        1e-2
+#define AFSI_SCALE_POS                  1e-7
+#define AFSI_SCALE_SPEED                1e-3
+#define AFSI_SCALE_ALT                  1e-3
+#define AFSI_SCALE_HEADING              1e-2
 
 // Max and mins of variables
 #define AFSI_MAX_SPEED            10/AFSI_SCALE_SPEED
