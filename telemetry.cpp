@@ -1520,6 +1520,13 @@ char TelemSerial::PreFlightChecks(void)
         SendMsgToGround(MSG2GROUND_PFCHECK_IMU_GPS_ALT);
         return false;
     }
+
+    /* LIDAR, if reading more than 0.2 meters then we have an issue */
+    if (hfc->altitude_lidar_raw > 0.2)
+    {
+        SendMsgToGround(MSG2GROUND_PFCHECK_LIDAR);
+        return false;
+    }
     return true;
 }
 

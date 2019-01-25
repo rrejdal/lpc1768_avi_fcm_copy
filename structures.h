@@ -265,7 +265,11 @@
 #define MSG2GROUND_PFCHECK_GPS_NOSIGNAL 25  // All GPS units have to be providing data
 #define MSG2GROUND_PFCHECK_IMUACC_HORIZ 30  // IMU and ACC horizon estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_IMUCOMP_HEAD 31  // IMU and compass heading estimation have to be close to each other
-#define MSG2GROUND_LIDAR_NOGROUND       32  // lidar does not see ground before landing
+#define MSG2GROUND_PFCHECK_LIDAR        32  // Lidar reports invalid value.
+
+
+#define MSG2GROUND_LIDAR_NOGROUND       40  // lidar does not see ground before landing
+
 
 #define CMD_MSG_TAKEOFF_OK        1
 #define CMD_MSG_TAKEOFF_ABORT     2
