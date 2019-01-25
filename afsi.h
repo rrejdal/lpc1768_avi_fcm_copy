@@ -279,7 +279,7 @@ private:
     int  GetCRC(uint8_t *data, int len, uint8_t *CRC);
 
     float processU2(uint8_t*data, int scaling);
-    bool CheckRangeI(int value, int vmin, int vmax);
+    bool CheckRangeF(float value, float min, float max);
 
 };
 

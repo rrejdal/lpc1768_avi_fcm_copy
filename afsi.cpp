@@ -271,6 +271,7 @@ void AFSI_Serial::EnableAFSI(void) {
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
     float lat, lon, speed, alt, heading = {0};
+
     if (hfc.afsi_enable == 0) {
         EnableAFSI();
     }
@@ -289,7 +290,15 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_TAKEOFF:
-            telem->CommandTakeoffArm();
+            alt = processU2(msg->payload,AFSI_SCALE_ALT);
+
+            if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
+                hfc.home_pos[2] = alt;
+                telem->CommandTakeoffArm();
+            }
+            else {
+                return 0;
+            }
             break;
 
         case  AFSI_CTRL_ID_LAND:
@@ -299,39 +308,42 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_SET_POS:
-            lat = (int)((uint32_t)(msg_afsi.payload[0])       |
-                        (uint32_t)(msg_afsi.payload[1] << 8)  |
-                        (uint32_t)(msg_afsi.payload[2] << 16) |
-                        (uint32_t)(msg_afsi.payload[3] << 24)   ) * AFSI_SCALE_POS;
+            lat = (float)((uint32_t)(msg_afsi.payload[0])       |
+                          (uint32_t)(msg_afsi.payload[1] << 8)  |
+                          (uint32_t)(msg_afsi.payload[2] << 16) |
+                          (uint32_t)(msg_afsi.payload[3] << 24)   ) * AFSI_SCALE_POS;
 
 
-            lon = (int)((uint32_t)(msg_afsi.payload[4])       |
-                        (uint32_t)(msg_afsi.payload[5] << 8)  |
-                        (uint32_t)(msg_afsi.payload[6] << 16) |
-                        (uint32_t)(msg_afsi.payload[7] << 24)   ) * AFSI_SCALE_POS;
+            lon = (float)((uint32_t)(msg_afsi.payload[4])       |
+                          (uint32_t)(msg_afsi.payload[5] << 8)  |
+                          (uint32_t)(msg_afsi.payload[6] << 16) |
+                          (uint32_t)(msg_afsi.payload[7] << 24)   ) * AFSI_SCALE_POS;
 
-            if ( CheckRangeI(lat, -90, 90)   ||
-                 CheckRangeI(lon, -180, 180)    ) {
+            if ( CheckRangeF(lat, -90, 90)   ||
+                 CheckRangeF(lon, -180, 180)    ) {
+
+                /* since this is asynchronous to the main loop, the control_mode
+                 * change might be detected and the init skipped,
+                 * thus it needs to be done here */
+                if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION) {
+                    PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
+                    PID_SetForEnable(&hfc.pid_Dist2P, 0, 0, 0);
+                    hfc.speedCtrlPrevEN[0] = 0;
+                    hfc.speedCtrlPrevEN[1] = 0;
+                }
+
+                telem->SetWaypoint(lat, lon, -9999, WAYPOINT_GOTO, false);
+                return 1;
+            }
+            else {
                 return 0;
             }
-
-            /* since this is asynchronous to the main loop, the control_mode
-             * change might be detected and the init skipped,
-             * thus it needs to be done here */
-            if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION) {
-                PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
-                PID_SetForEnable(&hfc.pid_Dist2P, 0, 0, 0);
-                hfc.speedCtrlPrevEN[0] = 0;
-                hfc.speedCtrlPrevEN[1] = 0;
-            }
-
-            telem->SetWaypoint(lat, lon, -9999, WAYPOINT_GOTO, false);
             break;
 
         case AFSI_CTRL_ID_SPEED_FWD:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
+            if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
                 ctrl_out[AFSI_SPEED_FWD] = speed;
             }
             else {
@@ -342,7 +354,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CTRL_ID_SPEED_RIGHT:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
 
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
+            if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
                 ctrl_out[AFSI_SPEED_RIGHT] = speed;
             }
             else {
@@ -353,7 +365,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CTRL_ID_SET_ALT:
             alt = processU2(msg->payload,AFSI_SCALE_ALT);
 
-            if (CheckRangeI(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
+            if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
                 ctrl_out[AFSI_ALTITUDE] = alt;
             }
             else {
@@ -363,7 +375,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
         case AFSI_CTRL_ID_HOME:
             speed = processU2(msg->payload,AFSI_SCALE_SPEED);
-            if (CheckRangeI(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed > 0) ) {
+            if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed > 0) ) {
                 hfc.pid_Dist2T.COmax = speed;
                 telem->ApplyDefaults();
                 telem->SetWaypoint(hfc.home_pos[0], hfc.home_pos[1], -9999, WAYPOINT_GOTO, 0);
@@ -380,7 +392,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CTRL_ID_HEADING:
             heading = processU2(msg->payload,AFSI_SCALE_SPEED);
 
-            if (CheckRangeI(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
+            if (CheckRangeF(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
                 ctrl_out[AFSI_HEADING] = heading;
             }
             else {
@@ -392,9 +404,6 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             /* disabling joystick */
             if (hfc.playlist_status == PLAYLIST_PAUSED) {
                 telem->PlaylistRestoreState();
-            }
-            else {
-                telem->SelectCtrlSource(CTRL_SOURCE_RCRADIO);
             }
             break;
 
@@ -579,9 +588,9 @@ void AFSI_Serial::GenerateNACK(int msg_class, int msg_id)
     return;
 }
 
-bool AFSI_Serial::CheckRangeI(int value, int vmin, int vmax)
+bool AFSI_Serial::CheckRangeF(float value, float min, float max)
 {
-    if ( (value > vmax) || (value < vmin) ) {
+    if ( (value > max) || (value < min) ) {
         return false;
     }
 
