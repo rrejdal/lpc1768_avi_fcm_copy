@@ -2434,7 +2434,7 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
     }
 
-    if (hfc.ctrl_source != CTRL_SOURCE_AUTO3D) {
+    if ((hfc.ctrl_source != CTRL_SOURCE_AUTO3D) && (hfc.ctrl_source != CTRL_SOURCE_AFSI)) {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
@@ -2444,7 +2444,7 @@ static void ServoUpdate(float dT)
 
         yaw_rate_ctrl = ClipMinMax(yaw_rate_ctrl, hfc.pid_YawAngle.COmin, hfc.pid_YawAngle.COmax);
 
-        // TODO::MRI: What are these used for?
+        // TODO::MMRI: What are these used for?
         HeadingUpdate(yaw_rate_ctrl, dT);
         AltitudeUpdate(hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed, dT);
         
@@ -2455,6 +2455,12 @@ static void ServoUpdate(float dT)
         // clip RAW using rate PID limits
         hfc.ctrl_out[RAW][COLL]  = hfc.ctrl_out[RAW][COLL] * pConfig->control_gains[COLL];
         hfc.ctrl_out[RAW][COLL] += hfc.pid_CollVspeed.COofs;
+    }
+    else if (hfc.ctrl_source == CTRL_SOURCE_AFSI) {
+        hfc.ctrl_out[SPEED][PITCH] = afsi.ctrl_out[AFSI_SPEED_FWD];
+        hfc.ctrl_out[SPEED][ROLL]  = afsi.ctrl_out[AFSI_SPEED_RIGHT];
+        hfc.ctrl_out[ANGLE][YAW]   = afsi.ctrl_out[AFSI_HEADING];
+        hfc.ctrl_out[POS][COLL]    = afsi.ctrl_out[AFSI_ALTITUDE];
     }
 
     // processes staged waypoints - takeoff, landing, ... etc
@@ -2587,7 +2593,8 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[SPEED][ROLL]  += PathSpeedR; // side component only
       
       /* altitude control - interpolation between waypoints */
-      if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D && hfc.waypoint_type != WAYPOINT_TAKEOFF)
+      if (    ( (hfc.ctrl_source == CTRL_SOURCE_AUTO3D) || (hfc.ctrl_source == CTRL_SOURCE_AFSI) )
+           && hfc.waypoint_type != WAYPOINT_TAKEOFF)
       {
         if (hfc.waypoint_STdist>2)
         {
