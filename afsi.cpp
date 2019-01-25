@@ -102,6 +102,7 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
 
 void AFSI_Serial::AddInputByte(char rx_byte)
 {
+    int len = 0;
     printf("BYTES reading...\r\n");
 
     switch (rx_msg_state)
@@ -167,13 +168,14 @@ void AFSI_Serial::AddInputByte(char rx_byte)
         debug_print("\r\n");
 
         memcpy(&msg_afsi, afsi_rx_buffer, afsi_rx_bytes);
-
+        len = AFSI_HEADER_LEN - AFSI_SYCN_LEN + rx_payload_len;
         //Get, set, and check CRC
-        if ( !GetCRC( &(afsi_rx_buffer[2]),
-                      AFSI_HEADER_LEN - AFSI_SYCN_LEN + rx_payload_len,
-                      &(msg_afsi.crc[0]) )   ) {
+        if ( !GetCRC(&(afsi_rx_buffer[2]), len, &(msg_afsi.crc[0])) ) {
             afsi_crc_errors++;
             ResetRxMsgData();
+            debug_print("ERROR: AFSI CRC ERRORS = %d\r\n",afsi_crc_errors);
+            debug_print("       CRC Calc = %d %d\r\n", msg_afsi.crc[0], msg_afsi.crc[1]);
+            debug_print("       CRC Read = %d %d\r\n", afsi_rx_buffer[len+2], afsi_rx_buffer[len+3]);
             return;
         }
 
@@ -183,8 +185,9 @@ void AFSI_Serial::AddInputByte(char rx_byte)
                 GenerateACK(msg_afsi.msg_class,msg_afsi.id);
             }
             else {
-                afsi_crc_errors++;
+                afsi_msg_errors++;
                 GenerateNACK(msg_afsi.msg_class,msg_afsi.id);
+                debug_print("ERROR: AFSI MSG ERRORS = %d\r\n",afsi_msg_errors);
             }
         }
         else if ( msg_afsi.msg_class == AFSI_STATUS ) {
@@ -192,8 +195,9 @@ void AFSI_Serial::AddInputByte(char rx_byte)
                 afsi_good_messages++;
             }
             else {
-                afsi_crc_errors++;
+                afsi_msg_errors++;
                 GenerateNACK(msg_afsi.msg_class,msg_afsi.id);
+                debug_print("ERROR: AFSI MSG ERRORS = %d\r\n",afsi_msg_errors);
             }
         }
 
@@ -277,6 +281,10 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
     }
 
     if (rx_payload_len != ctrl_msg_lengths[msg->id]) {
+        afsi_msg_len_errors++;
+        debug_print("ERROR: AFSI MSG LEN ERRORS = %d\r\n",afsi_msg_len_errors);
+        debug_print("       Max pay load length = %d\r\n",ctrl_msg_lengths[msg->id]);
+        debug_print("       Pay load length     = %d\r\n",rx_payload_len);
         return 0;
     }
 
@@ -401,7 +409,6 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_RESUME:
-            /* disabling joystick */
             if (hfc.playlist_status == PLAYLIST_PAUSED) {
                 telem->PlaylistRestoreState();
             }
@@ -597,14 +604,14 @@ bool AFSI_Serial::CheckRangeF(float value, float min, float max)
     return true;
 }
 
-float AFSI_Serial::processU2(uint8_t*data, int scaling)
+float AFSI_Serial::processU2(uint8_t*data, float scaling)
 {
     float result = 0;
 
     for (int i = 0; i<2; i++)
     {
-        result += (data[i]<<(8*(1-i)));
+        result += ( data[i] << (8*(1-i)) );
     }
 
-    return result*scaling;
+    return result;
 }

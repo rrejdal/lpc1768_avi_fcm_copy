@@ -37,8 +37,8 @@
 
 #define AFSI_CTRL_PAYL_LEN_ARM          0
 #define AFSI_CTRL_PAYL_LEN_DISARM       0
-#define AFSI_CTRL_PAYL_LEN_TAKEOFF      0
-#define AFSI_CTRL_PAYL_LEN_LAND         2
+#define AFSI_CTRL_PAYL_LEN_TAKEOFF      2
+#define AFSI_CTRL_PAYL_LEN_LAND         0
 #define AFSI_CTRL_PAYL_LEN_SET_POS      8
 #define AFSI_CTRL_PAYL_LEN_SPEED_FWD    2
 #define AFSI_CTRL_PAYL_LEN_SPEED_RIGHT  2
@@ -87,14 +87,14 @@
 #define AFSI_SCALE_HEADING              1e-2
 
 // Max and mins of variables
-#define AFSI_MAX_SPEED            10/AFSI_SCALE_SPEED
-#define AFSI_MIN_SPEED           -10/AFSI_SCALE_SPEED
+#define AFSI_MAX_SPEED            10
+#define AFSI_MIN_SPEED           -10
 
-#define AFSI_MAX_ALT              50/AFSI_SCALE_ALT
-#define AFSI_MIN_ALT               5/AFSI_SCALE_ALT
+#define AFSI_MAX_ALT              50
+#define AFSI_MIN_ALT               5
 
-#define AFSI_MAX_HEADING          180/AFSI_SCALE_HEADING
-#define AFSI_MIN_HEADING         -180/AFSI_SCALE_HEADING
+#define AFSI_MAX_HEADING          180
+#define AFSI_MIN_HEADING         -180
 
 typedef struct AFSI_MSG{
     const uint8_t sync1 = AFSI_SYNC_BYTE_1;
@@ -203,6 +203,8 @@ class AFSI_Serial
 public:
     unsigned int afsi_good_messages;
     unsigned int afsi_crc_errors;
+    unsigned int afsi_msg_errors;
+    unsigned int afsi_msg_len_errors;
     unsigned int afsi_start_code_searches;
 
     float ctrl_out[10];
@@ -278,7 +280,7 @@ private:
 
     int  GetCRC(uint8_t *data, int len, uint8_t *CRC);
 
-    float processU2(uint8_t*data, int scaling);
+    float processU2(uint8_t*data, float scaling);
     bool CheckRangeF(float value, float min, float max);
 
 };
