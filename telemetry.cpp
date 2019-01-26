@@ -1042,14 +1042,14 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&altitude, p->data, -8999, 9999);
             else
             if (sub_param==TELEM_PARAM_WP_MAX_H_SPEED)
-                CheckRangeAndSetF(&hfc->pid_Dist2T.COmax, p->data, 0.1f, 50);
+                CheckRangeAndSetF(&hfc->pid_Dist2T.COmax, p->data, 0.1f, pConfig->max_params_hspeed);
             else
             if (sub_param==TELEM_PARAM_WP_MAX_H_ACC)
                 CheckRangeAndSetF(&hfc->pid_Dist2T.acceleration, p->data, 0.1f, 100);
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, p->data, 0.1f, 10)) {
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, p->data, 0.1f, pConfig->max_params_vspeed)) {
                 	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
                 }
             }
@@ -1107,12 +1107,12 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 }
             }
             else if (sub_param==TELEM_PARAM_STICK_HSPEED) {
-                if (CheckRangeAndSetF(&hfc->rw_cfg.StickHspeed, p->data, 0.1f, 50)) {
+                if (CheckRangeAndSetF(&hfc->rw_cfg.StickHspeed, p->data, 0.1f, pConfig->max_params_hspeed)) {
                     hfc->Stick_Hspeed  = hfc->rw_cfg.StickHspeed/pConfig->Stick100range;
                 }
             }
             else if (sub_param==TELEM_PARAM_STICK_VSPEED) {
-                if (CheckRangeAndSetF(&hfc->rw_cfg.StickVspeed, p->data, 0.1f, 0.8f*hfc->rw_cfg.VspeedMax))
+                if (CheckRangeAndSetF(&hfc->rw_cfg.StickVspeed, p->data, 0.1f, 0.8f*pConfig->max_params_vspeed))
                     hfc->Stick_Vspeed  = hfc->rw_cfg.StickVspeed/pConfig->Stick100range;
             }
             else if (sub_param==TELEM_PARAM_STICK_Y_RATE) {

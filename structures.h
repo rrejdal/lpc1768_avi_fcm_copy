@@ -868,6 +868,9 @@ typedef struct ConfigurationData {
     float current_slope_percent_mod;
     float current_offset;
 
+    float max_params_hspeed;  // Max allowable horizontal speed set by params
+    float max_params_vspeed;  // Max allowable vertical speed set by params
+
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;

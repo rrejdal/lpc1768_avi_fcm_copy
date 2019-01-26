@@ -1629,7 +1629,7 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
 //            else
             if (sub_param==TELEM_PARAM_WP_MAX_H_SPEED)
             {
-                CheckRangeAndSetF(&hfc->pid_Dist2T.COmax, item->value1.f, 0.1f, 50);
+                CheckRangeAndSetF(&hfc->pid_Dist2T.COmax, item->value1.f, 0.1f, pConfig->max_params_hspeed);
 //            	DynamicAccInTurns(hfc, &hfc->pid_Dist2T);
             }
             else
@@ -1641,7 +1641,7 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, item->value1.f, 0.1f, 10))
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, item->value1.f, 0.1f, pConfig->max_params_vspeed))
                 	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
             }
             else
