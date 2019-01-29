@@ -214,6 +214,7 @@
 #define CTRL_SOURCE_JOYSTICK    1
 #define CTRL_SOURCE_AUTO2D      2   // collective comes from RC radio
 #define CTRL_SOURCE_AUTO3D      3   // everything internally driven
+#define CTRL_SOURCE_AFSI        4   // use serial interface
 
 /* take off states */
 #define FM_TAKEOFF_NONE         0
@@ -943,6 +944,8 @@ typedef struct
     unsigned char joy_PRmode;
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio
     
+    int afsi_enable;
+
     /* playlist stuff */
     unsigned int playlist_items;
     unsigned int playlist_position;

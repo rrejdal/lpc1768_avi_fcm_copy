@@ -71,7 +71,7 @@ int LoadConfiguration(const ConfigData **pConfig)
     unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
     pData += sizeof(ConfigurationDataHeader);
     if (pConfigData->header.checksum != crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)))) {
-    	return -1;
+        return -1;
     }
 
     // If our version is > then the file version then we cannot process it.
@@ -79,7 +79,21 @@ int LoadConfiguration(const ConfigData **pConfig)
         return -2;
     }
 
-    *pConfig = pConfigData;
+    ConfigData *tempConfig = new ConfigData;
+    memcpy(tempConfig,pConfigData,sizeof(ConfigData));
+
+    tempConfig->ccpm_type=3;
+    tempConfig->num_servo_nodes=0;
+    tempConfig->num_gps_nodes=0;
+    tempConfig->num_power_nodes=0;
+    tempConfig->can_servo=0;
+    tempConfig->fcm_servo=0;
+    tempConfig->power_node=0;
+    tempConfig->LidarFromServo=0;
+    tempConfig->LidarFromPowerNode=0;
+
+    *pConfig = tempConfig;
+
     return 0;
 }
 
@@ -432,5 +446,3 @@ int SetJtag(int state)
 }
 
 /************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/
-
-

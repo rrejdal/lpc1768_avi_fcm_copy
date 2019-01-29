@@ -76,6 +76,9 @@
 #define TELEM_TX    P0_25
 #define TELEM_RX    P0_26
 
+#define AFSI_TX     P0_10
+#define AFSI_RX     P0_11
+
 #define USB_DMINUS  P0_30
 #define USB_DPLUS   P0_29
 

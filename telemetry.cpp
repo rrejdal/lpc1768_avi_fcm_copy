@@ -177,13 +177,13 @@ void TelemSerial::AddInputByte(char ch)
         telem_start_code_searches++;
         if (!foundSC)
         {
-        	telem_recv_bytes = 0;
-        	return;
+            telem_recv_bytes = 0;
+            return;
         }
     }
 
     if (!telem_recv_bytes)
-    	return;
+        return;
 
     /* still did not find it, this case should never happen */
     if (telem_recv_buffer[0]!=0x47)
@@ -196,55 +196,55 @@ void TelemSerial::AddInputByte(char ch)
     }
 
     if (telem_recv_bytes<4)
-    	return;
+        return;
     
     hdr = (T_TelemUpHdr*)telem_recv_buffer;
 
     /* check CRC of the header */
     {
-    	byte hdr1[4];
-    	byte crc8;
+        byte hdr1[4];
+        byte crc8;
 
-    	hdr1[0] = telem_recv_buffer[0];
-    	hdr1[1] = telem_recv_buffer[1];
-    	hdr1[2] = 0x39;
-    	hdr1[3] = telem_recv_buffer[3];
-    	crc8 = CalcCRC8(hdr1, 4);
-    	if (crc8!=hdr->crc8)
-    	{
-    		telem_recv_buffer[0] = 0;
+        hdr1[0] = telem_recv_buffer[0];
+        hdr1[1] = telem_recv_buffer[1];
+        hdr1[2] = 0x39;
+        hdr1[3] = telem_recv_buffer[3];
+        crc8 = CalcCRC8(hdr1, 4);
+        if (crc8!=hdr->crc8)
+        {
+            telem_recv_buffer[0] = 0;
 //            debug_print("Wrong hdr CRC\r\n");
-    		return;
+            return;
 
-    	}
+        }
     }
-	if (hdr->type>=TELEMETRY_LAST_MSG_TYPE)
-	{
-		telem_recv_buffer[0] = 0;
+    if (hdr->type>=TELEMETRY_LAST_MSG_TYPE)
+    {
+        telem_recv_buffer[0] = 0;
 //            debug_print("Wrong msg type %d\r\n", hdr->type);
-		return;
-	}
-	if (hdr->type==TELEMETRY_COMMANDS5 && hdr->len>18)
-	{
-		telem_recv_buffer[0] = 0;
+        return;
+    }
+    if (hdr->type==TELEMETRY_COMMANDS5 && hdr->len>18)
+    {
+        telem_recv_buffer[0] = 0;
 //            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
-		return;
-	}
-	if (hdr->type==TELEMETRY_PROFILE_CMD && hdr->len>(sizeof(T_Telem_Profile8)-8-1))
-	{
-		telem_recv_buffer[0] = 0;
+        return;
+    }
+    if (hdr->type==TELEMETRY_PROFILE_CMD && hdr->len>(sizeof(T_Telem_Profile8)-8-1))
+    {
+        telem_recv_buffer[0] = 0;
 //            debug_print("Wrong msg size %d type %d\r\n", hdr->len, hdr->type);
-		return;
-	}
+        return;
+    }
 
-	/*do we have enough bytes for the header */
+    /*do we have enough bytes for the header */
     if (telem_recv_bytes<8)
         return;
-        
+
     /* do we have enough bytes for the message */
     if (telem_recv_bytes < (unsigned int)(hdr->len+8+1))
         return;
-        
+
     /* check crc */
     {
         unsigned int crc_org = hdr->crc;
@@ -392,33 +392,33 @@ void TelemSerial::AddInputByte(char ch)
     else
     if (hdr->type==TELEMETRY_LANDINGSITES)
     {
-    	T_Telem_LandingSites *msg = (T_Telem_LandingSites*)telem_recv_buffer;
-		int i;
+        T_Telem_LandingSites *msg = (T_Telem_LandingSites*)telem_recv_buffer;
+        int i;
 
-		if (msg->page==0)
-		{
-			hfc->landing_sites_num = 0;
-		}
+        if (msg->page==0)
+        {
+            hfc->landing_sites_num = 0;
+        }
 
-		if (hfc->landing_sites_num != 15*msg->page)
-		{
+        if (hfc->landing_sites_num != 15*msg->page)
+        {
 //                debug_print("Playlist items %d does not correspond to the current page %d\r\n", hfc->playlist_items, msg->page);
-			hfc->landing_sites_num = 15*msg->page;
-		}
-		if ((hfc->landing_sites_num+msg->lines) <= LANDING_SITES)
-		{
-			for (i=0; i<msg->lines; i++)
-				hfc->landing_sites[hfc->landing_sites_num++] = msg->items[i];
-		}
-		/* this might be produced before the previous one was transmitted !!!!!!! */
-		hfc->tcpip_confirm  = true;
-		hfc->tcpip_org_type = hdr->type;
-		hfc->tcpip_org_len  = hdr->len;
-		hfc->tcpip_user1    = hfc->landing_sites_num;
-		hfc->tcpip_user2    = LANDING_SITES;
+            hfc->landing_sites_num = 15*msg->page;
+        }
+        if ((hfc->landing_sites_num+msg->lines) <= LANDING_SITES)
+        {
+            for (i=0; i<msg->lines; i++)
+                hfc->landing_sites[hfc->landing_sites_num++] = msg->items[i];
+        }
+        /* this might be produced before the previous one was transmitted !!!!!!! */
+        hfc->tcpip_confirm  = true;
+        hfc->tcpip_org_type = hdr->type;
+        hfc->tcpip_org_len  = hdr->len;
+        hfc->tcpip_user1    = hfc->landing_sites_num;
+        hfc->tcpip_user2    = LANDING_SITES;
 //            debug_print("new playlist item\r\n");
 
-		telem_good_messages++;
+        telem_good_messages++;
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
         return;
     }
@@ -538,7 +538,7 @@ void TelemSerial::Generate_System2(int time_ms)
     T_Telem_System2 *msg = &hfc->telemSystem2;
 
     GpsData gps_data = gps.GetGpsData();
-	char fixC, fix2, sats2;
+    char fixC, fix2, sats2;
     float WangleE = PIDestOutput(&hfc->pid_PitchSpeed, hfc->speed_Iterm_E_lp);
     float WangleN = PIDestOutput(&hfc->pid_PitchSpeed, hfc->speed_Iterm_N_lp);
     float WspeedE = WinSpeedEst(WangleE);
@@ -550,7 +550,7 @@ void TelemSerial::Generate_System2(int time_ms)
     fixC = gps_data.fix;
 
     if (gps.GetLastUpdate() > 300000) {
-   		fixC = 3;
+        fixC = 3;
     }
 
     gps.GetFixSatsOther(&fix2, &sats2);
@@ -786,7 +786,7 @@ void TelemSerial::Generate_Msg2Ground(void)
 
 void TelemSerial::SaveValuesForAbort(void)
 {
-//	debug_print("Saved values for abort\r\n");
+//  debug_print("Saved values for abort\r\n");
     hfc->ctrl_initial[THRO]  = xbus.valuesf[XBUS_THR_LV];
     hfc->ctrl_initial[PITCH] = xbus.valuesf[XBUS_PITCH];
     hfc->ctrl_initial[ROLL]  = xbus.valuesf[XBUS_ROLL];
@@ -808,12 +808,11 @@ void TelemSerial::SelectCtrlSource(byte source)
 {
     /* save RC stick values when switching away from RCradio source, for the abort function */
     if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO) {
-    	SaveValuesForAbort();
+        SaveValuesForAbort();
     }
     
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
-    if (source==CTRL_SOURCE_RCRADIO || source==CTRL_SOURCE_JOYSTICK)
-    {
+    if ( (source==CTRL_SOURCE_RCRADIO) || (source==CTRL_SOURCE_JOYSTICK) || (source==CTRL_SOURCE_AFSI)) {
     	ApplyDefaults();
 
     	// Clear playlist items
@@ -828,6 +827,16 @@ void TelemSerial::SelectCtrlSource(byte source)
         hfc->telem_ctrl_period = 100000;   // in us - 10Hz
     }
     else {
+        hfc->telem_ctrl_period = 0;
+    }
+
+
+    if (source == CTRL_SOURCE_AFSI) {
+        hfc->afsi_enable = 1;
+        hfc->telem_ctrl_period = 100000;   // in us - 10Hz
+    }
+    else {
+        hfc->afsi_enable = 0;
         hfc->telem_ctrl_period = 0;
     }
 
@@ -894,7 +903,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         hfc->waypoint_pos_prev[0] = hfc->positionLatLon[0];
         hfc->waypoint_pos_prev[1] = hfc->positionLatLon[1];
         hfc->waypoint_pos_prev[2] = hfc->altitude;
-//        prev_STcourse = hfc->IMUorient[YAW]*R2D;	// use current heading
+//        prev_STcourse = hfc->IMUorient[YAW]*R2D;  // use current heading
     }
     
     if (altitude>-9999)  // if altitude present, set source to 3D
@@ -920,7 +929,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
         hfc->waypoint_pos[2] = hfc->altitude_base + altitude;
     }
-    hfc->altitude_WPnext = -9999;	// mark as used
+    hfc->altitude_WPnext = -9999;   // mark as used
     
     hfc->distance2WP_min = 999999;
 
@@ -1047,7 +1056,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, p->data, 0.1f, 10)) {
-                	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
+                    hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
                 }
             }
             else
@@ -1084,7 +1093,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
                 if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, p->data, -10, -0.5)) {
-                	hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
+                    hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
                 }
             }
             else
@@ -1367,13 +1376,13 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
     {
         /* since this is asynchronous to the main loop, the control_mode change might be detected and the init skipped,
         ** thus it needs to be done here */
-    	if (hfc->control_mode[PITCH] < CTRL_MODE_POSITION)
-    	{
+        if (hfc->control_mode[PITCH] < CTRL_MODE_POSITION)
+        {
             PID_SetForEnable(&hfc->pid_Dist2T, 0, 0, hfc->gps_speed);
             PID_SetForEnable(&hfc->pid_Dist2P, 0, 0, 0);
             hfc->speedCtrlPrevEN[0] = 0;
             hfc->speedCtrlPrevEN[1] = 0;
-    	}
+        }
         SetWaypoint(lat, lon, altitude, waypoint_type, wp_retire);
     }
     else
@@ -1414,8 +1423,8 @@ void TelemSerial::SetHome(void)
 
 void TelemSerial::SendMsgToGround(int msg_id)
 {
-	hfc->msg2ground_id = msg_id;
-	hfc->msg2ground_count = MSG2GROUND_RESEND_COUNT;
+    hfc->msg2ground_id = msg_id;
+    hfc->msg2ground_count = MSG2GROUND_RESEND_COUNT;
 }
 
 /* returns true when everything is ok, false otherwise */
@@ -1427,7 +1436,7 @@ char TelemSerial::PreFlightChecks(void)
 
     int gps_error;
 
-	// Resetting IMU before pre-flight check, to deal with noisy compass type
+    // Resetting IMU before pre-flight check, to deal with noisy compass type
     ResetIMU(false);
 
     /* check gyro to be well calibrated and still */
@@ -1524,12 +1533,12 @@ void TelemSerial::CommandTakeoffArm(void)
 {
     int status = hfc->playlist_status;
 
-	/* check for armed */
+    /* check for armed */
     if (!hfc->throttle_armed)
     {
-    	Disarm();
+        Disarm();
         /* send message that system has to be armed */
-    	SendMsgToGround(MSG2GROUND_ARMED_FOR_TAKEOFF);
+        SendMsgToGround(MSG2GROUND_ARMED_FOR_TAKEOFF);
         return;
     }
 
@@ -1537,9 +1546,9 @@ void TelemSerial::CommandTakeoffArm(void)
     /* check for xbus being active */
     if (!xbus.receiving)
     {
-    	Disarm();
+        Disarm();
         /* send message that xbus radio has to be on */
-    	SendMsgToGround(MSG2GROUND_XBUS_FOR_TAKEOFF);
+        SendMsgToGround(MSG2GROUND_XBUS_FOR_TAKEOFF);
         return;
     }
 #endif
@@ -1569,7 +1578,7 @@ void TelemSerial::CommandTakeoffArm(void)
     
     /* 0 angle of blades (from config) */
 //    hfc->ctrl_out[RAW][COLL]   = pConfig->CollZeroAngle;
-//    hfc->pid_CollVspeed.COlast = pConfig->CollZeroAngle;	// needed once alt hold is enabled and this could be uninitialized for the takeoff condition
+//    hfc->pid_CollVspeed.COlast = pConfig->CollZeroAngle;  // needed once alt hold is enabled and this could be uninitialized for the takeoff condition
 
     hfc->ctrl_collective_raw = hfc->collective_raw_curr;    // set to current position
     hfc->ctrl_collective_3d  = pConfig->CollZeroAngle;   // target
@@ -1581,26 +1590,26 @@ void TelemSerial::CommandTakeoffArm(void)
 
     /* send message that to prepare radio and spool up */
     if (hfc->full_auto) {
-    	SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
+        SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
     }
     else {
-    	SendMsgToGround(MSG2GROUND_SPOOLUP);
+        SendMsgToGround(MSG2GROUND_SPOOLUP);
     }
     
-	hfc->message_from_ground = 0;	// reset it so we can wait for the message from ground
-	hfc->waypoint_type   = WAYPOINT_TAKEOFF;
-	if (hfc->full_auto)
-		hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
-	else
-		hfc->waypoint_stage  = FM_TAKEOFF_ARM;
-    hfc->message_timeout = 60000000;	// 60 seconds
+    hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
+    hfc->waypoint_type   = WAYPOINT_TAKEOFF;
+    if (hfc->full_auto)
+        hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
+    else
+        hfc->waypoint_stage  = FM_TAKEOFF_ARM;
+    hfc->message_timeout = 60000000;    // 60 seconds
 }
 
 /* vspeed needs to be negative */
 void TelemSerial::CommandLandingWP(float lat, float lon, float alt_ground)
 {
-    hfc->gps_to_waypoint[0] = 99;	// need something here so the logic does not immediatelly think it is already there
-    								// before it gets properly initialized
+    hfc->gps_to_waypoint[0] = 99;   // need something here so the logic does not immediatelly think it is already there
+                                    // before it gets properly initialized
     /* set 2D waypoint at the current location */
     SetWaypoint(lat, lon, alt_ground, WAYPOINT_GOTO, 0);
 
@@ -1619,9 +1628,9 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
                 SendMsgToGround(MSG2GROUND_LIDAR_NOGROUND);
 
             /* set 2D waypoint at the current location */
-        	if (setWP) {
-        		SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
-        	}
+            if (setWP) {
+                SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
+            }
 
             SelectCtrlSource(CTRL_SOURCE_AUTO3D);
             SetCtrlMode(hfc, pConfig, YAW, CTRL_MODE_ANGLE);
@@ -1636,7 +1645,7 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
 
             /* if switching from manual collective, initialize the ctrl speed with the current one */
             if (hfc->control_mode[COLL] < CTRL_MODE_SPEED) {
-            	hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[UP];
+                hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[UP];
             }
 
             SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
@@ -1735,31 +1744,31 @@ void TelemSerial::PlaylistRestoreState(void)
                     (hfc->waypoint_pos_resume[2] - hfc->altitude_base), hfc->waypoint_type, hfc->waypoint_retire);
 
     SaveValuesForAbort();
-	hfc->playlist_status = PLAYLIST_PLAYING;
-	hfc->delay_counter = 0;
+    hfc->playlist_status = PLAYLIST_PLAYING;
+    hfc->delay_counter = 0;
 }
 
 int TelemSerial::FindNearestLandingSite(void)
 {
-	int i;
-	int index = -1;
-	float currlat = hfc->positionLatLon[0];
-	float currlon = hfc->positionLatLon[1];
-	float nearest_dist = 9999999;
-	/* no landing sites loaded */
-	if (!hfc->landing_sites_num)
-		return -1;
+    int i;
+    int index = -1;
+    float currlat = hfc->positionLatLon[0];
+    float currlon = hfc->positionLatLon[1];
+    float nearest_dist = 9999999;
+    /* no landing sites loaded */
+    if (!hfc->landing_sites_num)
+        return -1;
 
-	for (i=0; i<hfc->landing_sites_num; i++)
-	{
-		float dist = Distance(hfc->landing_sites[i].lat, hfc->landing_sites[i].lon, currlat, currlon);
-		if (dist < nearest_dist)
-		{
-			nearest_dist = dist;
-			index = i;
-		}
-	}
-	return index;
+    for (i=0; i<hfc->landing_sites_num; i++)
+    {
+        float dist = Distance(hfc->landing_sites[i].lat, hfc->landing_sites[i].lon, currlat, currlon);
+        if (dist < nearest_dist)
+        {
+            nearest_dist = dist;
+            index = i;
+        }
+    }
+    return index;
 }
 
 void TelemSerial::Arm(void)
@@ -1767,11 +1776,13 @@ void TelemSerial::Arm(void)
     if (hfc->throttle_armed)
         return;
 
-    /* throttle level needs to be low */
-    if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
-    {
-        SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
-        return;
+    if( hfc->ctrl_source != CTRL_SOURCE_AFSI ) {
+        /* throttle level needs to be low */
+        if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
+        {
+            SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
+            return;
+        }
     }
 
     /* cannot arm in manual mode unless explicitly allowed */
@@ -1808,7 +1819,7 @@ void TelemSerial::ProcessCommands(void)
             hfc->waypoint_type = WAYPOINT_NONE;
         }
         else
-        	Disarm();
+            Disarm();
     }
     else
     if (cmd==TELEM_CMD_SET_HOME)
@@ -1876,34 +1887,34 @@ void TelemSerial::ProcessCommands(void)
             hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
             hfc->joystick_new_values = 1;
 
-        	if (hfc->playlist_status==PLAYLIST_PLAYING)
-        	{
-        		PlaylistSaveState();
+            if (hfc->playlist_status==PLAYLIST_PLAYING)
+            {
+                PlaylistSaveState();
                 SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
-        		hfc->playlist_status = PLAYLIST_PAUSED;
-        	}
-        	else
-			if (hfc->playlist_status==PLAYLIST_PAUSED)
-			{
-				SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
-				hfc->playlist_status = PLAYLIST_PAUSED;
-			}
-			else
+                hfc->playlist_status = PLAYLIST_PAUSED;
+            }
+            else
+            if (hfc->playlist_status==PLAYLIST_PAUSED)
+            {
+                SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+                hfc->playlist_status = PLAYLIST_PAUSED;
+            }
+            else
                 SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
         }
         else
         {
-        	/* disabling joystick */
-        	if (hfc->playlist_status == PLAYLIST_PAUSED)
-        		PlaylistRestoreState();
-        	else
-        		SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            /* disabling joystick */
+            if (hfc->playlist_status == PLAYLIST_PAUSED)
+                PlaylistRestoreState();
+            else
+                SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         }
     }
     else
     if (cmd==TELEM_CMD_GOTO_HOME)
     {
-    	ApplyDefaults();
+        ApplyDefaults();
         SetWaypoint(hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0); // do not change altitude or perhaps use a preset value for this
     }
     else
@@ -1920,7 +1931,7 @@ void TelemSerial::ProcessCommands(void)
                 hfc->delay_counter     = 0;
                 
                 /* set default values */
-            	ApplyDefaults();
+                ApplyDefaults();
                 /* initialize current waypoint with the current position */
                 hfc->waypoint_pos[0] = hfc->positionLatLon[0];
                 hfc->waypoint_pos[1] = hfc->positionLatLon[1];
@@ -1936,14 +1947,14 @@ void TelemSerial::ProcessCommands(void)
         else
         if (sub_cmd==PLAYLIST_PAUSE)
         {
-        	if (hfc->playlist_status==PLAYLIST_PLAYING)
-        	{
-            	PlaylistSaveState();
+            if (hfc->playlist_status==PLAYLIST_PLAYING)
+            {
+                PlaylistSaveState();
                 SelectCtrlSource(CTRL_SOURCE_RCRADIO);
-        		hfc->playlist_status = PLAYLIST_PAUSED;
-        		if (hfc->full_auto)
-        		{
-        			/* set speed mode since RCradio switches do not work in full_auto */
+                hfc->playlist_status = PLAYLIST_PAUSED;
+                if (hfc->full_auto)
+                {
+                    /* set speed mode since RCradio switches do not work in full_auto */
                     SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
                     SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
                     SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
@@ -1952,15 +1963,15 @@ void TelemSerial::ProcessCommands(void)
                     hfc->ctrl_out[SPEED][PITCH] = 0;
                     hfc->ctrl_out[SPEED][ROLL]  = 0;
                     hfc->ctrl_out[POS][COLL] = hfc->altitude;
-        		}
+                }
 
-        	}
+            }
         }
         else
         if (sub_cmd==PLAYLIST_RESUME)
         {
-        	if (hfc->playlist_status == PLAYLIST_PAUSED)
-        		PlaylistRestoreState();
+            if (hfc->playlist_status == PLAYLIST_PAUSED)
+                PlaylistRestoreState();
         }
         else
         if (sub_cmd==PLAYLIST_STOP)
@@ -1981,28 +1992,28 @@ void TelemSerial::ProcessCommands(void)
     {
         hfc->playlist_status = PLAYLIST_STOP;
         if (sub_cmd==LANDING_CURRENT) {
-        	CommandLanding(false, true);
+            CommandLanding(false, true);
         }
         else if (sub_cmd==LANDING_WAYPOINT)
         {
-            float lat = *((float*)&hfc->command.data[4]);	// lat as float
-            float lon = *((float*)&hfc->command.data[8]);	// lon as float
-        	CommandLandingWP(lat, lon, 10);
-        	hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
+            float lat = *((float*)&hfc->command.data[4]);   // lat as float
+            float lon = *((float*)&hfc->command.data[8]);   // lon as float
+            CommandLandingWP(lat, lon, 10);
+            hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
         }
         else if (sub_cmd==LANDING_SITE)
         {
-        	int site = FindNearestLandingSite();
-//        	debug_print("Landing at %d\r\n", site);
-        	if (site>=0)
-        	{
-        		float alt_ground = hfc->landing_sites[site].altitude - hfc->altitude_base + hfc->landing_sites[site].above_ground ;
-        		CommandLandingWP(hfc->landing_sites[site].lat, hfc->landing_sites[site].lon, alt_ground);
-            	hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
-        	}
-        	else {
-            	CommandLanding(false, true);
-        	}
+            int site = FindNearestLandingSite();
+//          debug_print("Landing at %d\r\n", site);
+            if (site>=0)
+            {
+                float alt_ground = hfc->landing_sites[site].altitude - hfc->altitude_base + hfc->landing_sites[site].above_ground ;
+                CommandLandingWP(hfc->landing_sites[site].lat, hfc->landing_sites[site].lon, alt_ground);
+                hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
+            }
+            else {
+                CommandLanding(false, true);
+            }
         }
     }
     else
@@ -2026,19 +2037,19 @@ void TelemSerial::ProcessCommands(void)
     }
     else if (cmd==TELEM_CMD_KILLSWITCH)
     {
-    	if (sub_cmd==KILLSWITCH_AUTOROTATE)
-    	{
+        if (sub_cmd==KILLSWITCH_AUTOROTATE)
+        {
             SelectCtrlSource(CTRL_SOURCE_AUTO3D);
             SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
-            hfc->ctrl_angle_pitch_3d 	= 0;
-            hfc->ctrl_angle_roll_3d  	= 0;
-            hfc->ctrl_out[RAW][COLL] 	= pConfig->CollAngleAutoRotate;
-        	hfc->auto_throttle 			= true;
-        	hfc->throttle_value 		= -pConfig->Stick100range;
-    	}
+            hfc->ctrl_angle_pitch_3d    = 0;
+            hfc->ctrl_angle_roll_3d     = 0;
+            hfc->ctrl_out[RAW][COLL]    = pConfig->CollAngleAutoRotate;
+            hfc->auto_throttle          = true;
+            hfc->throttle_value         = -pConfig->Stick100range;
+        }
     }
     else if (cmd==TELEM_CMD_TOGGLE_PWR)
     {
@@ -2083,7 +2094,7 @@ void TelemSerial::SetPositionHold(void)
     /* set heading to the current one */
     hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
     /* set vcontrol to max to make sure it can hold the pos */
-	ApplyDefaults();
+    ApplyDefaults();
     SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1],
                                 (hfc->altitude - hfc->altitude_base), WAYPOINT_GOTO, 0);
     hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
