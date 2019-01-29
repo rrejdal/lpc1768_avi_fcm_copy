@@ -86,6 +86,16 @@
 #define AFSI_SCALE_ALT                  1e-3
 #define AFSI_SCALE_HEADING              1e-2
 
+
+#define AFSI_STAT_SCALE_PWR             100
+#define AFSI_STAT_SCALE_POS             1e7
+#define AFSI_STAT_SCALE_PDOP            100
+#define AFSI_STAT_SCALE_TEMP            100
+#define AFSI_STAT_SCALE_WIND            100
+#define AFSI_STAT_SCALE_LIDAR           1000
+#define AFSI_STAT_SCALE_COMPASS         1000
+#define AFSI_STAT_SCALE_ALT             1000
+
 // Max and mins of variables
 #define AFSI_MAX_SPEED            10
 #define AFSI_MIN_SPEED           -10
@@ -169,15 +179,15 @@ typedef struct AFSI_STAT_MSG_SEN{
     const uint8_t  msg_class = AFSI_CMD_CLASS_STAT;
     const uint8_t  id        = AFSI_STAT_ID_SEN;
     const uint16_t len       = AFSI_STAT_PAYL_LEN_SEN;
-    uint16_t   gyro_temp;
-    uint16_t   baro_temp;
-    uint16_t   esc_temp;
+    int16_t    gyro_temp;
+    int16_t    baro_temp;
+    int16_t    esc_temp;
     uint32_t   baro_pressure;
-    uint16_t   wind_speed;
-    uint16_t   wind_course;
+    int16_t    wind_speed;
+    int16_t    wind_course;
     uint16_t   rpm;
     uint16_t   lidar_altitude;
-    uint16_t   compass_heading;
+    int16_t    compass_heading;
     uint16_t   altitude;
     uint8_t    crc[2];
 }AFSI_STAT_MSG_SEN;
