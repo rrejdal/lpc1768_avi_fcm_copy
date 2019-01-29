@@ -25,6 +25,8 @@ AFSI_Serial::AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem)
 
     afsi_good_messages       = 0;
     afsi_crc_errors          = 0;
+    afsi_msg_errors          = 0;
+    afsi_msg_len_errors      = 0;
     afsi_start_code_searches = 0;
 
     afsi_rx_bytes  = 0;
