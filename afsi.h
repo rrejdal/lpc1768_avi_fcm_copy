@@ -39,13 +39,13 @@
 #define AFSI_CTRL_PAYL_LEN_DISARM       0
 #define AFSI_CTRL_PAYL_LEN_TAKEOFF      2
 #define AFSI_CTRL_PAYL_LEN_LAND         0
-#define AFSI_CTRL_PAYL_LEN_SET_POS      8
+#define AFSI_CTRL_PAYL_LEN_SET_POS      10
 #define AFSI_CTRL_PAYL_LEN_SPEED_FWD    2
 #define AFSI_CTRL_PAYL_LEN_SPEED_RIGHT  2
 #define AFSI_CTRL_PAYL_LEN_SET_ALT      2
 #define AFSI_CTRL_PAYL_LEN_HOME         2
 #define AFSI_CTRL_PAYL_LEN_HOLD         0
-#define AFSI_CTRL_PAYL_LEN_HEADING      4
+#define AFSI_CTRL_PAYL_LEN_HEADING      2
 #define AFSI_CTRL_PAYL_LEN_RESUME       0
 
 // STATUS message defines
@@ -258,7 +258,7 @@ private:
             AFSI_CTRL_PAYL_LEN_SPEED_RIGHT,
             AFSI_CTRL_PAYL_LEN_SET_ALT,
             AFSI_CTRL_PAYL_LEN_HOME,
-            AFSI_CTRL_PAYL_LEN_SET_ALT,
+            AFSI_CTRL_PAYL_LEN_HOLD,
             AFSI_CTRL_PAYL_LEN_HEADING,
             AFSI_CTRL_PAYL_LEN_RESUME
     };
@@ -280,7 +280,9 @@ private:
 
     int  GetCRC(uint8_t *data, int len, uint8_t *CRC);
 
-    float processU2(uint8_t*data, float scaling);
+    float ProcessUint16(uint16_t*data, float scaling);
+    float ProcessInt16(int16_t*data, float scaling);
+    float ProcessInt32(int32_t*data, float scaling);
     bool CheckRangeF(float value, float min, float max);
 
 };

@@ -92,7 +92,6 @@ bool AFSI_Serial::IsTypeInQ(int type)
     return false;
 }
 
-
 void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
 {
     while (afsi_serial.readable()) {
@@ -103,7 +102,7 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
 void AFSI_Serial::AddInputByte(char rx_byte)
 {
     int len = 0;
-    printf("BYTES reading...\r\n");
+//    debug_print("Byte read: %d\r\n", rx_byte);
 
     switch (rx_msg_state)
     {
@@ -142,8 +141,8 @@ void AFSI_Serial::AddInputByte(char rx_byte)
             afsi_rx_bytes++;
             if( afsi_rx_bytes >= 6 ) {
                 rx_msg_state = AFSI_STATE_READ;
-                debug_print("AFSI LENGTH data has been FOUND!\r\n");
                 rx_payload_len = ((uint16_t)afsi_rx_buffer[5] << 8 ) + (uint16_t)afsi_rx_buffer[4];
+                debug_print("AFSI data length = %d\r\n", rx_payload_len);
             }
             break;
         case AFSI_STATE_READ:
@@ -159,9 +158,10 @@ void AFSI_Serial::AddInputByte(char rx_byte)
             break;
     }
 
+
     if (rx_msg_rdy == 1) {
 
-        debug_print("RAW DATA: ");
+        debug_print("\r\nRAW DATA: ");
         for (int i = 0; i < (int)afsi_rx_bytes; i++) {
             debug_print("%d ", afsi_rx_buffer[i]);
         }
@@ -172,10 +172,10 @@ void AFSI_Serial::AddInputByte(char rx_byte)
         //Get, set, and check CRC
         if ( !GetCRC(&(afsi_rx_buffer[2]), len, &(msg_afsi.crc[0])) ) {
             afsi_crc_errors++;
-            ResetRxMsgData();
             debug_print("ERROR: AFSI CRC ERRORS = %d\r\n",afsi_crc_errors);
             debug_print("       CRC Calc = %d %d\r\n", msg_afsi.crc[0], msg_afsi.crc[1]);
             debug_print("       CRC Read = %d %d\r\n", afsi_rx_buffer[len+2], afsi_rx_buffer[len+3]);
+            ResetRxMsgData();
             return;
         }
 
@@ -274,7 +274,7 @@ void AFSI_Serial::EnableAFSI(void) {
 
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
-    float lat, lon, speed, alt, heading = {0};
+    float lat, lon, speed, alt, heading = {0.0f};
 
     if (hfc.afsi_enable == 0) {
         EnableAFSI();
@@ -291,14 +291,17 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
     switch (msg->id){
         case AFSI_CTRL_ID_ARM:
             telem->Arm();
+            debug_print("ARMED!\r\n");
             break;
 
         case AFSI_CTRL_ID_DISARM:
             telem->Disarm();
+            debug_print("DISARMED!\r\n");
             break;
 
         case AFSI_CTRL_ID_TAKEOFF:
-            alt = processU2(msg->payload,AFSI_SCALE_ALT);
+            alt = ProcessUint16((uint16_t*)msg->payload,AFSI_SCALE_ALT);
+            debug_print("alt = %f\r\n",alt);
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
                 hfc.home_pos[2] = alt;
@@ -313,19 +316,18 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             hfc.playlist_status = PLAYLIST_STOP;
             // TODO MMRI: check if this is immediate landing
             telem->CommandLanding(false, true);
+            debug_print("LANDING!\r\n");
             break;
 
         case AFSI_CTRL_ID_SET_POS:
-            lat = (float)((uint32_t)(msg_afsi.payload[0])       |
-                          (uint32_t)(msg_afsi.payload[1] << 8)  |
-                          (uint32_t)(msg_afsi.payload[2] << 16) |
-                          (uint32_t)(msg_afsi.payload[3] << 24)   ) * AFSI_SCALE_POS;
+            // the AFSI Position command payload is padded with an extra
+            // two dummy bytes to make storage of the message struct easier
+            // Latitude and Longitude data starts at msg.payload[2]
+            lat = ProcessInt32((int32_t*)(&msg->payload[2]),AFSI_SCALE_POS);
+            lon = ProcessInt32((int32_t*)(&msg->payload[6]),AFSI_SCALE_POS);
 
-
-            lon = (float)((uint32_t)(msg_afsi.payload[4])       |
-                          (uint32_t)(msg_afsi.payload[5] << 8)  |
-                          (uint32_t)(msg_afsi.payload[6] << 16) |
-                          (uint32_t)(msg_afsi.payload[7] << 24)   ) * AFSI_SCALE_POS;
+            debug_print("lat = %f\r\n",lat);
+            debug_print("lon = %f\r\n",lon);
 
             if ( CheckRangeF(lat, -90, 90)   ||
                  CheckRangeF(lon, -180, 180)    ) {
@@ -349,7 +351,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_SPEED_FWD:
-            speed = processU2(msg->payload,AFSI_SCALE_SPEED);
+            speed = ProcessInt16((int16_t*)msg->payload,AFSI_SCALE_SPEED);
+            debug_print("speed_fwd = %f\r\n",speed);
 
             if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
                 ctrl_out[AFSI_SPEED_FWD] = speed;
@@ -360,7 +363,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_SPEED_RIGHT:
-            speed = processU2(msg->payload,AFSI_SCALE_SPEED);
+            speed = ProcessInt16((int16_t*)msg->payload,AFSI_SCALE_SPEED);
+            debug_print("speed_right = %f\r\n",speed);
 
             if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED)) {
                 ctrl_out[AFSI_SPEED_RIGHT] = speed;
@@ -371,7 +375,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_SET_ALT:
-            alt = processU2(msg->payload,AFSI_SCALE_ALT);
+            alt = ProcessUint16((uint16_t*)msg->payload,AFSI_SCALE_ALT);
+            debug_print("alt = %f\r\n",alt);
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
                 ctrl_out[AFSI_ALTITUDE] = alt;
@@ -382,7 +387,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_HOME:
-            speed = processU2(msg->payload,AFSI_SCALE_SPEED);
+            speed = ProcessUint16((uint16_t*)msg->payload,AFSI_SCALE_SPEED);
+            debug_print("speed_to_home = %f\r\n",speed);
+
             if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed > 0) ) {
                 hfc.pid_Dist2T.COmax = speed;
                 telem->ApplyDefaults();
@@ -395,10 +402,12 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
         case AFSI_CTRL_ID_HOLD:
             telem->SetPositionHold();
+            debug_print("HOLD POSITION!\r\n");
             break;
 
         case AFSI_CTRL_ID_HEADING:
-            heading = processU2(msg->payload,AFSI_SCALE_SPEED);
+            heading = ProcessInt16((int16_t*)msg->payload,AFSI_SCALE_HEADING);
+            debug_print("heading = %f\r\n",heading);
 
             if (CheckRangeF(heading, AFSI_MIN_HEADING, AFSI_MAX_HEADING)) {
                 ctrl_out[AFSI_HEADING] = heading;
@@ -412,6 +421,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             if (hfc.playlist_status == PLAYLIST_PAUSED) {
                 telem->PlaylistRestoreState();
             }
+
+            debug_print("RESUME PLAYLIST!\r\n");
             break;
 
         default:
@@ -562,7 +573,6 @@ void AFSI_Serial::GenerateFcmStatus(void)
     return;
 }
 
-
 void AFSI_Serial::GenerateACK(int msg_class, int msg_id)
 {
     msg_ack.ackd_msg_class = msg_class;
@@ -604,14 +614,26 @@ bool AFSI_Serial::CheckRangeF(float value, float min, float max)
     return true;
 }
 
-float AFSI_Serial::processU2(uint8_t*data, float scaling)
+float AFSI_Serial::ProcessUint16(uint16_t*data, float scaling)
 {
     float result = 0;
+    result = data[0]*scaling;
 
-    for (int i = 0; i<2; i++)
-    {
-        result += ( data[i] << (8*(1-i)) );
-    }
+    return result;
+}
+
+float AFSI_Serial::ProcessInt16(int16_t*data, float scaling)
+{
+    float result = 0;
+    result = data[0]*scaling;
+
+    return result;
+}
+
+float AFSI_Serial::ProcessInt32(int32_t*data, float scaling)
+{
+    float result = 0;
+    result = data[0]*scaling;
 
     return result;
 }
