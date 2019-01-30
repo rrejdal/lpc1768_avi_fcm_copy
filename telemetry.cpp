@@ -1591,8 +1591,7 @@ void TelemSerial::CommandTakeoffArm(void)
         }
     }
     else {
-        hfc->full_auto = 1;
-        hfc->afsi_enable = 0;
+        hfc->full_auto = true;
     }
     
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground

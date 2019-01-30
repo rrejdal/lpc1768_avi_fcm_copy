@@ -1827,8 +1827,15 @@ static void ProcessFlightMode(FlightControlData *hfc)
     if (hfc->waypoint_type == WAYPOINT_TAKEOFF)
     {
 
-        if (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL && (hfc->message_from_ground>0 || hfc->message_timeout<=0))
+        if (   (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
+            && (    (hfc->message_from_ground>0)
+                 || (hfc->message_timeout<=0)
+                 ||  hfc->afsi_enable            )              )
         {
+            if (hfc->afsi_enable) {
+                hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
+            }
+
             /* cancel and disarmed */
             if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_OK || hfc->message_timeout<=0)
             {
@@ -1847,14 +1854,25 @@ static void ProcessFlightMode(FlightControlData *hfc)
             hfc->auto_throttle = true;
             hfc->throttle_value = pConfig->Stick100range;
 
-            telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
+            if (!hfc->afsi_enable) {
+                telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
+            }
 
             hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
             hfc->waypoint_stage  = FM_TAKEOFF_ARM;
             hfc->message_timeout = 60000000;    // 60 seconds
         }
-        else if (hfc->waypoint_stage == FM_TAKEOFF_ARM && (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED || hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT || hfc->message_timeout<=0))
+        else if (     (hfc->waypoint_stage == FM_TAKEOFF_ARM)
+                   && (    (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
+                        || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
+                        || (hfc->message_timeout<=0)
+                        || hfc->afsi_enable  )                                   )
         {
+            if (hfc->afsi_enable) {
+                hfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
+                hfc->afsi_enable = 0;
+            }
+
             hfc->inhibitRCswitches = false;
             /* cancel and disarmed */
             if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_ALLOWED || hfc->message_timeout<=0)
