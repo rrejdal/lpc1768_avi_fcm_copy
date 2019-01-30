@@ -217,7 +217,7 @@ public:
     unsigned int afsi_msg_len_errors;
     unsigned int afsi_start_code_searches;
 
-    float ctrl_out[10];
+    float ctrl_out[10] = {0.0};
     int stat_msg_enable[AFSI_MAX_STAT_MSGS];
     int stat_msg_period[AFSI_MAX_STAT_MSGS];
     int stat_msg_cnt[AFSI_MAX_STAT_MSGS];

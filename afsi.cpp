@@ -104,7 +104,7 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
 void AFSI_Serial::AddInputByte(char rx_byte)
 {
     int len = 0;
-//    debug_print("Byte read: %d\r\n", rx_byte);
+    debug_print("Byte read: %d\r\n", rx_byte);
 
     switch (rx_msg_state)
     {
@@ -242,10 +242,10 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(void) {
 
-    ctrl_out[AFSI_SPEED_FWD]   = 0;
-    ctrl_out[AFSI_SPEED_RIGHT] = 0;
-    ctrl_out[AFSI_ALTITUDE]    = 0;
-    ctrl_out[AFSI_HEADING]     = 0;
+//    ctrl_out[AFSI_SPEED_FWD]   = 0;
+//    ctrl_out[AFSI_SPEED_RIGHT] = 0;
+//    ctrl_out[AFSI_ALTITUDE]    = 0;
+//    ctrl_out[AFSI_HEADING]     = 0;
 
     /* altitude hold and yaw angle */
     SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
@@ -278,9 +278,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
     float lat, lon, speed, alt, heading = {0.0f};
 
-    if (hfc.afsi_enable == 0) {
-        EnableAFSI();
-    }
+    EnableAFSI();
 
     if (rx_payload_len != ctrl_msg_lengths[msg->id]) {
         afsi_msg_len_errors++;
@@ -307,6 +305,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
                 hfc.home_pos[2] = alt;
+                hfc.afsi_enable = 1;
+                hfc.message_from_ground = CMD_MSG_TAKEOFF_OK;
                 telem->CommandTakeoffArm();
             }
             else {

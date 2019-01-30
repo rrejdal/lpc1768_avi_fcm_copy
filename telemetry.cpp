@@ -826,17 +826,10 @@ void TelemSerial::SelectCtrlSource(byte source)
     if (source == CTRL_SOURCE_JOYSTICK) {
         hfc->telem_ctrl_period = 100000;   // in us - 10Hz
     }
-    else {
-        hfc->telem_ctrl_period = 0;
-    }
-
-
-    if (source == CTRL_SOURCE_AFSI) {
-        hfc->afsi_enable = 1;
+    else if (source == CTRL_SOURCE_AFSI) {
         hfc->telem_ctrl_period = 100000;   // in us - 10Hz
     }
     else {
-        hfc->afsi_enable = 0;
         hfc->telem_ctrl_period = 0;
     }
 
@@ -1588,12 +1581,18 @@ void TelemSerial::CommandTakeoffArm(void)
     // it is getting reset by select source !!!!!!!!!!!!!!!!!!!!!!!!!!
     hfc->playlist_status = status;
 
-    /* send message that to prepare radio and spool up */
-    if (hfc->full_auto) {
-        SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
+    if (!hfc->afsi_enable) {
+        /* send message that to prepare radio and spool up */
+        if (hfc->full_auto ) {
+            SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
+        }
+        else {
+            SendMsgToGround(MSG2GROUND_SPOOLUP);
+        }
     }
     else {
-        SendMsgToGround(MSG2GROUND_SPOOLUP);
+        hfc->full_auto = 1;
+        hfc->afsi_enable = 0;
     }
     
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
