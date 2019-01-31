@@ -71,10 +71,13 @@ extern USBSerial   serial;
 #define AFSI_HEADING        5
 
 /* AFSI VALUES */
-#define AFSI_STAT_PWR      0
-#define AFSI_STAT_GPS      1
-#define AFSI_STAT_SEN      2
-#define AFSI_STAT_FCM      3
+#define AFSI_EMPTY_MSG      0
+#define AFSI_NACK           1
+#define AFSI_ACK            2
+#define AFSI_STAT_PWR       3
+#define AFSI_STAT_GPS       4
+#define AFSI_STAT_SEN       5
+#define AFSI_STAT_FCM       6
 
 #define AFSI_MAX_STAT_MSGS        4
 

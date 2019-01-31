@@ -49,10 +49,10 @@
 #define AFSI_CTRL_PAYL_LEN_RESUME       0
 
 // STATUS message defines
-#define AFSI_STAT_ID_PWR                AFSI_STAT_PWR
-#define AFSI_STAT_ID_GPS                AFSI_STAT_GPS
-#define AFSI_STAT_ID_SEN                AFSI_STAT_SEN
-#define AFSI_STAT_ID_FCM                AFSI_STAT_FCM
+#define AFSI_STAT_ID_PWR                0
+#define AFSI_STAT_ID_GPS                1
+#define AFSI_STAT_ID_SEN                2
+#define AFSI_STAT_ID_FCM                3
 
 #define AFSI_STAT_PAYL_LEN_PWR          12
 #define AFSI_STAT_PAYL_LEN_GPS          23
@@ -68,6 +68,14 @@
 #define AFSI_ACK_ID_ACK                 0x01
 
 #define AFSI_ACK_PAYL_LEN               2
+
+//TRANSFER MESSAGE TYPES
+#define AFSI_TX_TYPE_NACK               AFSI_NACK
+#define AFSI_TX_TYPE_ACK                AFSI_ACK
+#define AFSI_TX_TYPE_PWR                AFSI_STAT_PWR
+#define AFSI_TX_TYPE_GPS                AFSI_STAT_GPS
+#define AFSI_TX_TYPE_SEN                AFSI_STAT_SEN
+#define AFSI_TX_TYPE_FCM                AFSI_STAT_FCM
 
 // SYNC bytes
 #define AFSI_SYNC_BYTE_1                0xB5
@@ -86,25 +94,25 @@
 #define AFSI_SCALE_ALT                  1e-3
 #define AFSI_SCALE_HEADING              1e-2
 
-
 #define AFSI_STAT_SCALE_PWR             100
 #define AFSI_STAT_SCALE_POS             1e7
 #define AFSI_STAT_SCALE_PDOP            100
 #define AFSI_STAT_SCALE_TEMP            100
 #define AFSI_STAT_SCALE_WIND            100
 #define AFSI_STAT_SCALE_LIDAR           1000
-#define AFSI_STAT_SCALE_COMPASS         1000
-#define AFSI_STAT_SCALE_ALT             1000
+#define AFSI_STAT_SCALE_COMPASS         100
+#define AFSI_STAT_SCALE_ALT             100
+#define AFSI_STAT_SCALE_GPS_ALT         1000
 
 // Max and mins of variables
-#define AFSI_MAX_SPEED            10
-#define AFSI_MIN_SPEED           -10
+#define AFSI_MAX_SPEED                  10
+#define AFSI_MIN_SPEED                 -10
 
-#define AFSI_MAX_ALT              50
-#define AFSI_MIN_ALT               5
+#define AFSI_MAX_ALT                    50
+#define AFSI_MIN_ALT                     5
 
-#define AFSI_MAX_HEADING          180
-#define AFSI_MIN_HEADING         -180
+#define AFSI_MAX_HEADING                180
+#define AFSI_MIN_HEADING               -180
 
 typedef struct AFSI_MSG{
     const uint8_t sync1 = AFSI_SYNC_BYTE_1;
@@ -165,10 +173,10 @@ typedef struct AFSI_STAT_MSG_GPS{
     uint16_t   year;
     uint8_t    month;
     uint8_t    day;
+    uint16_t   pDOP;
     int32_t    altitude;
     int32_t    latitude;
     int32_t    longitude;
-    uint16_t   pDOP;
     uint8_t    numSV;
     uint8_t    crc[2];
 }AFSI_STAT_MSG_GPS;
@@ -207,6 +215,11 @@ typedef struct AFSI_STAT_MSG_FCM{
     uint8_t    crc[2];
 }AFSI_STAT_MSG_FCM;
 
+typedef struct {
+    uint8_t *msg;
+    int      size;
+    int      msg_type;
+} AFSI_MSG_ENTRY;
 
 class AFSI_Serial
 {
@@ -229,19 +242,14 @@ public:
     void SendMsgs();
     bool IsTypeInQ(int type);
 
-private:
-    typedef struct {
-        uint8_t *msg;
-        int      size;
-        int      msg_type;
-    } AFSI_MSG_ENTRY;
-
-    RawSerial   *afsi_serial;
-    TelemSerial *telem;
-
     AFSI_MSG_ENTRY curr_msg;
     AFSI_MSG_ENTRY msg_queue[MAX_AFSI_MSGS];
     int            num_msgs_in_q;
+
+private:
+
+    RawSerial   *afsi_serial;
+    TelemSerial *telem;
 
     AFSI_MSG          msg_afsi;
 

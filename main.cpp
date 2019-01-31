@@ -4328,16 +4328,19 @@ void do_control()
 
     telem.Update();
 
-    for( int id = 0; id < AFSI_MAX_STAT_MSGS; id++) {
-        afsi.stat_msg_cnt[id]++;
+    int id = 0;
+    for( i = 0; i < AFSI_MAX_STAT_MSGS; i++) {
+        id = i+AFSI_STAT_PWR;
+        afsi.stat_msg_cnt[i]++;
 
-        if ( (afsi.stat_msg_enable[id] == 1) && (!afsi.IsTypeInQ(id)) ) {
-            if ( (afsi.stat_msg_cnt[id] % hfc.print_counter) == (afsi.stat_msg_period[id]*1000) ) {
-                afsi.GenerateStatMsg(id);
+        if ( (afsi.stat_msg_enable[i] == 1) && (!afsi.IsTypeInQ(id)) ) {
+            if ( (afsi.stat_msg_cnt[i] % hfc.print_counter) == (afsi.stat_msg_period[i]*1000) ) {
+                afsi.GenerateStatMsg(i);
+                afsi.stat_msg_cnt[i] = 0;
             }
-            else if( afsi.stat_msg_period[id] == 0 ) {
-                afsi.GenerateStatMsg(id);
-                afsi.stat_msg_enable[id] = 0;
+            else if( afsi.stat_msg_period[i] == 0 ) {
+                afsi.GenerateStatMsg(i);
+                afsi.stat_msg_enable[i] = 0;
             }
         }
     }
