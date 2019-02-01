@@ -114,36 +114,37 @@
 #define AFSI_MAX_HEADING                180
 #define AFSI_MIN_HEADING               -180
 
-typedef struct AFSI_MSG{
-    const uint8_t sync1 = AFSI_SYNC_BYTE_1;
-    const uint8_t sync2 = AFSI_SYNC_BYTE_2;
+typedef struct AFSI_HDR{
+    uint8_t   sync1;
+    uint8_t   sync2;
     uint8_t   msg_class;
     uint8_t   id;
     uint16_t  len;
-    uint8_t   payload[200];
-    uint8_t   crc[2];
+}AFSI_HDR;
+
+typedef struct AFSI_CRC{
+    uint8_t    crc[2];
+}AFSI_CRC;
+
+typedef struct AFSI_MSG{
+    AFSI_HDR   hdr;
+    uint8_t    payload[200];
+    AFSI_CRC   crc;
 }AFSI_MSG;
 
+
 typedef struct AFSI_ACK_MSG{
-    const uint8_t sync1     = AFSI_SYNC_BYTE_1;
-    const uint8_t sync2     = AFSI_SYNC_BYTE_2;
-    const uint8_t msg_class = AFSI_CMD_CLASS_ACK;
-    const uint8_t id        = AFSI_ACK_ID_ACK;
-    const uint16_t len      = AFSI_ACK_PAYL_LEN;
+    AFSI_HDR   hdr;
     uint8_t    ackd_msg_class;
     uint8_t    ackd_msg_id;
-    uint8_t    crc[2];
+    AFSI_CRC   crc;
 }AFSI_ACK_MSG;
 
 typedef struct AFSI_NACK_MSG{
-    const uint8_t  sync1     = AFSI_SYNC_BYTE_1;
-    const uint8_t  sync2     = AFSI_SYNC_BYTE_2;
-    const uint8_t  msg_class = AFSI_CMD_CLASS_ACK;
-    const uint8_t  id        = AFSI_ACK_ID_NACK;
-    const uint16_t len       = AFSI_ACK_PAYL_LEN;
+    AFSI_HDR   hdr;
     uint8_t    nackd_msg_class;
     uint8_t    nackd_msg_id;
-    uint8_t    crc[2];
+    AFSI_CRC   crc;
 }AFSI_NACK_MSG;
 
 typedef struct AFSI_STAT_MSG_PWR{
@@ -158,15 +159,11 @@ typedef struct AFSI_STAT_MSG_PWR{
     uint16_t   bat_capacity_used;
     uint16_t   bat_percent_used;
     uint16_t   flight_time;
-    uint8_t    crc[2];
+    AFSI_CRC   crc;
 }AFSI_STAT_MSG_PWR;
 
 typedef struct AFSI_STAT_MSG_GPS{
-    const uint8_t  sync1     = AFSI_SYNC_BYTE_1;
-    const uint8_t  sync2     = AFSI_SYNC_BYTE_2;
-    const uint8_t  msg_class = AFSI_CMD_CLASS_STAT;
-    const uint8_t  id        = AFSI_STAT_ID_GPS;
-    const uint16_t len       = AFSI_STAT_PAYL_LEN_GPS;
+    AFSI_HDR   hdr;
     uint16_t   hour;
     uint8_t    min;
     uint8_t    sec;
@@ -178,15 +175,11 @@ typedef struct AFSI_STAT_MSG_GPS{
     int32_t    latitude;
     int32_t    longitude;
     uint8_t    numSV;
-    uint8_t    crc[2];
+    AFSI_CRC   crc;
 }AFSI_STAT_MSG_GPS;
 
 typedef struct AFSI_STAT_MSG_SEN{
-    const uint8_t  sync1     = AFSI_SYNC_BYTE_1;
-    const uint8_t  sync2     = AFSI_SYNC_BYTE_2;
-    const uint8_t  msg_class = AFSI_CMD_CLASS_STAT;
-    const uint8_t  id        = AFSI_STAT_ID_SEN;
-    const uint16_t len       = AFSI_STAT_PAYL_LEN_SEN;
+    AFSI_HDR   hdr;
     int16_t    gyro_temp;
     int16_t    baro_temp;
     int16_t    esc_temp;
@@ -197,22 +190,18 @@ typedef struct AFSI_STAT_MSG_SEN{
     uint16_t   lidar_altitude;
     int16_t    compass_heading;
     uint16_t   altitude;
-    uint8_t    crc[2];
+    AFSI_CRC   crc;
 }AFSI_STAT_MSG_SEN;
 
 typedef struct AFSI_STAT_MSG_FCM{
-    const uint8_t sync1     = AFSI_SYNC_BYTE_1;
-    const uint8_t sync2     = AFSI_SYNC_BYTE_2;
-    const uint8_t msg_class = AFSI_CMD_CLASS_STAT;
-    const uint8_t id        = AFSI_STAT_ID_FCM;
-    const uint16_t len      = AFSI_STAT_PAYL_LEN_FCM;
+    AFSI_HDR   hdr;
     uint8_t    ctrl_mode_pitch;
     uint8_t    ctrl_mode_roll;
     uint8_t    ctrl_mode_yaw;
     uint8_t    ctrl_mode_collective;
     uint8_t    ctrl_mode_throttle;
     int8_t     ctrl_status;
-    uint8_t    crc[2];
+    AFSI_CRC   crc;
 }AFSI_STAT_MSG_FCM;
 
 typedef struct {
