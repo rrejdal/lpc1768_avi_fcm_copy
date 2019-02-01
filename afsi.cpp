@@ -515,15 +515,15 @@ void AFSI_Serial::GeneratePwrStatus(void) {
 
 void AFSI_Serial::GenerateGpsStatus(void)
 {
-    msg_stat_gps.hour      = gps.gps_data_.time;
-    msg_stat_gps.min       = gps.gps_data_.time;
-    msg_stat_gps.sec       = gps.gps_data_.time;
-    msg_stat_gps.year      = gps.gps_data_.time;
-    msg_stat_gps.month     = gps.gps_data_.time;
-    msg_stat_gps.day       = gps.gps_data_.time;
+    msg_stat_gps.hour      = gps.gps_data_.time/1000000;
+    msg_stat_gps.min       = (gps.gps_data_.time-(msg_stat_gps.hour*1000000))/10000;
+    msg_stat_gps.sec       = (gps.gps_data_.time-(msg_stat_gps.hour*1000000)-(msg_stat_gps.min*10000))/100;
+    msg_stat_gps.year      = gps.gps_data_.date/10000;
+    msg_stat_gps.month     = (gps.gps_data_.date-(msg_stat_gps.year*10000)) / 100;
+    msg_stat_gps.day       = gps.gps_data_.date-(msg_stat_gps.year*10000)-(msg_stat_gps.month*100);
     msg_stat_gps.altitude  = gps.gps_data_.altitude * AFSI_STAT_SCALE_GPS_ALT;
-    msg_stat_gps.latitude  = gps.gps_data_.lat      * AFSI_STAT_SCALE_POS;
-    msg_stat_gps.longitude = gps.gps_data_.lon      * AFSI_STAT_SCALE_POS;
+    msg_stat_gps.latitude  = gps.gps_data_.lat;  // this variable is already scaled by AFSI_STAT_SCALE_POS;
+    msg_stat_gps.longitude = gps.gps_data_.lon;  // this variable is already scaled by AFSI_STAT_SCALE_POS;
     msg_stat_gps.pDOP      = gps.gps_data_.PDOP     * AFSI_STAT_SCALE_PDOP;
     msg_stat_gps.numSV     = gps.gps_data_.sats;
 
