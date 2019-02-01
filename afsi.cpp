@@ -495,12 +495,12 @@ void AFSI_Serial::GenerateStatMsg(int id)
 
 void AFSI_Serial::GeneratePwrStatus(void) {
 
-    msg_stat_pwr.bat_capacity_used  = 123;//(hfc.power.capacity_used/3600.0f) * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.total_bat_capacity = 345;//(hfc.power.capacity_total/3600.0f)* AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.bat_percent_used   = 9700;//hfc.power.battery_level  * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.current            = 3500;//hfc.power.Iesc           * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.voltage            = 2415;//hfc.power.Vmain          * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.flight_time        = 12345;//hfc.power.flight_time_left;
+    msg_stat_pwr.bat_capacity_used  = (hfc.power.capacity_used/3600.0f) * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.total_bat_capacity = (hfc.power.capacity_total/3600.0f)* AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.bat_percent_used   = hfc.power.battery_level  * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.current            = hfc.power.Iesc           * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.voltage            = hfc.power.Vmain          * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.flight_time        = hfc.power.flight_time_left;
 
     GetCRC( (uint8_t*)&(msg_stat_pwr.msg_class),
             msg_stat_pwr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
@@ -515,15 +515,15 @@ void AFSI_Serial::GeneratePwrStatus(void) {
 
 void AFSI_Serial::GenerateGpsStatus(void)
 {
-    msg_stat_gps.hour      = 1345;    //gps.gps_data_.time;
-    msg_stat_gps.min       = 45;     //gps.gps_data_.time;
-    msg_stat_gps.sec       = 55;      //gps.gps_data_.time;
-    msg_stat_gps.year      = 123;       //gps.gps_data_.time;
-    msg_stat_gps.month     = 12;        //gps.gps_data_.time;
-    msg_stat_gps.day       = 1;         //gps.gps_data_.time;
-    msg_stat_gps.altitude  = 123456;    //gps.gps_data_.altitude * AFSI_STAT_SCALE_GPS_ALT;
-    msg_stat_gps.latitude  = -123456789;//gps.gps_data_.lat      * AFSI_STAT_SCALE_POS;
-    msg_stat_gps.longitude = 987654321; //gps.gps_data_.lon      * AFSI_STAT_SCALE_POS;
+    msg_stat_gps.hour      = gps.gps_data_.time;
+    msg_stat_gps.min       = gps.gps_data_.time;
+    msg_stat_gps.sec       = gps.gps_data_.time;
+    msg_stat_gps.year      = gps.gps_data_.time;
+    msg_stat_gps.month     = gps.gps_data_.time;
+    msg_stat_gps.day       = gps.gps_data_.time;
+    msg_stat_gps.altitude  = gps.gps_data_.altitude * AFSI_STAT_SCALE_GPS_ALT;
+    msg_stat_gps.latitude  = gps.gps_data_.lat      * AFSI_STAT_SCALE_POS;
+    msg_stat_gps.longitude = gps.gps_data_.lon      * AFSI_STAT_SCALE_POS;
     msg_stat_gps.pDOP      = gps.gps_data_.PDOP     * AFSI_STAT_SCALE_PDOP;
     msg_stat_gps.numSV     = gps.gps_data_.sats;
 
@@ -540,16 +540,16 @@ void AFSI_Serial::GenerateGpsStatus(void)
 
 void AFSI_Serial::GenerateSensorsStatus(void)
 {
-    msg_stat_sensors.gyro_temp       = -2715;  //hfc.gyro_temp_lp       * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.baro_temp       = -1234;  //hfc.baro_temperature   * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.esc_temp        = -987;   //hfc.esc_temp           * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.gyro_temp       = hfc.gyro_temp_lp       * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.baro_temp       = hfc.baro_temperature   * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.esc_temp        = hfc.esc_temp           * AFSI_STAT_SCALE_TEMP;
     msg_stat_sensors.baro_pressure   = hfc.baro_pressure;
-    msg_stat_sensors.wind_speed      = -1200;  //hfc.wind_speed         * AFSI_STAT_SCALE_WIND;
-    msg_stat_sensors.wind_course     = 2700;   //hfc.wind_course        * AFSI_STAT_SCALE_WIND;
+    msg_stat_sensors.wind_speed      = hfc.wind_speed         * AFSI_STAT_SCALE_WIND;
+    msg_stat_sensors.wind_course     = hfc.wind_course        * AFSI_STAT_SCALE_WIND;
     msg_stat_sensors.rpm             = hfc.RPM;
-    msg_stat_sensors.lidar_altitude  = 35123;  //hfc.altitude_lidar     * AFSI_STAT_SCALE_LIDAR;
-    msg_stat_sensors.compass_heading = -17840; //hfc.compass_heading_lp * AFSI_STAT_SCALE_COMPASS;
-    msg_stat_sensors.altitude        = 12345;  //hfc.altitude           * AFSI_STAT_SCALE_ALT;
+    msg_stat_sensors.lidar_altitude  = hfc.altitude_lidar     * AFSI_STAT_SCALE_LIDAR;
+    msg_stat_sensors.compass_heading = hfc.compass_heading_lp * AFSI_STAT_SCALE_COMPASS;
+    msg_stat_sensors.altitude        = hfc.altitude           * AFSI_STAT_SCALE_ALT;
 
     GetCRC( (uint8_t*)&(msg_stat_sensors.msg_class),
             msg_stat_sensors.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
