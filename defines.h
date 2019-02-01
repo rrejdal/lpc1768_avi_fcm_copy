@@ -79,7 +79,10 @@ extern USBSerial   serial;
 #define AFSI_STAT_SEN       5
 #define AFSI_STAT_FCM       6
 
-#define AFSI_MAX_STAT_MSGS        4
+#define AFSI_MAX_STAT_MSGS  4
+
+#define AFSI_STAT_MSG_PERIOD_SCALE      250 //in milli-seconds,
+
 
 /* low-pass selectors for sensors */
 #define LP_GYRO     0

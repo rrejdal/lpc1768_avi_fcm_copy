@@ -270,7 +270,7 @@ private:
             AFSI_CTRL_PAYL_LEN_RESUME
     };
 
-    void AddInputByte(char ch);
+    void AddInputByte(uint8_t ch);
     int  ProcessAsfiCtrlCommands(AFSI_MSG *msg);
     int  ProcessAsfiStatusCommands(AFSI_MSG *msg);
     void EnableAFSI(void);

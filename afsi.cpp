@@ -111,7 +111,7 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
     }
 }
 
-void AFSI_Serial::AddInputByte(char rx_byte)
+void AFSI_Serial::AddInputByte(uint8_t rx_byte)
 {
     int len = 0;
 

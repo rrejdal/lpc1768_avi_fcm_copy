@@ -4334,7 +4334,7 @@ void do_control()
         afsi.stat_msg_cnt[i]++;
 
         if ( (afsi.stat_msg_enable[i] == 1) && (!afsi.IsTypeInQ(id)) ) {
-            if ( (afsi.stat_msg_cnt[i] % hfc.print_counter) == (afsi.stat_msg_period[i]*1000) ) {
+            if ( (afsi.stat_msg_cnt[i] % hfc.print_counter) == (afsi.stat_msg_period[i]*AFSI_STAT_MSG_PERIOD_SCALE) ) {
                 afsi.GenerateStatMsg(i);
                 afsi.stat_msg_cnt[i] = 0;
             }
