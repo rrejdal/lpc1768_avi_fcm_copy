@@ -4343,7 +4343,9 @@ void do_control()
         }
     }
 
-    afsi.SendMsgs();
+    if (pConfig->AfsiEnabled) {
+        afsi.SendMsgs();
+    }
 
     myLcd.Update();
 
