@@ -108,7 +108,7 @@
 #define AFSI_MAX_SPEED                  10
 #define AFSI_MIN_SPEED                 -10
 
-#define AFSI_MAX_ALT                    50
+#define AFSI_MAX_ALT                    40
 #define AFSI_MIN_ALT                     5
 
 #define AFSI_MAX_HEADING                180

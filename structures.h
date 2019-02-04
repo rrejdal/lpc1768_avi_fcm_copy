@@ -865,6 +865,7 @@ typedef struct ConfigurationData {
     float current_slope_percent_mod;
     float current_offset;
 
+    int AfsiEnabled;
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
@@ -1060,6 +1061,8 @@ typedef struct
     float lidar_vspeed;
     float baro_dT;                      // time interval for vspeed
     float distance2WP_min;              // minimum distance so far to the next waypoint
+
+    float takeoff_height;               // height to achieve during takeoff
 
     float heading;
     float heading_offset;

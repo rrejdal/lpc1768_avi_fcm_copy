@@ -91,7 +91,7 @@ GPS gps;
 RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
 
-RawSerial afsi_serial(AFSI_TX,AFSI_RX);
+RawSerial afsi_serial(AFSI_TX,AFSI_RX, 38400);
 AFSI_Serial afsi(&afsi_serial,&telem);
 
 InterruptIn  lidar(LIDAR_PWM);
@@ -1947,7 +1947,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[2];    // initialize to current vert speed
 
                 SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-                hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + 10;
+                hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + ClipMinMax(hfc->takeoff_height, TAKEOFF_HEIGHT_MIN, TAKEOFF_HEIGHT_MAX);
                 hfc->waypoint_pos[2] = hfc->ctrl_out[POS][COLL];    // needs to be initialized for further waypoint flying if altitude is not specified
 
 
@@ -1971,15 +1971,13 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->waypoint_retire    = 0;
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
                 SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
-//                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-//                hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + 5;
                 hfc->waypoint_stage = FM_TAKEOFF_HOLD;
             }
         }
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_HOLD)
         {
-            if (hfc->altitude>(hfc->home_pos[2]+5))
+            if (hfc->altitude>(hfc->home_pos[2] + TAKEOFF_HEIGHT_MIN))
                 hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
         }
     }
@@ -4362,7 +4360,10 @@ void do_control()
 //    debug_print("CALLING\n");
     telem.ProcessInputBytes(telemetry);
 //    debug_print("CALLED\n")
-    afsi.ProcessInputBytes(afsi_serial);
+
+    if (pConfig->AfsiEnabled) {
+        afsi.ProcessInputBytes(afsi_serial);
+    }
 
     AutoReset();
 
@@ -5217,6 +5218,8 @@ void InitializeRuntimeData(void)
 
     hfc.orient_reset_counter = pConfig->orient_reset_counter;
 
+    hfc.takeoff_height = TAKEOFF_HEIGHT_DEFAULT;
+
     // NOTE:SP: This is data which is updated at runtime to a duplicated
     // Read/Write area.
     hfc.rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
@@ -5464,9 +5467,6 @@ int main()
         telem.Initialize(&hfc, pConfig);
         telemetry.baud(pConfig->telem_baudrate);
 
-//        afsi.Initialize(&hfc,pConfig);
-        afsi_serial.baud(38400);
-
         Servos_Init();
 
         if ( (pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0) ) {
@@ -5479,10 +5479,8 @@ int main()
 
         mpu.readMotion7_start();
 
-        myLcd.ShowError("B\n", "B", "B", "B");
-        int k = 0;
         while(1) {
-            k++;
+
             WDT_Kick();
 
             // Main FCM control loop

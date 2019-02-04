@@ -324,7 +324,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             debug_print("alt = %f\r\n",alt);
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
-                hfc.home_pos[2] = alt;
+                hfc.takeoff_height = alt;
                 hfc.afsi_enable = 1;
                 telem->CommandTakeoffArm();
             }

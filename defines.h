@@ -127,6 +127,10 @@ extern USBSerial   serial;
 #define WAYPOINT_TAKEOFF        2
 #define WAYPOINT_LANDING        3
 
+#define TAKEOFF_HEIGHT_MIN      5   // Takeoff minimum height is 5meters
+#define TAKEOFF_HEIGHT_DEFAULT  10  // Default Takeoff height is 10m
+#define TAKEOFF_HEIGHT_MAX      40  // Max Takeoff Height is 40m
+
 /* display modes defines */
 #define DISPLAY_SPLASH		  0
 #define DISPLAY_STATUS        1
