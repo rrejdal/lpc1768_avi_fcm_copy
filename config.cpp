@@ -80,6 +80,24 @@ int LoadConfiguration(const ConfigData **pConfig)
     }
 
     *pConfig = pConfigData;
+
+//#if DEBUG
+//    ConfigData *tempConfig = new ConfigData;
+//    memcpy(tempConfig,pConfigData,sizeof(ConfigData));
+//
+//    tempConfig->ccpm_type=3;
+//    tempConfig->num_servo_nodes=0;
+//    tempConfig->num_gps_nodes=0;
+//    tempConfig->num_power_nodes=0;
+//    tempConfig->can_servo=0;
+//    tempConfig->fcm_servo=0;
+//    tempConfig->power_node=0;
+//    tempConfig->LidarFromServo=0;
+//    tempConfig->LidarFromPowerNode=0;
+//
+//    *pConfig = tempConfig;
+//#endif
+
     return 0;
 }
 
