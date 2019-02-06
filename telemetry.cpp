@@ -2101,12 +2101,29 @@ void TelemSerial::ProcessCommands(void)
 
 void TelemSerial::SetPositionHold(void)
 {
+    double heading = hfc->IMUorient[YAW]*R2D;
     /* set heading to the current one */
-    hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
+    hfc->ctrl_out[ANGLE][YAW] = heading;
     /* set vcontrol to max to make sure it can hold the pos */
     ApplyDefaults();
-    SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1],
-                                (hfc->altitude - hfc->altitude_base), WAYPOINT_GOTO, 0);
+
+    float m_per_deg_lat =   111132.954
+                        - 559.822*COSfR(2*hfc->positionLatLon[0])
+                        + 1.175*COSfR(4*hfc->positionLatLon[0])
+                        - 0.0023*COSfR(6*hfc->positionLatLon[0]);
+
+    float m_per_deg_lon =   111412.84*COSfR(hfc->positionLatLon[0])
+                        - 93.5*COSfR(3*hfc->positionLatLon[0])
+                        + 0.118*COSfR(5*hfc->positionLatLon[0]);
+
+    /*calculate stopping distance*/
+    float stopping_d = hfc->gps_speed * hfc->gps_speed / (2*hfc->pid_Dist2P.acceleration);
+
+    /*calculate stopping distance*/
+    double lat = hfc->positionLatLon[0] + (stopping_d*COSfD(heading)/m_per_deg_lat);
+    double lon = hfc->positionLatLon[1] + (stopping_d*SINfD(heading)/m_per_deg_lon);
+
+    SetWaypoint(lat, lon, (hfc->altitude - hfc->altitude_base), WAYPOINT_GOTO, 0);
     hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
 }
 

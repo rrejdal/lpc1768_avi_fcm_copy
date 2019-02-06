@@ -422,6 +422,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_HOLD:
+            ctrl_out[AFSI_SPEED_FWD]   = 0;
+            ctrl_out[AFSI_SPEED_RIGHT] = 0;
             telem->SetPositionHold();
             debug_print("HOLD POSITION!\r\n");
             break;
