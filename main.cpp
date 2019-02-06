@@ -3512,20 +3512,44 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
 #endif
 }
 
+/* NOTE: The voltage and current reported by the power node is measured by
+ * two different ADCs.
+ * The ratio of the ADC1 voltage output and the actual voltage is 0.0197 V/mV.
+ * The ratio of the ADC2 voltage output and the actual current is 0.04 A/mV.
+ *
+ * Therefore our model used is:
+ *              actual = (    slope    )*( ADCvalue )
+ * such that,
+ *          Vactual[V] = (0.0197 [V/mv])*(Vadc1 [mv])        and
+ *          Iactual[A] = (0.0400 [A/mv])*(Vadc2 [mv])
+ *
+ * In this function, several config variables are used to adjust the
+ * current and voltage readings from the power node:
+ * voltage_slope_percent_mod - percentage of the voltage slope to add or
+ *                             subtract in order to adjust the voltage reading
+ *                             from the power node.
+ * current_slope_percent_mod - percentage of the current slope to add or
+ *                             subtract in order to adjust the current reading
+ *                             from the power node.
+ *
+ * Therefore:
+ *     Vmain = (0.0197 + 0.0197*voltage_slope_percent_mod/100)*Vadc1   and,
+ *     Iesc  = (0.0400 + 0.0400*current_slope_percent_mod/100)*Vadc2 + current_offset
+ * */
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
 {
-    float v, v_slope, i, i_slope;
+    float v, v_slope_mod, i, i_slope_mod;
 
     v = *(float *)pdata;
     pdata += 4;
     i = *(float *)pdata;
 
-    v_slope = (pConfig->voltage_slope_percent_mod / 100.0f) + 1.0f;
-    hfc.power.Vmain = v*v_slope;
+    v_slope_mod = (pConfig->voltage_slope_percent_mod / 100.0f) + 1.0f;
+    hfc.power.Vmain = v*v_slope_mod;
     hfc.power.Vesc  = hfc.power.Vmain;
 
-    i_slope = (pConfig->current_slope_percent_mod / 100.0f) + 1.0f;
-    hfc.power.Iesc =  i*i_slope + pConfig->current_offset;
+    i_slope_mod = (pConfig->current_slope_percent_mod / 100.0f) + 1.0f;
+    hfc.power.Iesc =  i*i_slope_mod + pConfig->current_offset;
 
     power_update_avail = 1;
 }
