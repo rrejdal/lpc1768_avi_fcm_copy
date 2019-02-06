@@ -2251,24 +2251,24 @@ static void ServoUpdate(float dT)
         debug_print("\r\n");
 
         // full_auto, auto_throttle, ctrl_source, fixedThrottleMode, throttle_value, collective_value
-        debug_print("FA[%d] AT[%d] CS[%d] FTM[%d] TV[%f] CV[%f]\r\n",
+        debug_print("FA[%d] AT[%d] CS[%d] FTM[%d] TV[%f] CV[%f] XBRX[%d]\r\n",
                         hfc.full_auto, hfc.auto_throttle, hfc.ctrl_source,
-                        hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value);
+                        hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value, xbus.receiving);
 
         debug_print("Mixer in [P,R,Y,C,T]: ");
         for (int i=0; i < 5; i++) {
             debug_print("[%f] ", hfc.mixer_in[i]);
         }
 
-        debug_print("\r\nServo out [1]: ");
-        for (int i=0; i < 8; i++) {
-            debug_print("[%f] ", servo_node_pwm[1].servo_out[i]);
-        }
+        //debug_print("\r\nServo out [1]: ");
+        //for (int i=0; i < 8; i++) {
+        //    debug_print("[%f] ", servo_node_pwm[1].servo_out[i]);
+        //}
 
-        debug_print("\r\nServo out [2]: ");
-        for (int i=0; i < 8; i++) {
-            debug_print("[%f] ", servo_node_pwm[2].servo_out[i]);
-        }
+        //debug_print("\r\nServo out [2]: ");
+        //for (int i=0; i < 8; i++) {
+        //    debug_print("[%f] ", servo_node_pwm[2].servo_out[i]);
+        //}
 
         debug_print("\r\npwm values [1]: ");
         for (int i=0; i < 8; i++) {
@@ -2298,16 +2298,15 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-    if (hfc.throttle_armed) {
-        if (!hfc.full_auto) {
-            hfc.auto_throttle = false;
-        }
 
-        if (!hfc.auto_throttle) {
-            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
-        }
+    if (!hfc.full_auto && !hfc.throttle_armed) {
+        hfc.auto_throttle = false;
     }
-    else {
+
+    if (!hfc.auto_throttle) {
+        hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+    }
+    else if (!hfc.throttle_armed) {
         hfc.throttle_value = -pConfig->Stick100range;
     }
 
@@ -2316,24 +2315,26 @@ static void ServoUpdate(float dT)
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
-    if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
-        hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
-        hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
-        hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
-        hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
-    }
-    else {
-        hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
-        hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
-        hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
-        hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
-
-        if (hfc.joystick_new_values) {
-            xbus_new_values = XBUS_NEW_VALUES;
-            hfc.joystick_new_values = 0;
+    if (!hfc.full_auto) {
+        if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
+            hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
+            hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
+            hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
+            hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
         }
         else {
-            xbus_new_values = XBUS_NO_NEW_VALUES;
+            hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
+            hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
+            hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
+            hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
+
+            if (hfc.joystick_new_values) {
+                xbus_new_values = XBUS_NEW_VALUES;
+                hfc.joystick_new_values = 0;
+            }
+            else {
+                xbus_new_values = XBUS_NO_NEW_VALUES;
+            }
         }
     }
 

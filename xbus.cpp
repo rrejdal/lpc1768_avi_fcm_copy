@@ -86,6 +86,7 @@ void XBus::ProcessSbyte()
     }
 }
 
+// Receive ISR for JR Xbus
 // byte[2] model number
 // bytes[3] ???  xbus mode 0-mode B, 1-mode A ???
 void XBus::ProcessByte()
@@ -139,6 +140,8 @@ void XBus::ProcessByte()
                     if (b3!=0 && b3!=0x20)  // 0x80 or 0xa0 indicates xbus receiver is not getting any signal
                     {
                         bad_packets++;
+                        receiving = false;
+                        new_values = false;
                     }
                     else
                     {
@@ -204,12 +207,102 @@ unsigned char CalcCRC8(unsigned char *buffer, int  length)
     return crc;
 }
 
-// returns 0- no new, 1-new, 2-timeout
-//char XBus::NewValues(char sBus_enable, float dT)
 char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode)
 {
+    char ret = XBUS_NO_NEW_VALUES;
     time_since_last_good += dT;
-    /* if new packet arrived in the meantime, reset counters and indicate success */
+
+    if (sbus_enabled == 0) {
+        // Process Xbus
+
+        if (receiving) {
+            if (new_values) {
+                for (int i = 0; i < servos; i++) {
+                    valuesf[i] = (float)(((int)valuesu[i]) - 32768) * (1.0f / 32768.0f);
+
+                    if (revert[i]) {
+                        valuesf[i] = -valuesf[i];
+                    }
+                }
+
+                new_values = false;
+
+                if (no_prev_signal) {
+                    ret = XBUS_NEW_VALUES_1ST;
+                    no_prev_signal = false;
+                }
+                else {
+                    ret = XBUS_NEW_VALUES;
+                }
+                time_since_last_good = 0;
+            }
+        }
+        else {
+            if (time_since_last_good > XBUS_TIMEOUT_VALUE) {
+                valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
+                valuesf[1] = 0;         // XBUS_ROLL, 0 side speed
+                valuesf[2] = 0;         // XBUS_PITCH, 0 forward speed
+                valuesf[3] = 0;         // XBUS_YAW, 0 heading change
+                valuesf[4] = -0.571f;   // XBUS_THR_SW, altitude hold
+                valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
+                valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
+                valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
+
+                sync = true;
+                time_since_last_good = 0;
+                ret =  XBUS_TIMEOUT;
+            }
+        }
+    }
+    else {
+        // Process Sbus
+        if (new_values) {
+            if ((sbusFrame.frame.flags & SBUS_FLAG_SIGNAL_LOSS) || (sbusFrame.frame.flags & SBUS_FLAG_FAILSAFE_ACTIVE)) {
+                if (time_since_last_good > XBUS_TIMEOUT_VALUE) {
+                    sbus_flag_errors++;
+                    receiving = false;
+                    time_since_last_good = 0;
+
+                    valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
+                    valuesf[1] = 0;         // XBUS_ROLL, 0 side speed
+                    valuesf[2] = 0;         // XBUS_PITCH, 0 forward speed
+                    valuesf[3] = 0;         // XBUS_YAW, 0 heading change
+                    valuesf[4] = -0.571f;   // XBUS_THR_SW, altitude hold
+                    valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
+                    valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
+                    valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
+                    ret = XBUS_TIMEOUT;
+                }
+            }
+            else {
+                good_packets++;
+                receiving = true;
+                time_since_last_good = 0;
+
+                valuesf[0] = -(float(sbusFrame.frame.chan2) * sbusScale + sbusBias) * 0.571f;
+                valuesf[1] =  (float(sbusFrame.frame.chan0) * sbusScale + sbusBias) * 0.571f;
+                valuesf[2] =  (float(sbusFrame.frame.chan1) * sbusScale + sbusBias) * 0.571f;
+                valuesf[3] =  (float(sbusFrame.frame.chan3) * sbusScale + sbusBias) * 0.571f;
+                valuesf[4] =  (float(sbusFrame.frame.chan4) * sbusScale + sbusBias) * 0.571f;
+                valuesf[5] =  (float(sbusFrame.frame.chan5) * sbusScale + sbusBias) * 0.571f;
+                valuesf[6] =  (float(sbusFrame.frame.chan6) * sbusScale + sbusBias) * 0.571f;
+                valuesf[7] =  (float(sbusFrame.frame.chan7) * sbusScale + sbusBias) * 0.571f;
+
+                if (no_prev_signal) {
+                    ret = XBUS_NEW_VALUES_1ST;
+                    no_prev_signal = false;
+                }
+                else {
+                    ret = XBUS_NEW_VALUES;
+                }
+            }
+        }
+    }
+
+    return ret;
+
+
+#if 0
     if (new_values)
     {
     	if(sbus_enabled == 0)
@@ -243,26 +336,27 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
             {
             	receiving = true;
                 good_packets++;
+                time_since_last_good = 0;
             }
     	}
 
         new_values = 0;
-        time_since_last_good = 0;
+
         if (no_prev_signal)
         {
         	no_prev_signal = false;
         	return XBUS_NEW_VALUES_1ST;
         }
-        else
+        else {
         	return XBUS_NEW_VALUES;
+        }
     }
+
     /* check if timeout value has been reached */
-    else if (time_since_last_good > XBUS_TIMEOUT_VALUE)
+    if (time_since_last_good > XBUS_TIMEOUT_VALUE)
     {
         timeouts++;
-        // NOTE::SP: This is only done when we are armed and flying.
-        // TODO::SP: THIS NEEDS TO ALSO WORK FOR VARIBALE PITCH UAVs (HELIs)
-        //if (throttle_armed && (fixed_throttle_mode == THROTTLE_FLY))
+
         {
             valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
             valuesf[1] = 0;			// XBUS_ROLL, 0 side speed
@@ -273,14 +367,18 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
             valuesf[6] = 0.571f;	// XBUS_CTRLMODE_SW, full auto mode
             valuesf[7] = -0.571f;	// XBUS_MODE_SW, speed mode
         }
-        time_since_last_good = 0;
+
+        //time_since_last_good = 0;
         receiving = false;
         no_prev_signal = true;
         sync = true;    // !!!!!!!!!!!111 not sure if this is a good idea, it might be preventing from re-aquiring xbus
         return XBUS_TIMEOUT;
     }
-    else
+    else {
         return XBUS_NO_NEW_VALUES;
+    }
+#endif
+
 }
 
 void XBus::InitXbusValues()
