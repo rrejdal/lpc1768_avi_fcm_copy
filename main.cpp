@@ -2512,10 +2512,10 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[RAW][COLL] += hfc.pid_CollVspeed.COofs;
     }
     else if (hfc.ctrl_source == CTRL_SOURCE_AFSI) {
-        hfc.ctrl_out[SPEED][PITCH] = afsi.ctrl_out[AFSI_SPEED_FWD];
-        hfc.ctrl_out[SPEED][ROLL]  = afsi.ctrl_out[AFSI_SPEED_RIGHT];
-        hfc.ctrl_out[ANGLE][YAW]   = afsi.ctrl_out[AFSI_HEADING];
-        hfc.ctrl_out[POS][COLL]    = afsi.ctrl_out[AFSI_ALTITUDE];
+        hfc.ctrl_out[SPEED][PITCH] = afsi.GetSpeedForward();
+        hfc.ctrl_out[SPEED][ROLL]  = afsi.GetSpeedRight();
+        hfc.ctrl_out[ANGLE][YAW]   = afsi.GetHeading();
+        hfc.ctrl_out[POS][COLL]    = afsi.GetAltitude();
     }
 
     // processes staged waypoints - takeoff, landing, ... etc
@@ -4352,25 +4352,8 @@ void do_control()
 
     telem.Update();
 
-    int id = 0;
-    for( i = 0; i < AFSI_MAX_STAT_MSGS; i++) {
-        id = i+AFSI_STAT_PWR;
-        afsi.stat_msg_cnt[i]++;
-
-        if ( (afsi.stat_msg_enable[i] == 1) && (!afsi.IsTypeInQ(id)) ) {
-            if ( (afsi.stat_msg_cnt[i] % hfc.print_counter) == (afsi.stat_msg_period[i]*AFSI_STAT_MSG_PERIOD_SCALE) ) {
-                afsi.GenerateStatMsg(i);
-                afsi.stat_msg_cnt[i] = 0;
-            }
-            else if( afsi.stat_msg_period[i] == 0 ) {
-                afsi.GenerateStatMsg(i);
-                afsi.stat_msg_enable[i] = 0;
-            }
-        }
-    }
-
     if (pConfig->AfsiEnabled) {
-        afsi.SendMsgs();
+        afsi.ProcessStatusMessages();
     }
 
     myLcd.Update();
@@ -4385,9 +4368,7 @@ void do_control()
 
     RPM_Process();
 
-//    debug_print("CALLING\n");
     telem.ProcessInputBytes(telemetry);
-//    debug_print("CALLED\n")
 
     if (pConfig->AfsiEnabled) {
         afsi.ProcessInputBytes(afsi_serial);

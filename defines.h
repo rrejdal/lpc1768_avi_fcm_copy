@@ -57,33 +57,6 @@ extern USBSerial   serial;
 #define POS             4
 #define NUM_CTRL_MODES  5   // number of control layers
 
-/* AFSI COMMAND CLASS */
-#define AFSI_CTRL      0x01
-#define AFSI_STATUS    0x02
-#define AFSI_ACK       0x03
-
-/* AFSI VALUES */
-#define AFSI_LONGITUDE      0
-#define AFSI_LATITUDE       1
-#define AFSI_SPEED_FWD      2
-#define AFSI_SPEED_RIGHT    3
-#define AFSI_ALTITUDE       4
-#define AFSI_HEADING        5
-
-/* AFSI VALUES */
-#define AFSI_EMPTY_MSG      0
-#define AFSI_NACK           1
-#define AFSI_ACK            2
-#define AFSI_STAT_PWR       3
-#define AFSI_STAT_GPS       4
-#define AFSI_STAT_SEN       5
-#define AFSI_STAT_FCM       6
-
-#define AFSI_MAX_STAT_MSGS  4
-
-#define AFSI_STAT_MSG_PERIOD_SCALE      250 //in milli-seconds,
-
-
 /* low-pass selectors for sensors */
 #define LP_GYRO     0
 #define LP_ACC      1
@@ -99,7 +72,6 @@ extern USBSerial   serial;
 #define XBUS_MODE_SW  		7		// selects cyclic mode
 #define DCPGAIN             12      // Tandem mixer DCP gain channel
 #define ELEVGAIN            13      // Tandem mixer elevator gain channel
-
 
 /* modes */
 #define CCPM_NONE   0

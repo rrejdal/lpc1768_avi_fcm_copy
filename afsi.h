@@ -12,12 +12,14 @@
 
 // CLASS defines
 #define AFSI_CMD_CLASS_CTRL       0x01
-#define AFSI_CMD_CLASS_STAT       0x02
+#define AFSI_CMD_CLASS_STATUS     0x02
 #define AFSI_CMD_CLASS_ACK        0x03
 
-#define AFSI_HEADER_LEN           6
+// Packet Framing
+#define AFSI_HEADER_LEN           4
 #define AFSI_SYCN_LEN             2
 #define AFSI_CRC_LEN              2
+#define AFSI_TOTAL_HEADER_LEN     (AFSI_HEADER_LEN + AFSI_SYCN_LEN)
 
 // CTRL message defines
 #define AFSI_CTRL_ID_ARM          0x00
@@ -56,10 +58,10 @@
 
 #define AFSI_STAT_PAYL_LEN_PWR          12
 #define AFSI_STAT_PAYL_LEN_GPS          23
-#define AFSI_STAT_PAYL_LEN_SEN          22
+#define AFSI_STAT_PAYL_LEN_SEN          26
 #define AFSI_STAT_PAYL_LEN_FCM          6
 
-#define AFSI_NUM_STAT_MSGS              AFSI_MAX_STAT_MSGS
+#define AFSI_NUM_STAT_MSGS              4
 
 #define AFSI_RX_STAT_PAYL_LEN           1
 
@@ -70,12 +72,12 @@
 #define AFSI_ACK_PAYL_LEN               2
 
 //TRANSFER MESSAGE TYPES
-#define AFSI_TX_TYPE_NACK               AFSI_NACK
-#define AFSI_TX_TYPE_ACK                AFSI_ACK
-#define AFSI_TX_TYPE_PWR                AFSI_STAT_PWR
-#define AFSI_TX_TYPE_GPS                AFSI_STAT_GPS
-#define AFSI_TX_TYPE_SEN                AFSI_STAT_SEN
-#define AFSI_TX_TYPE_FCM                AFSI_STAT_FCM
+#define AFSI_TX_TYPE_NACK               1
+#define AFSI_TX_TYPE_ACK                2
+#define AFSI_TX_TYPE_PWR                3
+#define AFSI_TX_TYPE_GPS                4
+#define AFSI_TX_TYPE_SEN                5
+#define AFSI_TX_TYPE_FCM                6
 
 // SYNC bytes
 #define AFSI_SYNC_BYTE_1                0xB5
@@ -114,6 +116,18 @@
 #define AFSI_MAX_HEADING                180
 #define AFSI_MIN_HEADING               -180
 
+#define AFSI_MAX_STAT_MSG_TYPES         4
+
+#define AFSI_STAT_MSG_PERIOD_SCALE      250 //in milli-seconds,
+
+/* AFSI CTRL Indexes VALUES */
+#define AFSI_LONGITUDE      0
+#define AFSI_LATITUDE       1
+#define AFSI_SPEED_FWD      2
+#define AFSI_SPEED_RIGHT    3
+#define AFSI_ALTITUDE       4
+#define AFSI_HEADING        5
+
 typedef struct AFSI_HDR{
     uint8_t   sync1;
     uint8_t   sync2;
@@ -148,11 +162,8 @@ typedef struct AFSI_NACK_MSG{
 }AFSI_NACK_MSG;
 
 typedef struct AFSI_STAT_MSG_PWR{
-    const uint8_t  sync1     = AFSI_SYNC_BYTE_1;
-    const uint8_t  sync2     = AFSI_SYNC_BYTE_2;
-    const uint8_t  msg_class = AFSI_CMD_CLASS_STAT;
-    const uint8_t  id        = AFSI_STAT_ID_PWR;
-    const uint16_t len       = AFSI_STAT_PAYL_LEN_PWR;
+
+    AFSI_HDR   hdr;
     uint16_t   voltage;
     uint16_t   current;
     uint16_t   total_bat_capacity;
@@ -188,8 +199,8 @@ typedef struct AFSI_STAT_MSG_SEN{
     int16_t    wind_course;
     uint16_t   rpm;
     uint16_t   lidar_altitude;
-    int16_t    compass_heading;
-    uint16_t   altitude;
+    int32_t    compass_heading;
+    uint32_t   altitude;
     AFSI_CRC   crc;
 }AFSI_STAT_MSG_SEN;
 
@@ -213,27 +224,15 @@ typedef struct {
 class AFSI_Serial
 {
 public:
-    unsigned int afsi_good_messages;
-    unsigned int afsi_crc_errors;
-    unsigned int afsi_msg_errors;
-    unsigned int afsi_msg_len_errors;
-    unsigned int afsi_start_code_searches;
-
-    float ctrl_out[10] = {0.0};
-    int stat_msg_enable[AFSI_MAX_STAT_MSGS];
-    int stat_msg_period[AFSI_MAX_STAT_MSGS];
-    int stat_msg_cnt[AFSI_MAX_STAT_MSGS];
-
     AFSI_Serial(RawSerial *m_serial, TelemSerial *m_telem);
 
     void ProcessInputBytes(RawSerial &telemetry);
-    void GenerateStatMsg(int id);
-    void SendMsgs();
-    bool IsTypeInQ(int type);
+    void ProcessStatusMessages(void);
 
-    AFSI_MSG_ENTRY curr_msg;
-    AFSI_MSG_ENTRY msg_queue[MAX_AFSI_MSGS];
-    int            num_msgs_in_q;
+    float GetSpeedForward(void) { return (ctrl_out[AFSI_SPEED_FWD]); };
+    float GetSpeedRight(void) { return (ctrl_out[AFSI_SPEED_RIGHT]); };
+    float GetHeading(void) { return (ctrl_out[AFSI_HEADING]); };
+    float GetAltitude(void) { return (ctrl_out[AFSI_ALTITUDE]); };
 
 private:
 
@@ -249,6 +248,8 @@ private:
 
     AFSI_ACK_MSG      msg_ack;
     AFSI_NACK_MSG     msg_nack;
+
+    float ctrl_out[10] = {0.0};
 
     unsigned int afsi_rx_bytes;
     uint8_t  afsi_rx_buffer[AFSI_BUFFER_SIZE];
@@ -269,6 +270,26 @@ private:
             AFSI_CTRL_PAYL_LEN_HEADING,
             AFSI_CTRL_PAYL_LEN_RESUME
     };
+
+    int stat_msg_enable[AFSI_MAX_STAT_MSG_TYPES];
+    int stat_msg_period[AFSI_MAX_STAT_MSG_TYPES];
+    int stat_msg_cnt[AFSI_MAX_STAT_MSG_TYPES];
+
+    unsigned int afsi_good_messages;
+    unsigned int afsi_crc_errors;
+    unsigned int afsi_msg_errors;
+    unsigned int afsi_msg_len_errors;
+    unsigned int afsi_start_code_searches;
+
+    AFSI_MSG_ENTRY curr_msg;
+    AFSI_MSG_ENTRY msg_queue[MAX_AFSI_MSGS];
+    int            num_msgs_in_q;
+
+private:
+
+    void GenerateStatMsg(int id);
+    void SendMsgs();
+    bool IsTypeInQ(int type);
 
     void AddInputByte(uint8_t ch);
     int  ProcessAsfiCtrlCommands(AFSI_MSG *msg);

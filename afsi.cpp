@@ -111,6 +111,31 @@ void AFSI_Serial::ProcessInputBytes(RawSerial &afsi_serial)
     }
 }
 
+void AFSI_Serial::ProcessStatusMessages(void)
+{
+    int id = 0;
+
+    for(int i = 0; i < AFSI_MAX_STAT_MSG_TYPES; i++) {
+        id = i+AFSI_TX_TYPE_PWR;
+        if(stat_msg_enable[i] == 1) {
+            stat_msg_cnt[i]++;
+
+            if (!IsTypeInQ(id)) {
+                if ( (stat_msg_cnt[i] % stat_msg_period[i] * AFSI_STAT_MSG_PERIOD_SCALE) == 0 ) {
+                    GenerateStatMsg(i);
+                    stat_msg_cnt[i] = 0;
+                }
+                else if( stat_msg_period[i] == 0 ) {
+                    GenerateStatMsg(i);
+                    stat_msg_enable[i] = 0;
+                }
+            }
+        }
+    }
+
+    SendMsgs();
+}
+
 void AFSI_Serial::AddInputByte(uint8_t rx_byte)
 {
     int len = 0;
@@ -166,7 +191,7 @@ void AFSI_Serial::AddInputByte(uint8_t rx_byte)
         case AFSI_STATE_READ:
             afsi_rx_buffer[afsi_rx_bytes] = rx_byte;
             afsi_rx_bytes++;
-            if( afsi_rx_bytes >= (AFSI_HEADER_LEN + rx_payload_len + AFSI_CRC_LEN) ) {
+            if( afsi_rx_bytes >= (AFSI_TOTAL_HEADER_LEN + rx_payload_len + AFSI_CRC_LEN) ) {
                 rx_msg_rdy = 1;
                 rx_msg_state = AFSI_STATE_INIT;
                 debug_print("AFSI PAYLOAD and CRC data has been FOUND!\r\n");
@@ -190,7 +215,7 @@ void AFSI_Serial::AddInputByte(uint8_t rx_byte)
         debug_print("\r\n");
 
         memcpy(&msg_afsi, afsi_rx_buffer, afsi_rx_bytes);
-        len = AFSI_HEADER_LEN - AFSI_SYCN_LEN + rx_payload_len;
+        len = AFSI_HEADER_LEN + rx_payload_len;
         //Get, set, and check CRC
         if ( !GetCRC(&(afsi_rx_buffer[2]), len, &(msg_afsi.crc.crc[0])) ) {
             afsi_crc_errors++;
@@ -201,7 +226,7 @@ void AFSI_Serial::AddInputByte(uint8_t rx_byte)
             return;
         }
 
-        if ( msg_afsi.hdr.msg_class == AFSI_CTRL ) {
+        if ( msg_afsi.hdr.msg_class == AFSI_CMD_CLASS_CTRL ) {
             if (ProcessAsfiCtrlCommands(&msg_afsi)) {
                 afsi_good_messages++;
                 GenerateACK(msg_afsi.hdr.msg_class,msg_afsi.hdr.id);
@@ -212,7 +237,7 @@ void AFSI_Serial::AddInputByte(uint8_t rx_byte)
                 debug_print("ERROR: AFSI MSG ERRORS = %d\r\n",afsi_msg_errors);
             }
         }
-        else if ( msg_afsi.hdr.msg_class == AFSI_STATUS ) {
+        else if ( msg_afsi.hdr.msg_class == AFSI_CMD_CLASS_STATUS ) {
             if (ProcessAsfiStatusCommands(&msg_afsi)){
                 afsi_good_messages++;
             }
@@ -497,6 +522,12 @@ void AFSI_Serial::GenerateStatMsg(int id)
 
 void AFSI_Serial::GeneratePwrStatus(void) {
 
+    msg_stat_pwr.hdr.sync1     = AFSI_SYNC_BYTE_1;
+    msg_stat_pwr.hdr.sync2     = AFSI_SYNC_BYTE_2;
+    msg_stat_pwr.hdr.msg_class = AFSI_CMD_CLASS_STATUS;
+    msg_stat_pwr.hdr.id        = AFSI_STAT_ID_PWR;
+    msg_stat_pwr.hdr.len       = AFSI_STAT_PAYL_LEN_PWR;
+
     msg_stat_pwr.bat_capacity_used  = (hfc.power.capacity_used/3600.0f) * AFSI_STAT_SCALE_PWR;
     msg_stat_pwr.total_bat_capacity = (hfc.power.capacity_total/3600.0f)* AFSI_STAT_SCALE_PWR;
     msg_stat_pwr.bat_percent_used   = hfc.power.battery_level  * AFSI_STAT_SCALE_PWR;
@@ -504,12 +535,12 @@ void AFSI_Serial::GeneratePwrStatus(void) {
     msg_stat_pwr.voltage            = hfc.power.Vmain          * AFSI_STAT_SCALE_PWR;
     msg_stat_pwr.flight_time        = hfc.power.flight_time_left;
 
-    GetCRC( (uint8_t*)&(msg_stat_pwr.msg_class),
-            msg_stat_pwr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+    GetCRC( (uint8_t*)&(msg_stat_pwr.hdr.msg_class),
+            msg_stat_pwr.hdr.len + AFSI_HEADER_LEN,
             &(msg_stat_pwr.crc.crc[0]) );
 
     QueueMsg( (uint8_t*)&(msg_stat_pwr),
-               msg_stat_pwr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               msg_stat_pwr.hdr.len + AFSI_TOTAL_HEADER_LEN + AFSI_CRC_LEN,
                AFSI_TX_TYPE_PWR );
     return;
 
@@ -519,9 +550,10 @@ void AFSI_Serial::GenerateGpsStatus(void)
 {
     msg_stat_gps.hdr.sync1     = AFSI_SYNC_BYTE_1;
     msg_stat_gps.hdr.sync2     = AFSI_SYNC_BYTE_2;
-    msg_stat_gps.hdr.msg_class = AFSI_CMD_CLASS_STAT;
+    msg_stat_gps.hdr.msg_class = AFSI_CMD_CLASS_STATUS;
     msg_stat_gps.hdr.id        = AFSI_STAT_ID_GPS;
     msg_stat_gps.hdr.len       = AFSI_STAT_PAYL_LEN_GPS;
+
     msg_stat_gps.hour          = gps.gps_data_.time/1000000;
     msg_stat_gps.min           = (gps.gps_data_.time-(msg_stat_gps.hour*1000000))/10000;
     msg_stat_gps.sec           = (gps.gps_data_.time-(msg_stat_gps.hour*1000000)-(msg_stat_gps.min*10000))/100;
@@ -535,11 +567,11 @@ void AFSI_Serial::GenerateGpsStatus(void)
     msg_stat_gps.numSV         = gps.gps_data_.sats;
 
     GetCRC( (uint8_t*)&(msg_stat_gps.hdr.msg_class),
-            msg_stat_gps.hdr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            msg_stat_gps.hdr.len + AFSI_HEADER_LEN,
             &(msg_stat_gps.crc.crc[0]) );
 
     QueueMsg( (uint8_t*)&(msg_stat_gps),
-               msg_stat_gps.hdr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               msg_stat_gps.hdr.len + AFSI_TOTAL_HEADER_LEN + AFSI_CRC_LEN,
                AFSI_TX_TYPE_GPS );
 
     return;
@@ -549,9 +581,10 @@ void AFSI_Serial::GenerateSensorsStatus(void)
 {
     msg_stat_sensors.hdr.sync1       = AFSI_SYNC_BYTE_1;
     msg_stat_sensors.hdr.sync2       = AFSI_SYNC_BYTE_2;
-    msg_stat_sensors.hdr.msg_class   = AFSI_CMD_CLASS_STAT;
+    msg_stat_sensors.hdr.msg_class   = AFSI_CMD_CLASS_STATUS;
     msg_stat_sensors.hdr.id          = AFSI_STAT_ID_SEN;
     msg_stat_sensors.hdr.len         = AFSI_STAT_PAYL_LEN_SEN;
+
     msg_stat_sensors.gyro_temp       = hfc.gyro_temp_lp       * AFSI_STAT_SCALE_TEMP;
     msg_stat_sensors.baro_temp       = hfc.baro_temperature   * AFSI_STAT_SCALE_TEMP;
     msg_stat_sensors.esc_temp        = hfc.esc_temp           * AFSI_STAT_SCALE_TEMP;
@@ -560,15 +593,15 @@ void AFSI_Serial::GenerateSensorsStatus(void)
     msg_stat_sensors.wind_course     = hfc.wind_course        * AFSI_STAT_SCALE_WIND;
     msg_stat_sensors.rpm             = hfc.RPM;
     msg_stat_sensors.lidar_altitude  = hfc.altitude_lidar     * AFSI_STAT_SCALE_LIDAR;
-    msg_stat_sensors.compass_heading = hfc.compass_heading_lp * AFSI_STAT_SCALE_COMPASS;
+    msg_stat_sensors.compass_heading = hfc.compass_heading    * AFSI_STAT_SCALE_COMPASS;
     msg_stat_sensors.altitude        = hfc.altitude           * AFSI_STAT_SCALE_ALT;
 
     GetCRC( (uint8_t*)&(msg_stat_sensors.hdr.msg_class),
-            msg_stat_sensors.hdr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            msg_stat_sensors.hdr.len + AFSI_HEADER_LEN,
             &(msg_stat_sensors.crc.crc[0]) );
 
     QueueMsg( (uint8_t*)&(msg_stat_sensors),
-               msg_stat_sensors.hdr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               msg_stat_sensors.hdr.len + AFSI_TOTAL_HEADER_LEN + AFSI_CRC_LEN,
                AFSI_TX_TYPE_SEN );
 
     return;
@@ -583,9 +616,10 @@ void AFSI_Serial::GenerateFcmStatus(void)
 
     msg_stat_fcm.hdr.sync1            = AFSI_SYNC_BYTE_1;
     msg_stat_fcm.hdr.sync2            = AFSI_SYNC_BYTE_2;
-    msg_stat_fcm.hdr.msg_class        = AFSI_CMD_CLASS_STAT;
+    msg_stat_fcm.hdr.msg_class        = AFSI_CMD_CLASS_STATUS;
     msg_stat_fcm.hdr.id               = AFSI_STAT_ID_FCM;
     msg_stat_fcm.hdr.len              = AFSI_STAT_PAYL_LEN_FCM;
+
     msg_stat_fcm.ctrl_mode_pitch      = hfc.control_mode[PITCH];
     msg_stat_fcm.ctrl_mode_roll       = hfc.control_mode[ROLL];
     msg_stat_fcm.ctrl_mode_yaw        = hfc.control_mode[YAW];
@@ -600,11 +634,11 @@ void AFSI_Serial::GenerateFcmStatus(void)
                                    (         ( hfc.full_auto & 1   ) << 6 );
 
     GetCRC( (uint8_t*)&(msg_stat_fcm.hdr.msg_class),
-            msg_stat_fcm.hdr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            msg_stat_fcm.hdr.len + AFSI_HEADER_LEN,
             &(msg_stat_fcm.crc.crc[0]) );
 
     QueueMsg( (uint8_t*)&(msg_stat_fcm),
-               msg_stat_fcm.hdr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               msg_stat_fcm.hdr.len + AFSI_TOTAL_HEADER_LEN + AFSI_CRC_LEN,
                AFSI_TX_TYPE_FCM );
 
     return;
@@ -617,15 +651,16 @@ void AFSI_Serial::GenerateACK(int msg_class, int msg_id)
     msg_ack.hdr.msg_class  = AFSI_CMD_CLASS_ACK;
     msg_ack.hdr.id         = AFSI_ACK_ID_ACK;
     msg_ack.hdr.len        = AFSI_ACK_PAYL_LEN;
+
     msg_ack.ackd_msg_class = msg_class;
     msg_ack.ackd_msg_id    = msg_id;
 
     GetCRC( (uint8_t*)&(msg_ack.hdr.msg_class),
-            msg_ack.hdr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            msg_ack.hdr.len + AFSI_HEADER_LEN,
             &(msg_ack.crc.crc[0]) );
 
     QueueMsg( (uint8_t*)&(msg_ack),
-               msg_ack.hdr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               msg_ack.hdr.len + AFSI_TOTAL_HEADER_LEN + AFSI_CRC_LEN,
                AFSI_TX_TYPE_ACK );
 
     return;
@@ -638,15 +673,16 @@ void AFSI_Serial::GenerateNACK(int msg_class, int msg_id)
     msg_nack.hdr.msg_class   = AFSI_CMD_CLASS_ACK;
     msg_nack.hdr.id          = AFSI_ACK_ID_NACK;
     msg_nack.hdr.len         = AFSI_ACK_PAYL_LEN;
+
     msg_nack.nackd_msg_class = msg_class;
     msg_nack.nackd_msg_id    = msg_id;
 
     GetCRC( (uint8_t*)&(msg_nack.hdr.msg_class),
-            msg_nack.hdr.len + AFSI_HEADER_LEN - AFSI_SYCN_LEN,
+            msg_nack.hdr.len + AFSI_HEADER_LEN,
             &(msg_nack.crc.crc[0]) );
 
     QueueMsg( (uint8_t*)&(msg_nack),
-               msg_nack.hdr.len + AFSI_HEADER_LEN + AFSI_CRC_LEN,
+               msg_nack.hdr.len + AFSI_TOTAL_HEADER_LEN + AFSI_CRC_LEN,
                AFSI_TX_TYPE_NACK );
 
     return;
