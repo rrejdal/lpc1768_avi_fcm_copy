@@ -27,6 +27,7 @@ XBus::XBus(PinName rx) : serial(NC, rx)
     for (i=0; i<MAX_XBUS_SERVOS; i++) revert[i]  = 0;
     revert[1] = 1; revert[2] = 1; revert[3] = 1;
 
+#if 0
     //valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
     valuesf[1] = 0;         // XBUS_ROLL, 0 side speed
     valuesf[2] = 0;         // XBUS_PITCH, 0 forward speed
@@ -35,6 +36,7 @@ XBus::XBus(PinName rx) : serial(NC, rx)
     valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
     valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
     valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
+#endif
 
 }
 
@@ -250,6 +252,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
 
                 sync = true;
                 time_since_last_good = 0;
+                no_prev_signal = true;
                 ret =  XBUS_TIMEOUT;
             }
         }
@@ -262,6 +265,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                     sbus_flag_errors++;
                     receiving = false;
                     time_since_last_good = 0;
+                    no_prev_signal = true;
 
                     valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
                     valuesf[1] = 0;         // XBUS_ROLL, 0 side speed
@@ -300,85 +304,6 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
     }
 
     return ret;
-
-
-#if 0
-    if (new_values)
-    {
-    	if(sbus_enabled == 0)
-    	{
-    		int i;
-    		for (i=0; i<servos; i++)
-    		{
-    			valuesf[i] = (float)(((int)valuesu[i])-32768)*(1.0f/32768.0f);
-    			if (revert[i])
-    				valuesf[i] = -valuesf[i];
-    		}
-    	}
-    	else
-    	{
-    		valuesf[0] = -(float(sbusFrame.frame.chan2) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[1] =  (float(sbusFrame.frame.chan0) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[2] =  (float(sbusFrame.frame.chan1) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[3] =  (float(sbusFrame.frame.chan3) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[4] =  (float(sbusFrame.frame.chan4) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[5] =  (float(sbusFrame.frame.chan5) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[6] =  (float(sbusFrame.frame.chan6) * sbusScale + sbusBias) * 0.571f;
-    		valuesf[7] =  (float(sbusFrame.frame.chan7) * sbusScale + sbusBias) * 0.571f;
-
-    		// Sbus can report signal loss and fail safe
-    		if ((sbusFrame.frame.flags & SBUS_FLAG_SIGNAL_LOSS) || (sbusFrame.frame.flags & SBUS_FLAG_FAILSAFE_ACTIVE))
-            {
-                receiving = false;
-                sbus_flag_errors++;
-            }
-            else
-            {
-            	receiving = true;
-                good_packets++;
-                time_since_last_good = 0;
-            }
-    	}
-
-        new_values = 0;
-
-        if (no_prev_signal)
-        {
-        	no_prev_signal = false;
-        	return XBUS_NEW_VALUES_1ST;
-        }
-        else {
-        	return XBUS_NEW_VALUES;
-        }
-    }
-
-    /* check if timeout value has been reached */
-    if (time_since_last_good > XBUS_TIMEOUT_VALUE)
-    {
-        timeouts++;
-
-        {
-            valuesf[0] = 0;			// XBUS_THRO, collective, 0 vertical speed
-            valuesf[1] = 0;			// XBUS_ROLL, 0 side speed
-            valuesf[2] = 0;			// XBUS_PITCH, 0 forward speed
-            valuesf[3] = 0;			// XBUS_YAW, 0 heading change
-            valuesf[4] = -0.571f;	// XBUS_THR_SW, altitude hold
-            valuesf[5] = 0.571f;	// XBUS_THR_LV, full throttle
-            valuesf[6] = 0.571f;	// XBUS_CTRLMODE_SW, full auto mode
-            valuesf[7] = -0.571f;	// XBUS_MODE_SW, speed mode
-        }
-
-        //time_since_last_good = 0;
-        receiving = false;
-        no_prev_signal = true;
-        sync = true;    // !!!!!!!!!!!111 not sure if this is a good idea, it might be preventing from re-aquiring xbus
-        return XBUS_TIMEOUT;
-    }
-    else {
-        return XBUS_NO_NEW_VALUES;
-    }
-#endif
-
 }
 
 void XBus::InitXbusValues()

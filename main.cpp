@@ -65,7 +65,10 @@ void CompassCalDone(void);
 //USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
 USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
 SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
+
+#ifdef LCD_ENABLED
 NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
+#endif
 
 I2Ci        Li2c(I2C_SDA1, I2C_SCL1);
 MPU6050     mpu(&Li2c, -1, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
@@ -146,7 +149,7 @@ BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
 CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
 double heading[MAX_NUM_GPS];
 static void GpsHeartbeat(int node_id);
-static void ServoHeartbeat(int node_id);
+//static void ServoHeartbeat(int node_id);
 static void PowerNodeHeartbeat(int node_id);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
@@ -596,9 +599,12 @@ static void ProcessFcmLinkLive(void)
     }
 }
 
+#ifdef LCD_ENABLED
 static const char LINE_LABEL[8] = {'T', 'R', 'P', 'Y', 'C', ' ', ' ', ' '};
 static const unsigned char CTRL_MODE2Idx[7] = {RAW, RAW, RATE, ANGLE, SPEED, SPEED, POS};
+#endif
 
+#ifdef LCD_ENABLED
 static void Display_CtrlMode(unsigned char line, unsigned char channel, const int ctrl_inh[5], unsigned char ctrl_modes[5], float ctrl_out[NUM_CTRL_MODES][5], float throttle)
 {
     unsigned char ctrl_mode = ctrl_modes[channel];
@@ -636,8 +642,11 @@ static void Display_CtrlMode(unsigned char line, unsigned char channel, const in
         pstr+= PRINTs(pstr, (char*)" POS   ");
         pstr+= PRINTf(pstr, ctrl_value, 1, 1, 1);
     }
+
     myLcd.SetLine(channel, str, 0);
+
 }
+#endif
 
 static void SetControlMode(void)
 {
@@ -1153,6 +1162,7 @@ void AltitudeUpdate(float alt_rate, float dT)
 
 static const char CTRL_MODES[7] = {'-', 'M', 'R', 'A', 'S', 'G', 'P'};
 
+#ifdef LCD_ENABLED
 static char GetModeChar(FlightControlData *hfc, byte channel)
 {
     if (pConfig->ctrl_mode_inhibit[channel])
@@ -1160,7 +1170,9 @@ static char GetModeChar(FlightControlData *hfc, byte channel)
     else
         return CTRL_MODES[hfc->control_mode[channel]];
 }
+#endif
 
+#ifdef LCD_ENABLED
 static void Display_Process(FlightControlData *hfc, char xbus_new_values, float dT)
 {
     char str[40];
@@ -1513,6 +1525,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
         }
     }    
 }
+#endif
 
 /*static void CheckRangeAndSetD(double *pvalue, double value, double vmin, double vmax)
 {
@@ -2160,8 +2173,9 @@ static void ServoUpdateRAW(float dT)
                                                 * pConfig->throttle_values[1] + pConfig->throttle_values[0];
     }
 
-
+#ifdef LCD_ENABLED
     Display_Process(&hfc, xbus_new_values, dT);
+#endif
 
     hfc.collective_raw_curr = hfc.ctrl_out[RAW][COLL];
     hfc.ctrl_out[RAW][THRO] += hfc.rw_cfg.throttle_offset;
@@ -2521,7 +2535,9 @@ static void ServoUpdate(float dT)
     // processes staged waypoints - takeoff, landing, ... etc
     ProcessFlightMode(&hfc);
 
+#ifdef LCD_ENABLED
     Display_Process(&hfc, xbus_new_values, dT);
+#endif
     
     // horizontal position
     if (hfc.control_mode[PITCH] == CTRL_MODE_POSITION || hfc.control_mode[ROLL] == CTRL_MODE_POSITION) {
@@ -4356,7 +4372,7 @@ void do_control()
         afsi.ProcessStatusMessages();
     }
 
-    myLcd.Update();
+    //myLcd.Update();
 
     ProcessStats();
 
@@ -4877,6 +4893,8 @@ static void Buttons()
 
 static void PrintOrient()
 {
+
+#ifdef LCD_ENABLED
     char str[30];
     char *pstr = str;
   
@@ -4898,6 +4916,7 @@ static void PrintOrient()
         str[14] = 0;
         myLcd.SetLine(5, str, 0);
     }
+#endif
 
     if ((hfc.print_counter & 0x1f) == 8) {
         led1 = hfc.throttle_armed;
@@ -5112,7 +5131,8 @@ static void PowerNodeHeartbeat(int num_power_nodes)
     }
 }
 
-// NOTE::SP: Remove - Just for Debug....
+// NOTE::SP: Just for Debug
+#if 0
 static void ServoHeartbeat(int num_servo_nodes)
 {
     CANMessage can_tx_message;
@@ -5133,6 +5153,7 @@ static void ServoHeartbeat(int num_servo_nodes)
         ++write_canbus_error;
     }
 }
+#endif
 
 //
 void InitializeRuntimeData(void)
@@ -5324,7 +5345,9 @@ static int InitCanbusNodes(void)
         }
 
         if (!init) {
+#ifdef LCD_ENABLED
             myLcd.ShowError("Failed to initialize CANBUS SERVO NODE(S)\n", "SERVO NODE", "INITIALIZATION", "FAILED");
+#endif
             canbus_status = -1;
         }
     }
@@ -5338,7 +5361,9 @@ static int InitCanbusNodes(void)
         }
 
         if (!init) {
+#ifdef LCD_ENABLED
             myLcd.ShowError("Failed to initialize CANBUS GPS NODE(S)\n", "GPS NODE", "INITIALIZATION", "FAILED");
+#endif
             canbus_status = -1;
         }
     }
@@ -5349,7 +5374,9 @@ static int InitCanbusNodes(void)
         }
 
         if (!init) {
+#ifdef LCD_ENABLED
             myLcd.ShowError("Failed to initialize CANBUS POWER NODE(S)\n", "POWER NODE", "INITIALIZATION", "FAILED");
+#endif
             canbus_status = -1;
         }
     }
@@ -5378,18 +5405,24 @@ int main()
 
     lidar.mode(PullNone);
 
+#ifdef LCD_ENABLED
     myLcd.InitLcd();
+#endif
 
     xbus.revert[1] = 1;
 
     SysTick_Run();
 
+
+#ifdef LCD_ENABLED
     myLcd.ShowSplash(AVIDRONE_SPLASH, AVIDRONE_FCM_SPLASH, FCM_VERSION);
+#endif
 
     int cfg_result;
     if ((cfg_result = LoadConfiguration(&pConfig)) < 0) {
         init_ok = 0;
 
+#ifdef LCD_ENABLED
         if (cfg_result == -1) {
             myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "CHECKSUM", "ERROR");
         }
@@ -5404,6 +5437,8 @@ int main()
         else {
             myLcd.ShowError("Failed to Load Configuration\n", "CONFIG", "LOAD", "FAILED");
         }
+#endif
+
     }
 
 
@@ -5434,11 +5469,11 @@ int main()
                 if (mpu_init == -1) {
                     // On failing eeprom, calibration values will be set to default. This is not
                     // therefore a hard error and we continue.
-                    myLcd.ShowError("Failed to initialize IMU\n", "IMU", "EEPROM ERROR", "");
+                    //myLcd.ShowError("Failed to initialize IMU\n", "IMU", "EEPROM ERROR", "");
                     init_warning = 1;
                 }
                 else if (mpu_init == -2) {
-                    myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
+                    //myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
                     init_ok = 0;
                 }
             }
@@ -5451,7 +5486,7 @@ int main()
                 }
 
                 if (!compass.Init(pConfig)) {
-                    myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
+                    //myLcd.ShowError("Failed to initialize compass HMC5883L/AK8963\n", "COMPASS", "INITIALIZATION", "FAILED");
                     init_ok = 0;
                 }
             }
@@ -5460,7 +5495,7 @@ int main()
         if (init_ok) {
             if (pConfig->baro_enable == 1) {
                 if (!baro.Init()) {
-                    myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
+                    //myLcd.ShowError("Failed to initialize BAROMETER\n", "BAROMETER", "INITIALIZATION", "FAILED");
                     init_ok = 0;
                 }
             }
