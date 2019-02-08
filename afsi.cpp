@@ -121,13 +121,20 @@ void AFSI_Serial::ProcessStatusMessages(void)
             stat_msg_cnt[i]++;
 
             if (!IsTypeInQ(id)) {
-                if ( (stat_msg_cnt[i] % (stat_msg_period[i] * AFSI_STAT_MSG_PERIOD_SCALE)) == 0 ) {
-                    GenerateStatMsg(i);
-                    stat_msg_cnt[i] = 0;
-                }
-                else if( stat_msg_period[i] == 0 ) {
+                if( stat_msg_period[i] == 0 ) {
                     GenerateStatMsg(i);
                     stat_msg_enable[i] = 0;
+                }
+                else if ( (stat_msg_cnt[i] % (stat_msg_period[i] * AFSI_STAT_MSG_PERIOD_SCALE)) == 0 ) {
+                    if ( (num_msgs_in_q >= 1) && (stat_msg_cnt[i] > 0) ) {
+                        // shift status messages so that they are out of sync
+                        // by an appropriate fraction of the minimum period.
+                        stat_msg_cnt[i] = -(AFSI_STAT_MSG_PERIOD_SCALE/AFSI_NUM_STAT_MSGS)*(i+1);
+                    }
+                    else {
+                        GenerateStatMsg(i);
+                        stat_msg_cnt[i] = 0;
+                    }
                 }
             }
         }
