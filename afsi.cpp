@@ -121,7 +121,7 @@ void AFSI_Serial::ProcessStatusMessages(void)
             stat_msg_cnt[i]++;
 
             if (!IsTypeInQ(id)) {
-                if ( (stat_msg_cnt[i] % stat_msg_period[i] * AFSI_STAT_MSG_PERIOD_SCALE) == 0 ) {
+                if ( (stat_msg_cnt[i] % (stat_msg_period[i] * AFSI_STAT_MSG_PERIOD_SCALE)) == 0 ) {
                     GenerateStatMsg(i);
                     stat_msg_cnt[i] = 0;
                 }
@@ -141,7 +141,7 @@ void AFSI_Serial::AddInputByte(uint8_t rx_byte)
     int len = 0;
 
     if (afsi_rx_bytes > AFSI_BUFFER_SIZE) {
-        printf("ERROR: Message Discarded!\r\n");
+        debug_print("ERROR: Message Discarded!\r\n");
         ResetRxMsgData();
     }
 
