@@ -317,7 +317,7 @@ typedef struct
     unsigned int        crc;            // CRC of the entire packet including the header, where CRC is set to 0x12345678
 } T_TelemUpHdr;
 
-/* size of ~70bytes */
+/* size of 92bytes + hdr */
 /* Telemetry - Control 0   sent with background priority as often as the link allows (94 bytes, ~60Hz) */
 typedef struct
 {
@@ -343,6 +343,7 @@ typedef struct
     int     latitude;        // latitude  from IMU * 10M
     int     longitude;       // longitude from IMU * 10M
     f16     lidar_alt;
+    uint16  controlStatus;  // bit mask denoting the last control command made.
 } T_Telem_Ctrl0;
 
 /* Telemetry - GPS 1       sent the GPS update rate, typically 5-10Hz, 42bytes */
@@ -1162,6 +1163,8 @@ typedef struct
     float gyro_ofs[3];
 
     int box_dropper_;
+
+    uint16_t controlStatus;
 
     uint32_t fcm_serialnum_0;
     uint32_t fcm_serialnum_1;

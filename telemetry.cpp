@@ -490,6 +490,7 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     msg->latitude  = (int)(hfc->positionLatLon[0]*10000000);
     msg->longitude = (int)(hfc->positionLatLon[1]*10000000);
     msg->lidar_alt = Float32toFloat16(hfc->altitude_lidar);
+    msg->controlStatus = hfc->controlStatus;
     
     InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
 }
@@ -1611,6 +1612,15 @@ void TelemSerial::CommandTakeoffArm(void)
     else
         hfc->waypoint_stage  = FM_TAKEOFF_ARM;
     hfc->message_timeout = 60000000;    // 60 seconds
+
+    hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
+    if (hfc->playlist_status == PLAYLIST_STOPPED) {
+        hfc->controlStatus |= CONTROL_STATUS_POINTFLY;
+    }
+    else {
+        hfc->controlStatus |= CONTROL_STATUS_PAUSE;
+    }
+
 }
 
 /* vspeed needs to be negative */
@@ -1693,6 +1703,8 @@ void TelemSerial::Disarm(void)
 	hfc->playlist_status = PLAYLIST_STOPPED;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
+
+	hfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
 
 	//xbus.InitXbusValues();
 
@@ -1804,6 +1816,8 @@ void TelemSerial::Arm(void)
     gps.glitches_ = 0;   // reset GPS glitch counter
     hfc->stats.can_servo_tx_errors = 0;
     hfc->stats.can_power_tx_errors = 0;
+
+    hfc->controlStatus = CONTROL_STATUS_TAKEOFF;
     SetHome();
 
 //        GyroCalibDynamic(hfc);
@@ -2081,8 +2095,9 @@ void TelemSerial::ProcessCommands(void)
     }
     else if (cmd==TELEM_CMD_PREFLIGHT_CHECK)
     {
-        if (PreFlightChecks())
+        if (PreFlightChecks()) {
             SendMsgToGround(MSG2GROUND_PFCHECK_ALL_GOOD);
+        }
     }
     else if (cmd==TELEM_CMD_RESET)
     {

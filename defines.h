@@ -204,4 +204,14 @@ extern USBSerial   serial;
 #define LOCK_JTAG     (1)
 #define UNLOCK_JTAG   (!LOCK_JTAG)
 
+#define CONTROL_STATUS_NONE      0x00
+#define CONTROL_STATUS_TAKEOFF   (1 << 0)
+#define CONTROL_STATUS_LAND      (1 << 1)
+#define CONTROL_STATUS_HOME      (1 << 2)
+#define CONTROL_STATUS_POINTFLY  (1 << 3)
+#define CONTROL_STATUS_PLAY      (1 << 4)
+#define CONTROL_STATUS_PAUSE     (1 << 5)
+#define CONTROL_STATUS_PREFLIGHT (1 << 6)
+
+
 #endif
