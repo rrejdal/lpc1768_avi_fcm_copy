@@ -7,6 +7,7 @@
 #include "pGPS.h"
 #include "IMU.h"
 #include "defines.h"
+#include "version.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern void ResetIterms(void);
@@ -304,7 +305,7 @@ void TelemSerial::AddInputByte(char ch)
     else
     if (hdr->type==TELEMETRY_PLAYLIST)
     {
-        if (hfc->playlist_status==PLAYLIST_STOPPED)
+        if (hfc->playlist_status==PLAYLIST_NONE || hfc->playlist_status==PLAYLIST_STOPPED)
         {
             hfc->debug_flags[0] = 1;
             T_Telem_Playlist6 *msg = (T_Telem_Playlist6*)telem_recv_buffer;
@@ -625,9 +626,13 @@ void TelemSerial::Generate_System2(int time_ms)
     InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
 
+extern int getNodeVersionNum(int type, int nodeId);
+extern void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
+
 void TelemSerial::Generate_AircraftCfg(void)
 {
     T_AircraftConfig *msg = &hfc->aircraftConfig;
+    uint32_t serialNum[3] = {0};
 
     float thr_min, thr_max;
 
@@ -664,6 +669,36 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->fcm_serialnum_2 = hfc->fcm_serialnum_2;
     msg->fcm_serialnum_3 = hfc->fcm_serialnum_3;
     msg->fcm_version_num = (MAJOR_VERSION << 16) | (MINOR_VERSION << 8) | (BUILD_VERSION);
+
+    serialNum[0] = serialNum[1]= serialNum[2] = 0;
+    getNodeSerialNum(PN_SN, 0, serialNum);
+    msg->servo0_version_num = getNodeVersionNum(PN_SN, 0);
+    msg->servo0_serialnum_0 = serialNum[0];
+    msg->servo0_serialnum_1 = serialNum[1];
+    msg->servo0_serialnum_2 = serialNum[2];
+
+    serialNum[0] = serialNum[1]= serialNum[2] = 0;
+    getNodeSerialNum(PN_SN, 1, serialNum);
+    msg->servo1_version_num = getNodeVersionNum(PN_SN, 1);
+    msg->servo1_serialnum_0 = serialNum[0];
+    msg->servo1_serialnum_1 = serialNum[1];
+    msg->servo1_serialnum_2 = serialNum[2];
+
+    serialNum[0] = serialNum[1]= serialNum[2] = 0;
+    getNodeSerialNum(PN_GPS, 0, serialNum);
+    msg->gps_version_num = getNodeVersionNum(PN_GPS, 0);
+    msg->gps_serialnum_0 = serialNum[0];
+    msg->gps_serialnum_1 = serialNum[1];
+    msg->gps_serialnum_2 = serialNum[2];
+
+    serialNum[0] = serialNum[1]= serialNum[2] = 0;
+    getNodeSerialNum(PN_PWR, 0, serialNum);
+    msg->pwr_version_num = getNodeVersionNum(PN_PWR, 0);
+    msg->pwr_serialnum_0 = serialNum[0];
+    msg->pwr_serialnum_1 = serialNum[1];
+    msg->pwr_serialnum_2 = serialNum[2];
+
+    msg->imu_serial_num = hfc->imu_serial_num;
 
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
@@ -892,7 +927,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         hfc->waypoint_pos_prev[0] = hfc->waypoint_pos[0];
         hfc->waypoint_pos_prev[1] = hfc->waypoint_pos[1];
         hfc->waypoint_pos_prev[2] = hfc->ctrl_out[POS][COLL];//hfc->waypoint_pos[2]; use the last set altitude to better connect alt at waypoints
-//        prev_STcourse = hfc->waypoint_STcourse;
+        //        prev_STcourse = hfc->waypoint_STcourse;
     }
     else
     {
@@ -900,6 +935,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         hfc->waypoint_pos_prev[0] = hfc->positionLatLon[0];
         hfc->waypoint_pos_prev[1] = hfc->positionLatLon[1];
         hfc->waypoint_pos_prev[2] = hfc->altitude;
+        hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
 //        prev_STcourse = hfc->IMUorient[YAW]*R2D;  // use current heading
     }
     
@@ -1614,19 +1650,15 @@ void TelemSerial::CommandTakeoffArm(void)
     hfc->message_timeout = 60000000;    // 60 seconds
 
     hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
-    if (hfc->playlist_status == PLAYLIST_STOPPED) {
+    if (hfc->playlist_status <= PLAYLIST_STOPPED) {
         hfc->controlStatus |= CONTROL_STATUS_POINTFLY;
     }
-    else {
-        hfc->controlStatus |= CONTROL_STATUS_PAUSE;
-    }
-
 }
 
 /* vspeed needs to be negative */
 void TelemSerial::CommandLandingWP(float lat, float lon, float alt_ground)
 {
-    hfc->gps_to_waypoint[0] = 99;   // need something here so the logic does not immediatelly think it is already there
+    hfc->gps_to_waypoint[0] = 99;   // need something here so the logic does not immediately think it is already there
                                     // before it gets properly initialized
     /* set 2D waypoint at the current location */
     SetWaypoint(lat, lon, alt_ground, WAYPOINT_GOTO, 0);
@@ -1638,61 +1670,61 @@ void TelemSerial::CommandLandingWP(float lat, float lon, float alt_ground)
 /* vspeed needs to be negative */
 void TelemSerial::CommandLanding(bool final, bool setWP)
 {
+    if (!final && hfc->altitude_lidar>3)
     {
-        if (!final && hfc->altitude_lidar>3)
-        {
-            /* check lidar and send a warning message if no ground lock is being received from lidar */
-            if (hfc->altitude_lidar_raw>35)
-                SendMsgToGround(MSG2GROUND_LIDAR_NOGROUND);
+        /* check lidar and send a warning message if no ground lock is being received from lidar */
+        if (hfc->altitude_lidar_raw>35)
+            SendMsgToGround(MSG2GROUND_LIDAR_NOGROUND);
 
-            /* set 2D waypoint at the current location */
-            if (setWP) {
-                SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
-            }
-
-            SelectCtrlSource(CTRL_SOURCE_AUTO3D);
-            SetCtrlMode(hfc, pConfig, YAW, CTRL_MODE_ANGLE);
-
-            /* if wind strong enough, rotate tail down-wind otherwise just keep the current heading */
-            if (hfc->wind_speed > hfc->rw_cfg.landing_wind_threshold) {  // 3m/s
-                hfc->ctrl_out[ANGLE][YAW] = Wrap180(hfc->wind_course);
-            }
-            else {
-                hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
-            }
-
-            /* if switching from manual collective, initialize the ctrl speed with the current one */
-            if (hfc->control_mode[COLL] < CTRL_MODE_SPEED) {
-                hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[UP];
-            }
-
-            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
-            hfc->ctrl_vspeed_3d = max(-2*pConfig->landing_vspeed, hfc->pid_CollAlt.COmin);
-            hfc->waypoint_type  = WAYPOINT_LANDING;
-            hfc->waypoint_stage = FM_LANDING_HIGH_ALT;
+        /* set 2D waypoint at the current location */
+        if (setWP) {
+            SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
         }
-        else
-        {
-            /* set PRY controls to speed/Angle mode */
-            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
-            
-            /* if previous pitch/roll mode was above speed, initialize Iterm such that CO does not instantly change */
-            hfc->ctrl_out[SPEED][PITCH] = 0;
-            hfc->ctrl_out[SPEED][ROLL]  = 0;
-            hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D; 
-            
-            /* set vspeed mode and initialize it */
-//            hfc->ctrl_out[SPEED][COLL] = vspeed;
-            hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed;
-            SelectCtrlSource(CTRL_SOURCE_AUTO3D);
-            
-            hfc->waypoint_type  = WAYPOINT_LANDING;
-            hfc->waypoint_stage = FM_LANDING_LOW_ALT;
+
+        SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+        SetCtrlMode(hfc, pConfig, YAW, CTRL_MODE_ANGLE);
+
+        /* if wind strong enough, rotate tail down-wind otherwise just keep the current heading */
+        if (hfc->wind_speed > hfc->rw_cfg.landing_wind_threshold) {  // 3m/s
+            hfc->ctrl_out[ANGLE][YAW] = Wrap180(hfc->wind_course);
         }
+        else {
+            hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
+        }
+
+        /* if switching from manual collective, initialize the ctrl speed with the current one */
+        if (hfc->control_mode[COLL] < CTRL_MODE_SPEED) {
+            hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[UP];
+        }
+
+        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
+        hfc->ctrl_vspeed_3d = max(-2*pConfig->landing_vspeed, hfc->pid_CollAlt.COmin);
+        hfc->waypoint_type  = WAYPOINT_LANDING;
+        hfc->waypoint_stage = FM_LANDING_HIGH_ALT;
     }
+    else
+    {
+        /* set PRY controls to speed/Angle mode */
+        SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+        SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+        SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
+
+        /* if previous pitch/roll mode was above speed, initialize Iterm such that CO does not instantly change */
+        hfc->ctrl_out[SPEED][PITCH] = 0;
+        hfc->ctrl_out[SPEED][ROLL]  = 0;
+        hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
+
+        /* set vspeed mode and initialize it */
+//            hfc->ctrl_out[SPEED][COLL] = vspeed;
+        hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed;
+        SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+
+        hfc->waypoint_type  = WAYPOINT_LANDING;
+        hfc->waypoint_stage = FM_LANDING_LOW_ALT;
+    }
+
+    hfc->controlStatus = CONTROL_STATUS_NONE;
 }
 
 void TelemSerial::Disarm(void)
@@ -1700,10 +1732,9 @@ void TelemSerial::Disarm(void)
 	hfc->throttle_armed    = 0;
 	hfc->inhibitRCswitches = false;
 	hfc->waypoint_type   = WAYPOINT_NONE;
-	hfc->playlist_status = PLAYLIST_STOPPED;
+	hfc->playlist_status = PLAYLIST_NONE;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
-
 	hfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
 
 	//xbus.InitXbusValues();
@@ -1736,6 +1767,9 @@ void TelemSerial::PlaylistSaveState(void)
     hfc->waypoint_pos_resume[1] = hfc->waypoint_pos[1];
     hfc->waypoint_pos_resume[2] = hfc->waypoint_pos[2];
     hfc->waypoint_retire_resume = hfc->waypoint_retire;
+
+    hfc->controlStatus = CONTROL_STATUS_PLAY
+                          | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
 }
 
 void TelemSerial::PlaylistRestoreState(void)
@@ -1766,6 +1800,7 @@ void TelemSerial::PlaylistRestoreState(void)
     SaveValuesForAbort();
     hfc->playlist_status = PLAYLIST_PLAYING;
     hfc->delay_counter = 0;
+
 }
 
 int TelemSerial::FindNearestLandingSite(void)
@@ -1817,7 +1852,7 @@ void TelemSerial::Arm(void)
     hfc->stats.can_servo_tx_errors = 0;
     hfc->stats.can_power_tx_errors = 0;
 
-    hfc->controlStatus = CONTROL_STATUS_TAKEOFF;
+    hfc->controlStatus = CONTROL_STATUS_TAKEOFF | CONTROL_STATUS_PREFLIGHT;
     SetHome();
 
 //        GyroCalibDynamic(hfc);
@@ -1938,6 +1973,7 @@ void TelemSerial::ProcessCommands(void)
     {
         ApplyDefaults();
         SetWaypoint(hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0); // do not change altitude or perhaps use a preset value for this
+        hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_POINTFLY;
     }
     else
     if (cmd==TELEM_CMD_PLAYLIST_CONTROL)
@@ -2014,7 +2050,6 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_LAND)
     {
-        hfc->playlist_status = PLAYLIST_STOP;
         if (sub_cmd==LANDING_CURRENT) {
             CommandLanding(false, true);
         }

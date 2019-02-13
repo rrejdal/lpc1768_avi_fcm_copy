@@ -173,9 +173,10 @@
 #define PLAYLIST_RESUME       3   // resume after pause
 #define PLAYLIST_STOP         4   // stop, position/altitude hold, playlist needs to be stopped to allow upload
 
-#define PLAYLIST_STOPPED      0
-#define PLAYLIST_PLAYING      1
-#define PLAYLIST_PAUSED       2
+#define PLAYLIST_NONE         0
+#define PLAYLIST_STOPPED      1
+#define PLAYLIST_PLAYING      2
+#define PLAYLIST_PAUSED       3
 
 #define PL_ITEM_END           0   // end of the playlist
 #define PL_ITEM_WP            1   // waypoint
@@ -343,7 +344,7 @@ typedef struct
     int     latitude;        // latitude  from IMU * 10M
     int     longitude;       // longitude from IMU * 10M
     f16     lidar_alt;
-    uint16  controlStatus;  // bit mask denoting the last control command made.
+    int     controlStatus;  // bit mask denoting the last control command made.
 } T_Telem_Ctrl0;
 
 /* Telemetry - GPS 1       sent the GPS update rate, typically 5-10Hz, 42bytes */
@@ -597,11 +598,34 @@ typedef struct
     f16         return_speed;       // m/s return to home or landing
     byte        bat_cells;          // number of lipo cells
     byte        unused[3];
+
     uint32      fcm_serialnum_0;       // FCM Chip ID of form [3:2:1:0]
     uint32      fcm_serialnum_1;
     uint32      fcm_serialnum_2;
     uint32      fcm_serialnum_3;
     uint32      fcm_version_num;    // Version is Major:Minor:Build, each item is 8bits
+
+    uint32      servo0_version_num; // Version is Major:Minor:Build, each item is 8bits
+    uint32      servo0_serialnum_0;
+    uint32      servo0_serialnum_1;
+    uint32      servo0_serialnum_2;
+
+    uint32      servo1_version_num; // Version is Major:Minor:Build, each item is 8bits
+    uint32      servo1_serialnum_0;
+    uint32      servo1_serialnum_1;
+    uint32      servo1_serialnum_2;
+
+    uint32      gps_version_num;    // Version is Major:Minor:Build, each item is 8bits
+    uint32      gps_serialnum_0;
+    uint32      gps_serialnum_1;
+    uint32      gps_serialnum_2;
+
+    uint32      pwr_version_num;    // Version is Major:Minor:Build, each item is 8bits
+    uint32      pwr_serialnum_0;
+    uint32      pwr_serialnum_1;
+    uint32      pwr_serialnum_2;
+
+    uint32      imu_serial_num;    // Version is Major:Minor:Build, each item is 8bits
 
 } T_AircraftConfig;
 
@@ -1170,6 +1194,8 @@ typedef struct
     uint32_t fcm_serialnum_1;
     uint32_t fcm_serialnum_2;
     uint32_t fcm_serialnum_3;
+
+    unsigned int imu_serial_num;
 
     ModifiableConfigData rw_cfg;
 

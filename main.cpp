@@ -59,6 +59,8 @@ extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
 
 extern int EraseFlash(void);
 extern int SetJtag(int state);
+int getNodeVersionNum(int type, int nodeId);
+void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
 
 void CompassCalDone(void);
 
@@ -189,6 +191,25 @@ static void Buttons();
 static void PrintOrient();
 static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
+
+int getNodeVersionNum(int type, int nodeId)
+{
+  int vers_num;
+
+  vers_num = (board_info[type][nodeId].major_version) << 16;
+  vers_num |= (board_info[type][nodeId].minor_version) << 8;
+  vers_num |= (board_info[type][nodeId].build_version);
+
+  return vers_num;
+
+}
+
+void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum)
+{
+  pSerailNum[0] = (board_info[type][nodeId].serial_number0);
+  pSerailNum[1] = (board_info[type][nodeId].serial_number1);
+  pSerailNum[2] = (board_info[type][nodeId].serial_number2);
+}
 
 float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
 {
@@ -1817,7 +1838,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
         
     
     /* check for end of the playlist or errors */
-    if (hfc->playlist_position>=hfc->playlist_items)
+    if ((hfc->playlist_status > PLAYLIST_STOPPED) && (hfc->playlist_position >= hfc->playlist_items))
     {
         /* stop playlist and waypoint mode */
         hfc->playlist_status = PLAYLIST_STOPPED;
@@ -2060,6 +2081,8 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->waypoint_stage = FM_LANDING_TIMEOUT;
                 hfc->touchdown_time = hfc->time_ms;
 
+                hfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
+
                 // TODO::SP: Error Handling on Flash write error??
                 UpdateFlashConfig(hfc);
             }
@@ -2072,7 +2095,11 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
                 hfc->waypoint_stage = FM_LANDING_LANDED;
-                hfc->playlist_position++;
+                if (hfc->playlist_status > PLAYLIST_STOPPED) {
+                  hfc->playlist_position++;
+                  hfc->playlist_status = PLAYLIST_STOPPED;
+                }
+
             }
         }
     }
@@ -3607,8 +3634,7 @@ static void can_handler(void)
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
                 UpdateLidarHeight(node_id, *(uint32_t *)pdata);
-                //UpdateLidarHeight(node_id+1, *(uint32_t *)pdata); // NOTE::SP added to testing only
-                //UpdateLidar(node_id, *(uint32_t *)pdata);
+                UpdateLidarHeight(node_id+1, *(uint32_t *)pdata); // NOTE::SP added to testing only
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -5250,6 +5276,8 @@ void InitializeRuntimeData(void)
 
     hfc.takeoff_height = TAKEOFF_HEIGHT_DEFAULT;
 
+    hfc.controlStatus = CONTROL_STATUS_PREFLIGHT;
+
     // NOTE:SP: This is data which is updated at runtime to a duplicated
     // Read/Write area.
     hfc.rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
@@ -5279,7 +5307,7 @@ void InitializeRuntimeData(void)
     hfc.command.command = TELEM_CMD_NONE;
     hfc.full_auto = true;
     hfc.auto_throttle = true;
-    hfc.playlist_status = PLAYLIST_STOPPED;
+    hfc.playlist_status = PLAYLIST_NONE;
     hfc.display_mode = DISPLAY_SPLASH;
     hfc.control_mode[PITCH] = CTRL_MODE_ANGLE;
     hfc.control_mode[ROLL] = CTRL_MODE_ANGLE;
@@ -5476,6 +5504,9 @@ int main()
                     //myLcd.ShowError("Failed to initialize IMU\n", "IMU", "INITIALIZATION", "FAILED");
                     init_ok = 0;
                 }
+            }
+            else {
+               hfc.imu_serial_num = mpu.eeprom->data.serial_num;
             }
         }
 
