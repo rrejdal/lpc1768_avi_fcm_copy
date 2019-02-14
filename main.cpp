@@ -3634,7 +3634,7 @@ static void can_handler(void)
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
                 UpdateLidarHeight(node_id, *(uint32_t *)pdata);
-                UpdateLidarHeight(node_id+1, *(uint32_t *)pdata); // NOTE::SP added to testing only
+                //UpdateLidarHeight(node_id+1, *(uint32_t *)pdata); // NOTE::SP added to testing only
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
