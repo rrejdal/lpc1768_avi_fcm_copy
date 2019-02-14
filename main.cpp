@@ -4398,7 +4398,9 @@ void do_control()
         afsi.ProcessStatusMessages();
     }
 
-    //myLcd.Update();
+#ifdef LCD_ENABLED
+    myLcd.Update();
+#endif
 
     ProcessStats();
 
