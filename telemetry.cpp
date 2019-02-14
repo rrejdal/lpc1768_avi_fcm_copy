@@ -1463,9 +1463,9 @@ void TelemSerial::SendMsgToGround(int msg_id)
 /* returns true when everything is ok, false otherwise */
 char TelemSerial::PreFlightChecks(void)
 {
-    //if (pConfig->disable_pre_flight) {
+    if (pConfig->disable_pre_flight) {
         return true;
-    //}
+    }
 
     int gps_error;
 
