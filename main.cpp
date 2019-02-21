@@ -3695,7 +3695,7 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_PWR_MSGID_LIDAR) {
-                UpdateLidar(node_id, *(uint32_t *)pdata);
+                UpdateLidarHeight(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_PWR_MSGID_CASTLE_0) && (message_id <= AVIDRONE_PWR_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
