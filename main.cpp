@@ -2340,6 +2340,24 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
 
+// 210 flight
+    if (hfc.throttle_armed) {
+        if (!hfc.full_auto) {
+            hfc.auto_throttle = false;
+        }
+
+        if (!hfc.auto_throttle) {
+            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+        }
+    }
+    else {
+        // Throttle Off
+        hfc.throttle_value = -pConfig->Stick100range;
+    }
+
+
+// Original FCM code base
+    /*
     if (!hfc.full_auto && !hfc.throttle_armed) {
         hfc.auto_throttle = false;
     }
@@ -2350,6 +2368,7 @@ static void ServoUpdate(float dT)
     else if (!hfc.throttle_armed) {
         hfc.throttle_value = -pConfig->Stick100range;
     }
+    */
 
 //    if (!(hfc.print_counter&0x3f))
 //    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
