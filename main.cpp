@@ -2375,7 +2375,8 @@ static void ServoUpdate(float dT)
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
-    if (!hfc.full_auto) {
+   // if (!hfc.full_auto)
+    {
         if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
             hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
             hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
@@ -2464,6 +2465,7 @@ static void ServoUpdate(float dT)
                 hfc.collective_value = -0.571;
             }
 
+            // SP::NOTE: This is added...
             if (xbus.valuesf[XBUS_THR_LV] < -0.5f) {
                 hfc.fixedThrottleMode = THROTTLE_IDLE;
                 hfc.collective_value = -0.571;
