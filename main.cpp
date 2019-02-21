@@ -5535,7 +5535,6 @@ int main()
         }
     }
 
-    init_ok = true;
     if (init_ok) {
 
         xbus.SetSbusEnabled(pConfig->SbusEnable);
