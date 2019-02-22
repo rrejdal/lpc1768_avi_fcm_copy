@@ -396,6 +396,7 @@ typedef struct
                               // bit 3   - joystick control
                               // bit 4-5 - playlist status (0-stopped, 1-playing, 2-paused)
                               // bit 6   - full_auto
+                              // bit 7   - auto_throttle
     //-------------------------------- size 56
     uint16  playlist_items;
     uint16  playlist_position;
@@ -410,6 +411,7 @@ typedef struct
     f16     gyro_offsets[3];    // P/R/Y, deg/s
     f16     esc_temp;           // ESC temperature in degC
     byte    num_landing_sites;
+    byte    ctrl_source;
     //-------------------------------- size 77
 } T_Telem_System2;
 
