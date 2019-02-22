@@ -965,6 +965,7 @@ typedef struct
     unsigned char full_auto;			// switches between full auto control mode and RCradio assisted mode
     unsigned char auto_throttle;		// throttle is controlled internally in auto-throttle, as opposed to using RC throttle lever
     unsigned char ctrl_source;          // selects source of control - rc, joy, auto....
+    unsigned char prev_ctrl_source;     // state of last ctrl source
     unsigned char inhibitRCswitches;    // inhibits RC radio mode switches, needed during takeoff
     unsigned char LidarCtrlMode;        // lidar drives altitude to avoid getting below minimum above ground altitude
     unsigned char cruise_mode;         // enables cruise mode

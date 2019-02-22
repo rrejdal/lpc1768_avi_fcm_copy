@@ -874,6 +874,12 @@ void TelemSerial::SelectCtrlSource(byte source)
 
     hfc->telem_ctrl_period = max(hfc->telem_ctrl_period, pConfig->telem_min_ctrl_period*1000);
     hfc->ctrl_source = source;
+
+    // Update prev_ctrl_source if our source has changed.
+    if (hfc->prev_ctrl_source != source) {
+      hfc->prev_ctrl_source = source;
+    }
+
     hfc->waypoint_type = WAYPOINT_NONE;
 }
 

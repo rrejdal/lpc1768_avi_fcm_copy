@@ -671,14 +671,32 @@ static void Display_CtrlMode(unsigned char line, unsigned char channel, const in
 
 static void SetControlMode(void)
 {
-    if (xbus.valuesf[XBUS_CTRLMODE_SW]>0.5f)
+    if (xbus.valuesf[XBUS_CTRLMODE_SW] > 0.5f) {
         hfc.full_auto = true;
-    else
+    }
+    else {
         hfc.full_auto = false;
+    }
 
-    /* in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle */
-    if (hfc.full_auto)
-    {
+    // in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle
+    if (hfc.full_auto) {
+
+      // if not already in AUTO3D, then switch to AUTO3D
+      if (hfc.prev_ctrl_source != CTRL_SOURCE_AUTO3D) {
+
+          telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+
+          // Set Speed mode, zero speed.
+          hfc.control_mode[PITCH] = CTRL_MODE_SPEED;
+          hfc.control_mode[ROLL] = CTRL_MODE_SPEED;
+
+          hfc.ctrl_out[SPEED][PITCH] = 0;
+          hfc.ctrl_out[SPEED][ROLL]  = 0;
+
+          hfc.control_mode[COLL] = CTRL_MODE_POSITION;
+          hfc.ctrl_out[POS][COLL] = hfc.altitude;
+      }
+
         telem.SaveValuesForAbort();
         hfc.auto_throttle = true;
         return;
@@ -2340,7 +2358,6 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
 
-// 210 flight
     if (hfc.throttle_armed) {
         if (!hfc.full_auto) {
             hfc.auto_throttle = false;
@@ -2355,27 +2372,9 @@ static void ServoUpdate(float dT)
         hfc.throttle_value = -pConfig->Stick100range;
     }
 
-
-// Original FCM code base
-    /*
-    if (!hfc.full_auto && !hfc.throttle_armed) {
-        hfc.auto_throttle = false;
-    }
-
-    if (!hfc.auto_throttle) {
-        hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
-    }
-    else if (!hfc.throttle_armed) {
-        hfc.throttle_value = -pConfig->Stick100range;
-    }
-    */
-
-//    if (!(hfc.print_counter&0x3f))
-//    	debug_print("FA %d AT %d thr=%+5.3f col=%+5.3f\r\n", hfc.full_auto, hfc.auto_throttle, hfc.throttle_value, hfc.collective_value);
-
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
-   // if (!hfc.full_auto)
+    if (!hfc.full_auto)
     {
         if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
             hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
@@ -2396,6 +2395,19 @@ static void ServoUpdate(float dT)
             else {
                 xbus_new_values = XBUS_NO_NEW_VALUES;
             }
+        }
+
+        // If we are in manual mode, then still need to drive the AGS 'button' states.
+        if (hfc.altitude_lidar > 2) {
+          hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+        }
+        else {
+          if (hfc.throttle_armed) {
+            hfc.controlStatus =  CONTROL_STATUS_PREFLIGHT | CONTROL_STATUS_TAKEOFF;
+          }
+          else {
+            hfc.controlStatus =  CONTROL_STATUS_PREFLIGHT;
+          }
         }
     }
 
@@ -5289,6 +5301,7 @@ void InitializeRuntimeData(void)
 
     hfc.dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
     hfc.ctrl_source = pConfig->default_ctrl_source;
+    hfc.prev_ctrl_source = hfc.ctrl_source;
     hfc.acc_dyn_turns = pConfig->default_acc_dyn_turns;
 
     for (int i = 0; i < 3; i++) {
