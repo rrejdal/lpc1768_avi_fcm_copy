@@ -703,42 +703,70 @@ static void SetControlMode(void)
     }
 
     /* this needs to be after full_auto check otherwise takeoff cannot be aborted */
-    if (hfc.inhibitRCswitches)
+    if (hfc.inhibitRCswitches) {
         return;
+    }
 
     /* in non-RCradio mode, check for stick movement to abort */
-    if (hfc.ctrl_source!=CTRL_SOURCE_RCRADIO)
-    {
+    if (hfc.ctrl_source!=CTRL_SOURCE_RCRADIO) {
+
         char abort = 0;
-        if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS)
-            abort = 1;
-        if (ABS(hfc.ctrl_initial[ROLL]  - xbus.valuesf[XBUS_ROLL])  > AUTO_PROF_TERMINATE_THRS)
-            abort = 1;
-        if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK)
-        {
-            if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])  > AUTO_PROF_TERMINATE_THRS)
-                abort = 1;
-            if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])   > AUTO_PROF_TERMINATE_THRS)
-                abort = 1;
+
+        // if we're flying
+        if (hfc.altitude_lidar > 0.5) {
+
+            // If the throttle lever is not UP, then send message to ground station
+            // otherwise, hand over control to RC controller if the RC sticks
+            // have been touched.
+            if ( hfc.throttle_value < 0.5f ) {
+               telem.SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
+            }
+            else {
+                if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS) {
+                    abort = 1;
+                }
+                if (ABS(hfc.ctrl_initial[ROLL]  - xbus.valuesf[XBUS_ROLL])  > AUTO_PROF_TERMINATE_THRS) {
+                    abort = 1;
+                }
+
+                if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) {
+                    if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])  > AUTO_PROF_TERMINATE_THRS) {
+                        abort = 1;
+                    }
+                    if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])   > AUTO_PROF_TERMINATE_THRS) {
+                        abort = 1;
+                    }
+                }
+            }
+
         }
+        // check if we're on the ground
+        else if ( (hfc.altitude_lidar < 0.5) ) {
+            // If the throttle lever is not DOWN, then send message to ground station
+            // otherwise, hand over control to RC controller immediately.
+            if (hfc.throttle_value != -pConfig->Stick100range) {
+               telem.SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
+            }
+            else {
+              abort = 1;
+            }
+        }
+
         
-        if (abort)
-        {
-            if (hfc.playlist_status==PLAYLIST_PLAYING)
-            {
+        if (abort)  {
+            if (hfc.playlist_status==PLAYLIST_PLAYING) {
                 telem.PlaylistSaveState();
                 telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc.playlist_status = PLAYLIST_PAUSED;
             }
-            else
-            {
-                if (hfc.playlist_status == PLAYLIST_PAUSED)
-                {
+            else {
+                if (hfc.playlist_status == PLAYLIST_PAUSED) {
                     telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                     hfc.playlist_status = PLAYLIST_PAUSED;
                 }
-                else
+                else {
                     telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+                }
             }
         }
     }
