@@ -1741,6 +1741,7 @@ void TelemSerial::Disarm(void)
 	hfc->throttle_armed    = 0;
 	hfc->inhibitRCswitches = false;
 	hfc->waypoint_type   = WAYPOINT_NONE;
+	hfc->waypoint_stage = FM_TAKEOFF_NONE;
 	hfc->playlist_status = PLAYLIST_NONE;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
@@ -1842,7 +1843,7 @@ void TelemSerial::Arm(void)
 
     if( hfc->ctrl_source != CTRL_SOURCE_AFSI ) {
         /* throttle level needs to be low */
-        if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
+        if ((hfc->ctrl_source == CTRL_SOURCE_RCRADIO) && !THROTTLE_LEVER_DOWN())
         {
             SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
             return;

@@ -294,7 +294,7 @@ int SaveNewConfig(void)
 
     // Validate its version
     // If our version is > then the file version then we cannot process it.
-    if (CONFIG_VERSION > pConfigData->header.version) {
+    if (CONFIG_VERSION != pConfigData->header.version) {
         return -2;
     }
 
