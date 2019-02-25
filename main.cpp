@@ -733,7 +733,7 @@ static void SetControlMode(void)
             // If the throttle lever is not UP, then send message to ground station
             // otherwise, hand over control to RC controller if the RC sticks
             // have been touched.
-            if (THROTTLE_LEVER_DOWN()) {
+            if (!THROTTLE_LEVER_UP()) {
 
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
                hfc.auto_throttle = true;
