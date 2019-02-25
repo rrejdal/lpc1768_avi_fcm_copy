@@ -600,8 +600,10 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->gps_current    = gps.selected_channel_;
     msg->reserved       = 0;
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
-    msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1)| (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
-                            | ((hfc->playlist_status&0x3)<<4) | ((hfc->full_auto&1)<<6);
+
+    msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
+                            | ((hfc->playlist_status&0x3)<<4) | ((hfc->full_auto&1)<<6) | ((hfc->auto_throttle&1)<<7);
+
     msg->playlist_items    = hfc->playlist_items;
     msg->playlist_position = hfc->playlist_position;
     msg->gps_errors        = gps.glitches_;
@@ -622,6 +624,7 @@ void TelemSerial::Generate_System2(int time_ms)
     }
 
     msg->num_landing_sites = hfc->landing_sites_num;
+    msg->ctrl_source = hfc->ctrl_source;
 
     InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
@@ -1738,6 +1741,7 @@ void TelemSerial::Disarm(void)
 	hfc->throttle_armed    = 0;
 	hfc->inhibitRCswitches = false;
 	hfc->waypoint_type   = WAYPOINT_NONE;
+	hfc->waypoint_stage = FM_TAKEOFF_NONE;
 	hfc->playlist_status = PLAYLIST_NONE;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
@@ -1839,7 +1843,7 @@ void TelemSerial::Arm(void)
 
     if( hfc->ctrl_source != CTRL_SOURCE_AFSI ) {
         /* throttle level needs to be low */
-        if (hfc->throttle_value > -0.95f*pConfig->Stick100range)
+        if ((hfc->ctrl_source == CTRL_SOURCE_RCRADIO) && !THROTTLE_LEVER_DOWN())
         {
             SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
             return;

@@ -682,24 +682,33 @@ static void SetControlMode(void)
     if (hfc.full_auto) {
 
       // if not already in AUTO3D, then switch to AUTO3D
-      if (hfc.prev_ctrl_source != CTRL_SOURCE_AUTO3D) {
+      if ((hfc.prev_ctrl_source != CTRL_SOURCE_AUTO3D)) {
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
-          // Set Speed mode, zero speed.
-          hfc.control_mode[PITCH] = CTRL_MODE_SPEED;
-          hfc.control_mode[ROLL] = CTRL_MODE_SPEED;
+          if (IN_THE_AIR()) {
+            // Set Speed mode, zero speed.
+            hfc.control_mode[PITCH] = CTRL_MODE_SPEED;
+            hfc.control_mode[ROLL] = CTRL_MODE_SPEED;
 
-          hfc.ctrl_out[SPEED][PITCH] = 0;
-          hfc.ctrl_out[SPEED][ROLL]  = 0;
+            hfc.ctrl_out[SPEED][PITCH] = 0;
+            hfc.ctrl_out[SPEED][ROLL]  = 0;
 
-          hfc.control_mode[COLL] = CTRL_MODE_POSITION;
-          hfc.ctrl_out[POS][COLL] = hfc.altitude;
+            hfc.control_mode[COLL] = CTRL_MODE_POSITION;
+            hfc.ctrl_out[POS][COLL] = hfc.altitude;
+            hfc.auto_throttle = true;
+          }
+          else {
+            hfc.auto_throttle = false;
+          }
+
+          telem.SaveValuesForAbort();
+          return;
       }
 
-        telem.SaveValuesForAbort();
-        hfc.auto_throttle = true;
-        return;
+      telem.SaveValuesForAbort();
+      hfc.auto_throttle = true;
+      return;
     }
 
     /* this needs to be after full_auto check otherwise takeoff cannot be aborted */
@@ -713,13 +722,16 @@ static void SetControlMode(void)
         char abort = 0;
 
         // if we're flying
-        if (hfc.altitude_lidar > 0.5) {
+        if (IN_THE_AIR()) {
 
             // If the throttle lever is not UP, then send message to ground station
             // otherwise, hand over control to RC controller if the RC sticks
             // have been touched.
-            if ( hfc.throttle_value < 0.5f ) {
-               telem.SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
+            if (THROTTLE_LEVER_DOWN()) {
+
+               telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
+               hfc.auto_throttle = true;
+               hfc.full_auto = true;
             }
             else {
                 if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS) {
@@ -741,14 +753,18 @@ static void SetControlMode(void)
 
         }
         // check if we're on the ground
-        else if ( (hfc.altitude_lidar < 0.5) ) {
+        else if (!IN_THE_AIR()) {
             // If the throttle lever is not DOWN, then send message to ground station
             // otherwise, hand over control to RC controller immediately.
-            if (hfc.throttle_value != -pConfig->Stick100range) {
-               telem.SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
+          if (!THROTTLE_LEVER_DOWN()) {
+               telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
+               hfc.auto_throttle = true;
+               hfc.full_auto = true;
             }
             else {
               abort = 1;
+              hfc.auto_throttle = false;
+              hfc.full_auto = false;
             }
         }
 
@@ -795,29 +811,29 @@ static void SetControlMode(void)
     /* pitch/rate/yaw mode switches checked only in RCradio mode */
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
     {
-        int mode;
+      int mode;
 
-    	if (xbus.valuesf[XBUS_MODE_SW] < -0.5f) {
-    		mode = CTRL_MODE_ANGLE;
-    	}
-		else if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
-    		mode = CTRL_MODE_MANUAL;
-		}
-		else {
-    		mode = CTRL_MODE_RATE;
-		}
+      if (xbus.valuesf[XBUS_MODE_SW] < -0.5f) {
+        mode = CTRL_MODE_ANGLE;
+      }
+      else if (xbus.valuesf[XBUS_MODE_SW] > 0.5f) {
+        mode = CTRL_MODE_MANUAL;
+      }
+      else {
+        mode = CTRL_MODE_RATE;
+      }
 
-        mode += pConfig->RCmodeSwitchOfs;   // shift the mode up
-        mode = min(mode, CTRL_MODE_POSITION);
+      mode += pConfig->RCmodeSwitchOfs;   // shift the mode up
+      mode = min(mode, CTRL_MODE_POSITION);
 
-        SetCtrlMode(&hfc, pConfig, PITCH, mode);
-        SetCtrlMode(&hfc, pConfig, ROLL,  mode);
-        SetCtrlMode(&hfc, pConfig, YAW,   ClipMinMax(mode, pConfig->YawModeMin, pConfig->YawModeMax));
+      SetCtrlMode(&hfc, pConfig, PITCH, mode);
+      SetCtrlMode(&hfc, pConfig, ROLL,  mode);
+      SetCtrlMode(&hfc, pConfig, YAW,   ClipMinMax(mode, pConfig->YawModeMin, pConfig->YawModeMax));
 
-		/* during profiling, force the given mode */
-	    if (hfc.profile_mode == PROFILING_ON) {
-	        SetCtrlMode(&hfc, pConfig, hfc.profile_ctrl_variable, hfc.profile_ctrl_level+1);
-	    }
+      /* during profiling, force the given mode */
+      if (hfc.profile_mode == PROFILING_ON) {
+        SetCtrlMode(&hfc, pConfig, hfc.profile_ctrl_variable, hfc.profile_ctrl_level+1);
+      }
     }
 }
 
@@ -2426,7 +2442,7 @@ static void ServoUpdate(float dT)
         }
 
         // If we are in manual mode, then still need to drive the AGS 'button' states.
-        if (hfc.altitude_lidar > 2) {
+        if (IN_THE_AIR()) {
           hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
         }
         else {
@@ -2502,12 +2518,6 @@ static void ServoUpdate(float dT)
             }
             else if(hfc.fixedThrottleMode == THROTTLE_IDLE)
             {
-                hfc.collective_value = -0.571;
-            }
-
-            // SP::NOTE: This is added...
-            if (xbus.valuesf[XBUS_THR_LV] < -0.5f) {
-                hfc.fixedThrottleMode = THROTTLE_IDLE;
                 hfc.collective_value = -0.571;
             }
         }

@@ -268,8 +268,8 @@
 #define MSG2GROUND_PFCHECK_IMUACC_HORIZ 30  // IMU and ACC horizon estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_IMUCOMP_HEAD 31  // IMU and compass heading estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_LIDAR        32  // Lidar reports invalid value.
-
-
+#define MSG2GROUND_THROTTLE_LEVER_LOW   34  // Throttle Level needs is LOW
+#define MSG2GROUND_THROTTLE_LEVER_HIGH  35  // Throttle Level needs is High
 #define MSG2GROUND_LIDAR_NOGROUND       40  // lidar does not see ground before landing
 
 
@@ -396,6 +396,7 @@ typedef struct
                               // bit 3   - joystick control
                               // bit 4-5 - playlist status (0-stopped, 1-playing, 2-paused)
                               // bit 6   - full_auto
+                              // bit 7   - auto_throttle
     //-------------------------------- size 56
     uint16  playlist_items;
     uint16  playlist_position;
@@ -410,6 +411,7 @@ typedef struct
     f16     gyro_offsets[3];    // P/R/Y, deg/s
     f16     esc_temp;           // ESC temperature in degC
     byte    num_landing_sites;
+    byte    ctrl_source;
     //-------------------------------- size 77
 } T_Telem_System2;
 
