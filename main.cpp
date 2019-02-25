@@ -699,7 +699,13 @@ static void SetControlMode(void)
             hfc.auto_throttle = true;
           }
           else {
-            hfc.auto_throttle = false;
+            // if you're on the ground and armed, and we just switched from
+            // RC Control to AUTO 3D, just disarm.
+            if (hfc.throttle_armed) {
+              telem.Disarm();
+            }
+
+            hfc.auto_throttle = true;
           }
 
           telem.SaveValuesForAbort();
