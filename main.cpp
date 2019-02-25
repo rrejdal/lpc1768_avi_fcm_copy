@@ -763,7 +763,12 @@ static void SetControlMode(void)
             // If the throttle lever is not DOWN, then send message to ground station
             // otherwise, hand over control to RC controller immediately.
           if (!THROTTLE_LEVER_DOWN()) {
-               telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
+
+               // if we are doing a take off, then don't send this dialog to AGS
+               // since the use was just asked to throttle up with the RC lever.
+               if (hfc.waypoint_type != WAYPOINT_TAKEOFF) {
+                 telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
+               }
                hfc.auto_throttle = true;
                hfc.full_auto = true;
             }
