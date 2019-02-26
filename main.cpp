@@ -808,6 +808,13 @@ static void SetControlMode(void)
     /* collective mode, only in RCradio or auto2D modes */
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_AUTO2D)
     {
+        if(    THROTTLE_LEVER_DOWN()
+            && hfc.throttle_armed
+            && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
+            && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
+          telem.Disarm();
+        }
+
         if (!pConfig->ctrl_mode_inhibit[COLL])
         {
             if (xbus.valuesf[XBUS_THR_SW]>0.5f)
