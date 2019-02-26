@@ -2426,7 +2426,13 @@ static void ServoUpdate(float dT)
         }
 
         if (!hfc.auto_throttle) {
-            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+            if (THROTTLE_LEVER_DOWN()) {
+                hfc.throttle_value = -pConfig->Stick100range;
+            }
+            else if (THROTTLE_LEVER_UP()) {
+                hfc.throttle_value = pConfig->Stick100range;
+            }
+//            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
         }
     }
     else {
