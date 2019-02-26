@@ -727,18 +727,20 @@ static void SetControlMode(void)
 
         char abort = 0;
 
-        // if we're flying
-        if (IN_THE_AIR()) {
+        // if we're flying, or taking off or landing
+        if (   IN_THE_AIR()
+            || (hfc.waypoint_type == WAYPOINT_TAKEOFF)
+            || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
-            // If the throttle lever is not UP, then send message to ground station
-            // otherwise, hand over control to RC controller if the RC sticks
-            // have been touched.
-            if (!THROTTLE_LEVER_UP()) {
+            // When in AUTO3D, if the throttle lever is not UP, and we are
+            // in the air, then STAY in AUTO 3D and send message to ground station.
+            if (!THROTTLE_LEVER_UP() && IN_THE_AIR()) {
 
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
                hfc.auto_throttle = true;
                hfc.full_auto = true;
             }
+            // Otherwise, pass control to RC RADIO if sticks move
             else {
                 if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS) {
                     abort = 1;
@@ -748,10 +750,16 @@ static void SetControlMode(void)
                 }
 
                 if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) {
-                    if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])  > AUTO_PROF_TERMINATE_THRS) {
+                    if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])   > AUTO_PROF_TERMINATE_THRS) {
                         abort = 1;
                     }
-                    if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])   > AUTO_PROF_TERMINATE_THRS) {
+                    if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])    > AUTO_PROF_TERMINATE_THRS) {
+                        abort = 1;
+                    }
+                    // If we are not in the air, then a change in the throttle
+                    // lever passes over control to the RC RADIO
+                    if (  (ABS(hfc.ctrl_initial[THRO]   - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
+                       && !IN_THE_AIR() ){
                         abort = 1;
                     }
                 }
