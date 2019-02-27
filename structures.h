@@ -901,6 +901,8 @@ typedef struct ConfigurationData {
 
     int AfsiEnabled;
 
+    float takeoff_height; // default takeoff height.
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 

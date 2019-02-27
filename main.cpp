@@ -5348,7 +5348,7 @@ void InitializeRuntimeData(void)
 
     hfc.orient_reset_counter = pConfig->orient_reset_counter;
 
-    hfc.takeoff_height = TAKEOFF_HEIGHT_DEFAULT;
+    hfc.takeoff_height = pConfig->takeoff_height;
 
     hfc.controlStatus = CONTROL_STATUS_PREFLIGHT;
 
