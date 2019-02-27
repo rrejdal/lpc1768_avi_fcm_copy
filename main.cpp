@@ -698,8 +698,7 @@ static void SetAgsControls(void)
                           | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
   }
   else if (hfc.playlist_status==PLAYLIST_PLAYING) {
-    hfc.controlStatus = CONTROL_STATUS_PAUSE
-                          | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+    hfc.controlStatus = CONTROL_STATUS_PAUSE | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
   }
   else if (hfc.playlist_status!=PLAYLIST_PLAYING) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
