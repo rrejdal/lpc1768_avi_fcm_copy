@@ -214,6 +214,7 @@ extern USBSerial   serial;
 #define CONTROL_STATUS_PREFLIGHT (1 << 6)
 
 #define IN_THE_AIR()  ((hfc.altitude_lidar > 0.5) ? 1 : 0)
-#define THROTTLE_LEVER_DOWN() ((xbus.valuesf[XBUS_THR_LV] < 0.95f*pConfig->Stick100range) ? 1 : 0)
+#define THROTTLE_LEVER_DOWN() ((xbus.valuesf[XBUS_THR_LV] < (-0.99f*pConfig->Stick100range)) ? 1 : 0)
+#define THROTTLE_LEVER_UP()   ((xbus.valuesf[XBUS_THR_LV] > ( 0.99f*pConfig->Stick100range)) ? 1 : 0)
 
 #endif

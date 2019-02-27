@@ -687,23 +687,13 @@ static void SetControlMode(void)
           telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
           if (IN_THE_AIR()) {
-            // Set Speed mode, zero speed.
-            hfc.control_mode[PITCH] = CTRL_MODE_SPEED;
-            hfc.control_mode[ROLL] = CTRL_MODE_SPEED;
-
-            hfc.ctrl_out[SPEED][PITCH] = 0;
-            hfc.ctrl_out[SPEED][ROLL]  = 0;
-
-            hfc.control_mode[COLL] = CTRL_MODE_POSITION;
-            hfc.ctrl_out[POS][COLL] = hfc.altitude;
-            hfc.auto_throttle = true;
+            telem.SetZeroSpeed();
           }
-          else {
-            hfc.auto_throttle = false;
+          // if you're on the ground and armed, and we just switched from
+          // RC Control to AUTO 3D, just disarm.
+          else if (!IN_THE_AIR() && hfc.throttle_armed) {
+              telem.Disarm();
           }
-
-          telem.SaveValuesForAbort();
-          return;
       }
 
       telem.SaveValuesForAbort();
@@ -721,43 +711,52 @@ static void SetControlMode(void)
 
         char abort = 0;
 
-        // if we're flying
-        if (IN_THE_AIR()) {
+        // if we're flying, or taking off or landing
+        if (   IN_THE_AIR()
+            || (hfc.waypoint_type == WAYPOINT_TAKEOFF)
+            || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
-            // If the throttle lever is not UP, then send message to ground station
-            // otherwise, hand over control to RC controller if the RC sticks
-            // have been touched.
-            if (THROTTLE_LEVER_DOWN()) {
+            // When in AUTO3D, if the throttle lever is not UP, and we are
+            // in the air, then STAY in AUTO 3D and send message to ground station.
+            if (!THROTTLE_LEVER_UP() && IN_THE_AIR()) {
 
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
                hfc.auto_throttle = true;
                hfc.full_auto = true;
             }
+            // Otherwise, pass control to RC RADIO if sticks move
             else {
                 if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS) {
                     abort = 1;
                 }
-                if (ABS(hfc.ctrl_initial[ROLL]  - xbus.valuesf[XBUS_ROLL])  > AUTO_PROF_TERMINATE_THRS) {
+                if (ABS(hfc.ctrl_initial[ROLL] - xbus.valuesf[XBUS_ROLL]) > AUTO_PROF_TERMINATE_THRS) {
                     abort = 1;
                 }
-
-                if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) {
-                    if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])  > AUTO_PROF_TERMINATE_THRS) {
-                        abort = 1;
-                    }
-                    if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])   > AUTO_PROF_TERMINATE_THRS) {
-                        abort = 1;
-                    }
+                if (ABS(hfc.ctrl_initial[COLL] - xbus.valuesf[XBUS_THRO]) > AUTO_PROF_TERMINATE_THRS) {
+                    abort = 1;
+                }
+                if (ABS(hfc.ctrl_initial[YAW] - xbus.valuesf[XBUS_YAW]) > AUTO_PROF_TERMINATE_THRS) {
+                    abort = 1;
+                }
+                // If we are not in the air, then a change in the throttle
+                // lever passes over control to the RC RADIO
+                if (  (ABS(hfc.ctrl_initial[THRO]   - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
+                   && !IN_THE_AIR() ){
+                    abort = 1;
                 }
             }
-
         }
         // check if we're on the ground
         else if (!IN_THE_AIR()) {
             // If the throttle lever is not DOWN, then send message to ground station
             // otherwise, hand over control to RC controller immediately.
           if (!THROTTLE_LEVER_DOWN()) {
-               telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
+
+               // if we are doing a take off, then don't send this dialog to AGS
+               // since the use was just asked to throttle up with the RC lever.
+               if (hfc.waypoint_type != WAYPOINT_TAKEOFF) {
+                 telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
+               }
                hfc.auto_throttle = true;
                hfc.full_auto = true;
             }
@@ -770,19 +769,12 @@ static void SetControlMode(void)
 
         
         if (abort)  {
+
+            telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+
             if (hfc.playlist_status==PLAYLIST_PLAYING) {
                 telem.PlaylistSaveState();
-                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc.playlist_status = PLAYLIST_PAUSED;
-            }
-            else {
-                if (hfc.playlist_status == PLAYLIST_PAUSED) {
-                    telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
-                    hfc.playlist_status = PLAYLIST_PAUSED;
-                }
-                else {
-                    telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
-                }
             }
         }
     }
@@ -797,6 +789,13 @@ static void SetControlMode(void)
     /* collective mode, only in RCradio or auto2D modes */
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_AUTO2D)
     {
+        if(    THROTTLE_LEVER_DOWN()
+            && hfc.throttle_armed
+            && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
+            && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
+          telem.Disarm();
+        }
+
         if (!pConfig->ctrl_mode_inhibit[COLL])
         {
             if (xbus.valuesf[XBUS_THR_SW]>0.5f)
@@ -1836,7 +1835,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     if ((hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D) && hfc->playlist_status==PLAYLIST_STOPPED)
     {
         if (retire_waypoint)
-            telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
         return;
     }
     
@@ -1941,7 +1940,6 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 if (hfc->message_timeout<=0)
                     telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
 
-                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 telem.Disarm();
                 hfc->waypoint_type  = WAYPOINT_NONE;
                 return;
@@ -2154,7 +2152,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
         {
             if ((hfc->time_ms-hfc->touchdown_time)>pConfig->landing_timeout)
             {
-                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+                telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
                 hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
                 hfc->waypoint_stage = FM_LANDING_LANDED;
                 if (hfc->playlist_status > PLAYLIST_STOPPED) {
@@ -2408,7 +2406,12 @@ static void ServoUpdate(float dT)
         }
 
         if (!hfc.auto_throttle) {
-            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+            if (THROTTLE_LEVER_DOWN()) {
+                hfc.throttle_value = -pConfig->Stick100range;
+            }
+            else if (THROTTLE_LEVER_UP()) {
+                hfc.throttle_value = pConfig->Stick100range;
+            }
         }
     }
     else {
