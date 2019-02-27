@@ -2045,6 +2045,10 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_LAND)
     {
+
+        PlaylistSaveState();
+        hfc->playlist_status = PLAYLIST_STOPPED;
+
         if (sub_cmd==LANDING_CURRENT) {
             CommandLanding(false, true);
         }
