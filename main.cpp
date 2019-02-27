@@ -689,11 +689,11 @@ static void SetControlMode(void)
           if (IN_THE_AIR()) {
             telem.SetZeroSpeed();
           }
-            // if you're on the ground and armed, and we just switched from
-            // RC Control to AUTO 3D, just disarm.
+          // if you're on the ground and armed, and we just switched from
+          // RC Control to AUTO 3D, just disarm.
           else if (!IN_THE_AIR() && hfc.throttle_armed) {
               telem.Disarm();
-            }
+          }
       }
 
       telem.SaveValuesForAbort();
@@ -778,8 +778,8 @@ static void SetControlMode(void)
 
             if (hfc.playlist_status==PLAYLIST_PLAYING) {
                 telem.PlaylistSaveState();
-                    hfc.playlist_status = PLAYLIST_PAUSED;
-                }
+                hfc.playlist_status = PLAYLIST_PAUSED;
+            }
         }
     }
 
@@ -1839,7 +1839,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     if ((hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D) && hfc->playlist_status==PLAYLIST_STOPPED)
     {
         if (retire_waypoint)
-            telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
         return;
     }
     
@@ -1944,7 +1944,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 if (hfc->message_timeout<=0)
                     telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
 
-                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+                telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
                 telem.Disarm();
                 hfc->waypoint_type  = WAYPOINT_NONE;
                 return;
@@ -2157,7 +2157,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
         {
             if ((hfc->time_ms-hfc->touchdown_time)>pConfig->landing_timeout)
             {
-                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+                telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
                 hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
                 hfc->waypoint_stage = FM_LANDING_LANDED;
                 if (hfc->playlist_status > PLAYLIST_STOPPED) {

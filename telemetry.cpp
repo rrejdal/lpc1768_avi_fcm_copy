@@ -1975,7 +1975,7 @@ void TelemSerial::ProcessCommands(void)
             if (hfc->playlist_status == PLAYLIST_PAUSED)
                 PlaylistRestoreState();
             else
-                SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+                SelectCtrlSource(CTRL_SOURCE_AUTO3D);
         }
     }
     else
@@ -2018,21 +2018,8 @@ void TelemSerial::ProcessCommands(void)
             if (hfc->playlist_status==PLAYLIST_PLAYING)
             {
                 PlaylistSaveState();
-                SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 hfc->playlist_status = PLAYLIST_PAUSED;
-                if (hfc->full_auto)
-                {
-                    /* set speed mode since RCradio switches do not work in full_auto */
-                    SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-                    SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
-                    SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-                    SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-                    /* zero horizontal speed, unlikely a slow acceleration */
-                    hfc->ctrl_out[SPEED][PITCH] = 0;
-                    hfc->ctrl_out[SPEED][ROLL]  = 0;
-                    hfc->ctrl_out[POS][COLL] = hfc->altitude;
-                }
-
+                SetZeroSpeed();
             }
         }
         else
@@ -2045,9 +2032,7 @@ void TelemSerial::ProcessCommands(void)
         if (sub_cmd==PLAYLIST_STOP)
         {
             hfc->playlist_status = PLAYLIST_STOPPED;
-
-            /* stop playlist and waypoint mode */
-            SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            SetZeroSpeed();
         }
     }
     else
