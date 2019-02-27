@@ -2159,6 +2159,25 @@ void TelemSerial::ProcessCommands(void)
     hfc->command.command = TELEM_CMD_NONE;
 }
 
+void TelemSerial::SetZeroSpeed(void)
+{
+    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+
+    /* set speed mode pitch and roll to speed mode
+     * yaw to angle mode, and collective to position hold*/
+    SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+    SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+    SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+    SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+
+    /* set zero speed in x-y, keep current heading,
+     * and hold current altitude */
+    hfc->ctrl_out[SPEED][PITCH] = 0;
+    hfc->ctrl_out[SPEED][ROLL]  = 0;
+    hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
+    hfc->ctrl_out[POS][COLL]    = hfc->altitude;
+}
+
 void TelemSerial::SetPositionHold(void)
 {
     double heading = hfc->IMUorient[YAW]*R2D;

@@ -687,29 +687,13 @@ static void SetControlMode(void)
           telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
           if (IN_THE_AIR()) {
-            // Set Speed mode, zero speed.
-            hfc.control_mode[PITCH] = CTRL_MODE_SPEED;
-            hfc.control_mode[ROLL] = CTRL_MODE_SPEED;
-
-            hfc.ctrl_out[SPEED][PITCH] = 0;
-            hfc.ctrl_out[SPEED][ROLL]  = 0;
-
-            hfc.control_mode[COLL] = CTRL_MODE_POSITION;
-            hfc.ctrl_out[POS][COLL] = hfc.altitude;
-            hfc.auto_throttle = true;
+            telem.SetZeroSpeed();
           }
-          else {
             // if you're on the ground and armed, and we just switched from
             // RC Control to AUTO 3D, just disarm.
-            if (hfc.throttle_armed) {
+          else if (!IN_THE_AIR() && hfc.throttle_armed) {
               telem.Disarm();
             }
-
-            hfc.auto_throttle = true;
-          }
-
-          telem.SaveValuesForAbort();
-          return;
       }
 
       telem.SaveValuesForAbort();
