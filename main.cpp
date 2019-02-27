@@ -677,8 +677,8 @@ static void SetAgsControls(void)
   else if (hfc.waypoint_type == WAYPOINT_LANDING) {
     hfc.controlStatus = CONTROL_STATUS_NONE;
   }
-  else if (hfc.waypoint_type == WAYPOINT_GOTO) {
-    hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_POINTFLY;
+  else if ((hfc.waypoint_type == WAYPOINT_GOTO) && (hfc.playlist_status != PLAYLIST_PLAYING)) {
+    hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
   }
   else if (hfc.playlist_status <= PLAYLIST_STOPPED) {
     if (IN_THE_AIR()) {
