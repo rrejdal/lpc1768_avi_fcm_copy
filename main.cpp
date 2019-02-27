@@ -682,6 +682,9 @@ static void SetAgsControls(void)
   }
   else if (hfc.playlist_status <= PLAYLIST_STOPPED) {
     if (IN_THE_AIR()) {
+
+      // if playlist exists!!! then set play
+
       hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
     }
     else {
