@@ -718,7 +718,7 @@ static void SetControlMode(void)
     if (hfc.full_auto) {
 
       // if not already in AUTO3D, then switch to AUTO3D
-      if ((hfc.prev_ctrl_source != CTRL_SOURCE_AUTO3D)) {
+      if ((hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)) {
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
