@@ -964,7 +964,7 @@ typedef struct
     unsigned char throttle_armed;    // enables throttle
     unsigned char waypoint_stage;    // current stage of takeoff/landing WP
 
-    unsigned char full_auto;			// switches between full auto control mode and RCradio assisted mode
+    unsigned char full_auto;			// NOT responding to changes in RC Radio inputs
     unsigned char auto_throttle;		// throttle is controlled internally in auto-throttle, as opposed to using RC throttle lever
     unsigned char ctrl_source;          // selects source of control - rc, joy, auto....
     unsigned char prev_ctrl_source;     // state of last ctrl source
