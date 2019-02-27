@@ -729,26 +729,22 @@ static void SetControlMode(void)
                 if (ABS(hfc.ctrl_initial[PITCH] - xbus.valuesf[XBUS_PITCH]) > AUTO_PROF_TERMINATE_THRS) {
                     abort = 1;
                 }
-                if (ABS(hfc.ctrl_initial[ROLL]  - xbus.valuesf[XBUS_ROLL])  > AUTO_PROF_TERMINATE_THRS) {
+                if (ABS(hfc.ctrl_initial[ROLL] - xbus.valuesf[XBUS_ROLL]) > AUTO_PROF_TERMINATE_THRS) {
                     abort = 1;
                 }
-
-                if (hfc.ctrl_source==CTRL_SOURCE_AUTO3D || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) {
-                    if (ABS(hfc.ctrl_initial[COLL]  - xbus.valuesf[XBUS_THRO])   > AUTO_PROF_TERMINATE_THRS) {
-                        abort = 1;
-                    }
-                    if (ABS(hfc.ctrl_initial[YAW]   - xbus.valuesf[XBUS_YAW])    > AUTO_PROF_TERMINATE_THRS) {
-                        abort = 1;
-                    }
-                    // If we are not in the air, then a change in the throttle
-                    // lever passes over control to the RC RADIO
-                    if (  (ABS(hfc.ctrl_initial[THRO]   - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
-                       && !IN_THE_AIR() ){
-                        abort = 1;
-                    }
+                if (ABS(hfc.ctrl_initial[COLL] - xbus.valuesf[XBUS_THRO]) > AUTO_PROF_TERMINATE_THRS) {
+                    abort = 1;
+                }
+                if (ABS(hfc.ctrl_initial[YAW] - xbus.valuesf[XBUS_YAW]) > AUTO_PROF_TERMINATE_THRS) {
+                    abort = 1;
+                }
+                // If we are not in the air, then a change in the throttle
+                // lever passes over control to the RC RADIO
+                if (  (ABS(hfc.ctrl_initial[THRO]   - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
+                   && !IN_THE_AIR() ){
+                    abort = 1;
                 }
             }
-
         }
         // check if we're on the ground
         else if (!IN_THE_AIR()) {
@@ -1944,7 +1940,6 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 if (hfc->message_timeout<=0)
                     telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
 
-                telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
                 telem.Disarm();
                 hfc->waypoint_type  = WAYPOINT_NONE;
                 return;
@@ -2417,7 +2412,6 @@ static void ServoUpdate(float dT)
             else if (THROTTLE_LEVER_UP()) {
                 hfc.throttle_value = pConfig->Stick100range;
             }
-//            hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
         }
     }
     else {
