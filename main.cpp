@@ -669,6 +669,43 @@ static void Display_CtrlMode(unsigned char line, unsigned char channel, const in
 }
 #endif
 
+static void SetAgsControls(void)
+{
+  if (hfc.waypoint_type == WAYPOINT_TAKEOFF) {
+    hfc.controlStatus = CONTROL_STATUS_LAND;
+  }
+  else if (hfc.waypoint_type == WAYPOINT_LANDING) {
+    hfc.controlStatus = CONTROL_STATUS_NONE;
+  }
+  else if (hfc.waypoint_type == WAYPOINT_GOTO) {
+    hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_POINTFLY;
+  }
+  else if (hfc.playlist_status <= PLAYLIST_STOPPED) {
+    if (IN_THE_AIR()) {
+      hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+    }
+    else {
+      if (hfc.throttle_armed) {
+        hfc.controlStatus =  CONTROL_STATUS_PREFLIGHT | CONTROL_STATUS_TAKEOFF;
+      }
+      else {
+        hfc.controlStatus =  CONTROL_STATUS_PREFLIGHT;
+      }
+    }
+  }
+  else if (hfc.playlist_status == PLAYLIST_PAUSED) {
+    hfc.controlStatus = CONTROL_STATUS_PLAY
+                          | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+  }
+  else if (hfc.playlist_status==PLAYLIST_PLAYING) {
+    hfc.controlStatus = CONTROL_STATUS_PAUSE
+                          | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+  }
+  else if (hfc.playlist_status!=PLAYLIST_PLAYING) {
+    hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+  }
+}
+
 static void SetControlMode(void)
 {
     if (xbus.valuesf[XBUS_CTRLMODE_SW] > 0.5f) {
@@ -835,6 +872,7 @@ static void SetControlMode(void)
       }
     }
 }
+
 
 /* CCPM 120deg mixer ==========================================================
 ** input: raw throttle, pitch and roll values
@@ -2141,8 +2179,6 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 hfc->waypoint_stage = FM_LANDING_TIMEOUT;
                 hfc->touchdown_time = hfc->time_ms;
 
-                hfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
-
                 // TODO::SP: Error Handling on Flash write error??
                 UpdateFlashConfig(hfc);
             }
@@ -2442,19 +2478,6 @@ static void ServoUpdate(float dT)
             else {
                 xbus_new_values = XBUS_NO_NEW_VALUES;
             }
-        }
-
-        // If we are in manual mode, then still need to drive the AGS 'button' states.
-        if (IN_THE_AIR()) {
-          hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
-        }
-        else {
-          if (hfc.throttle_armed) {
-            hfc.controlStatus =  CONTROL_STATUS_PREFLIGHT | CONTROL_STATUS_TAKEOFF;
-          }
-          else {
-            hfc.controlStatus =  CONTROL_STATUS_PREFLIGHT;
-          }
         }
     }
 
@@ -4409,6 +4432,8 @@ void do_control()
     else {
         ServoUpdate(dT);
     }
+
+    SetAgsControls();
 
     if (hfc.msg2ground_count && !telem.IsTypeInQ(TELEMETRY_MSG2GROUND)) {
         telem.Generate_Msg2Ground();
