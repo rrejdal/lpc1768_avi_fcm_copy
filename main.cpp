@@ -678,11 +678,11 @@ static void SetAgsControls(void)
       hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
     }
     else {
-      hfc.controlStatus = CONTROL_STATUS_NONE;
+      hfc.controlStatus = CONTROL_STATUS_LAND;
     }
   }
   else if (hfc.waypoint_type == WAYPOINT_LANDING) {
-    if ((hfc.waypoint_stage == FM_LANDING_LOW_ALT) || (hfc.waypoint_stage == FM_LANDING_HIGH_ALT)) {
+    if (hfc.waypoint_stage >= FM_LANDING_HIGH_ALT) {
           // When landing All AGS controls are disabled, once we get to the landing waypoint
           hfc.controlStatus = CONTROL_STATUS_NONE;
     }
@@ -2211,7 +2211,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                   hfc->playlist_status = PLAYLIST_STOPPED;
                 }
 
-            }
+                }
         }
     }
 }
