@@ -672,20 +672,34 @@ static void Display_CtrlMode(unsigned char line, unsigned char channel, const in
 static void SetAgsControls(void)
 {
   if (hfc.waypoint_type == WAYPOINT_TAKEOFF) {
-    hfc.controlStatus = CONTROL_STATUS_LAND;
+
+    if (hfc.waypoint_stage == FM_TAKEOFF_COMPLETE) {
+      // Land, home, point and fly active once we have reached Takeoff.
+      hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+    }
+    else {
+      hfc.controlStatus = CONTROL_STATUS_NONE;
+    }
   }
   else if (hfc.waypoint_type == WAYPOINT_LANDING) {
-    hfc.controlStatus = CONTROL_STATUS_NONE;
+    if ((hfc.waypoint_stage == FM_LANDING_LOW_ALT) || (hfc.waypoint_stage == FM_LANDING_HIGH_ALT)) {
+          // When landing All AGS controls are disabled, once we get to the landing waypoint
+          hfc.controlStatus = CONTROL_STATUS_NONE;
+    }
   }
   else if ((hfc.waypoint_type == WAYPOINT_GOTO) && (hfc.playlist_status != PLAYLIST_PLAYING)) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+
+    if (hfc.playlist_status == PLAYLIST_PAUSED) {
+      hfc.controlStatus |= CONTROL_STATUS_PLAY;
+    }
   }
   else if (hfc.playlist_status <= PLAYLIST_STOPPED) {
     if (IN_THE_AIR()) {
-
-      // if playlist exists!!! then set play
-
       hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+      if ((hfc.playlist_items > 0) && (hfc.playlist_position < hfc.playlist_items)) {
+        hfc.controlStatus |= CONTROL_STATUS_PLAY;
+      }
     }
     else {
       if (hfc.throttle_armed) {
@@ -697,13 +711,12 @@ static void SetAgsControls(void)
     }
   }
   else if (hfc.playlist_status == PLAYLIST_PAUSED) {
-    hfc.controlStatus = CONTROL_STATUS_PLAY
-                          | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+    hfc.controlStatus = CONTROL_STATUS_PLAY | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
   }
-  else if (hfc.playlist_status==PLAYLIST_PLAYING) {
+  else if (hfc.playlist_status == PLAYLIST_PLAYING) {
     hfc.controlStatus = CONTROL_STATUS_PAUSE | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
   }
-  else if (hfc.playlist_status!=PLAYLIST_PLAYING) {
+  else if (hfc.playlist_status != PLAYLIST_PLAYING) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
   }
 }
