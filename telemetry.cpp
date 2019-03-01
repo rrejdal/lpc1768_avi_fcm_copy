@@ -852,12 +852,16 @@ void TelemSerial::SelectCtrlSource(byte source)
         SaveValuesForAbort();
     }
     
+    // Update prev_ctrl_source if our source has changed.
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
-    if ( (source==CTRL_SOURCE_RCRADIO) || (source==CTRL_SOURCE_JOYSTICK) || (source==CTRL_SOURCE_AFSI)) {
+    if (hfc->prev_ctrl_source != source) {
+      hfc->prev_ctrl_source = source;
     	ApplyDefaults();
+
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
 
         if (hfc->playlist_status == PLAYLIST_PLAYING) {
+            PlaylistSaveState();
             hfc->playlist_status = PLAYLIST_PAUSED;
         }
         else if (hfc->playlist_status == PLAYLIST_STOPPED) {
@@ -878,12 +882,8 @@ void TelemSerial::SelectCtrlSource(byte source)
     }
 
     hfc->telem_ctrl_period = max(hfc->telem_ctrl_period, pConfig->telem_min_ctrl_period*1000);
-    hfc->ctrl_source = source;
 
-    // Update prev_ctrl_source if our source has changed.
-    if (hfc->prev_ctrl_source != source) {
-      hfc->prev_ctrl_source = source;
-    }
+    hfc->ctrl_source = source;
 }
 
 void TelemSerial::CalcDynYawRate(void)

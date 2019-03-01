@@ -821,13 +821,7 @@ static void SetControlMode(void)
 
         
         if (abort)  {
-
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
-
-            if (hfc.playlist_status==PLAYLIST_PLAYING) {
-                telem.PlaylistSaveState();
-                hfc.playlist_status = PLAYLIST_PAUSED;
-            }
         }
     }
 
