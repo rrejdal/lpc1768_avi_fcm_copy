@@ -944,7 +944,6 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
         hfc->waypoint_pos_prev[0] = hfc->positionLatLon[0];
         hfc->waypoint_pos_prev[1] = hfc->positionLatLon[1];
         hfc->waypoint_pos_prev[2] = hfc->altitude;
-        hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
 //        prev_STcourse = hfc->IMUorient[YAW]*R2D;  // use current heading
     }
     
@@ -1659,11 +1658,6 @@ void TelemSerial::CommandTakeoffArm(void)
         hfc->waypoint_stage  = FM_TAKEOFF_ARM;
 
     hfc->message_timeout = 60000000;    // 60 seconds
-
-    hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
-    if (hfc->playlist_status <= PLAYLIST_STOPPED) {
-        hfc->controlStatus |= CONTROL_STATUS_POINTFLY;
-    }
 }
 
 /* vspeed needs to be negative */
@@ -1734,8 +1728,6 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
         hfc->waypoint_type  = WAYPOINT_LANDING;
         hfc->waypoint_stage = FM_LANDING_LOW_ALT;
     }
-
-    hfc->controlStatus = CONTROL_STATUS_NONE;
 }
 
 void TelemSerial::Disarm(void)
@@ -1747,7 +1739,6 @@ void TelemSerial::Disarm(void)
 	hfc->playlist_status = PLAYLIST_NONE;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
-	hfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
 
 	//xbus.InitXbusValues();
 
@@ -1779,9 +1770,6 @@ void TelemSerial::PlaylistSaveState(void)
     hfc->waypoint_pos_resume[1] = hfc->waypoint_pos[1];
     hfc->waypoint_pos_resume[2] = hfc->waypoint_pos[2];
     hfc->waypoint_retire_resume = hfc->waypoint_retire;
-
-    hfc->controlStatus = CONTROL_STATUS_PLAY
-                          | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
 }
 
 void TelemSerial::PlaylistRestoreState(void)
@@ -1864,7 +1852,6 @@ void TelemSerial::Arm(void)
     hfc->stats.can_servo_tx_errors = 0;
     hfc->stats.can_power_tx_errors = 0;
 
-    hfc->controlStatus = CONTROL_STATUS_TAKEOFF | CONTROL_STATUS_PREFLIGHT;
     SetHome();
 
 //        GyroCalibDynamic(hfc);
@@ -1985,7 +1972,6 @@ void TelemSerial::ProcessCommands(void)
     {
         ApplyDefaults();
         SetWaypoint(hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0); // do not change altitude or perhaps use a preset value for this
-        hfc->controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_POINTFLY;
     }
     else
     if (cmd==TELEM_CMD_PLAYLIST_CONTROL)
@@ -2047,6 +2033,10 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_LAND)
     {
+
+        PlaylistSaveState();
+        hfc->playlist_status = PLAYLIST_STOPPED;
+
         if (sub_cmd==LANDING_CURRENT) {
             CommandLanding(false, true);
         }
