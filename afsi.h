@@ -294,7 +294,7 @@ private:
     void AddInputByte(uint8_t ch);
     int  ProcessAsfiCtrlCommands(AFSI_MSG *msg);
     int  ProcessAsfiStatusCommands(AFSI_MSG *msg);
-    void EnableAFSI(void);
+    void EnableAFSI(uint8_t cmd);
     void ResetRxMsgData(void);
 
     void GeneratePwrStatus(void);

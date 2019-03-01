@@ -292,13 +292,14 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
     return 1;
 }
 
-void AFSI_Serial::EnableAFSI(void) {
+void AFSI_Serial::EnableAFSI(uint8_t cmd) {
 
 //    ctrl_out[AFSI_SPEED_FWD]   = 0;
 //    ctrl_out[AFSI_SPEED_RIGHT] = 0;
 //    ctrl_out[AFSI_ALTITUDE]    = 0;
 //    ctrl_out[AFSI_HEADING]     = 0;
 
+    if ((cmd != AFSI_CTRL_ID_ARM) && (cmd != AFSI_CTRL_ID_DISARM) && (cmd != AFSI_CTRL_ID_TAKEOFF) ) {
     /* altitude hold and yaw angle */
     SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
     SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
@@ -306,31 +307,20 @@ void AFSI_Serial::EnableAFSI(void) {
     SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
     /* set target altitude and heading to the current one */
     hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
+    }
 
-    if (hfc.playlist_status==PLAYLIST_PLAYING)
-    {
+    if (hfc.playlist_status==PLAYLIST_PLAYING) {
         telem->PlaylistSaveState();
-        telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
         hfc.playlist_status = PLAYLIST_PAUSED;
-    }
-    else
-    if (hfc.playlist_status==PLAYLIST_PAUSED)
-    {
-        telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
-        hfc.playlist_status = PLAYLIST_PAUSED;
-    }
-    else {
-        telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
     }
 
+    telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
     return;
 }
 
 int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 {
     float lat, lon, speed, alt, heading = {0.0f};
-
-    EnableAFSI();
 
     if (rx_payload_len != ctrl_msg_lengths[msg->hdr.id]) {
         afsi_msg_len_errors++;
@@ -339,6 +329,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         debug_print("       Pay load length     = %d\r\n",rx_payload_len);
         return 0;
     }
+
+    EnableAFSI(msg->hdr.id);
 
     switch (msg->hdr.id){
         case AFSI_CTRL_ID_ARM:
