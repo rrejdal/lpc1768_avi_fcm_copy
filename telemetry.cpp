@@ -327,6 +327,8 @@ void TelemSerial::AddInputByte(char ch)
                 for (i=0; i<msg->lines; i++)
                     hfc->playlist[hfc->playlist_items++] = msg->items[i];
             }
+            hfc->playlist_status=PLAYLIST_STOPPED;
+
             /* this might be produced before the previous one was transmitted !!!!!!! */
             hfc->tcpip_confirm  = true;
             hfc->tcpip_org_type = hdr->type;
@@ -882,8 +884,6 @@ void TelemSerial::SelectCtrlSource(byte source)
     if (hfc->prev_ctrl_source != source) {
       hfc->prev_ctrl_source = source;
     }
-
-    hfc->waypoint_type = WAYPOINT_NONE;
 }
 
 void TelemSerial::CalcDynYawRate(void)
@@ -1650,11 +1650,13 @@ void TelemSerial::CommandTakeoffArm(void)
     }
     
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
-    hfc->waypoint_type   = WAYPOINT_TAKEOFF;
+    hfc->waypoint_type = WAYPOINT_TAKEOFF;
+
     if (hfc->full_auto)
-        hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
+        hfc->waypoint_stage  = FM_TAKEOFF_NONE;
     else
         hfc->waypoint_stage  = FM_TAKEOFF_ARM;
+
     hfc->message_timeout = 60000000;    // 60 seconds
 }
 
@@ -2071,13 +2073,20 @@ void TelemSerial::ProcessCommands(void)
     }
     else if (cmd==TELEM_CMD_MSG)
     {
-        if (sub_cmd==CMD_MSG_LANDING_ADD1MIN)
-        {
+        if (sub_cmd==CMD_MSG_LANDING_ADD1MIN) {
             if (hfc->message_timeout<60000000)
                 hfc->message_timeout += 60000000;   // add 60sec, only once to prevent multiple messages to keep incrementing, until TCPIP works
         }
-        else
-            hfc->message_from_ground = sub_cmd;
+        else if (sub_cmd == CMD_MSG_TAKEOFF_OK) {
+          if (hfc->full_auto) {
+                  hfc->waypoint_stage = FM_TAKEOFF_AUTO_SPOOL;
+                  hfc->message_timeout =60000000;    // 60 seconds
+                  hfc->message_from_ground = sub_cmd;
+          }
+        }
+        else {
+          hfc->message_from_ground = sub_cmd;
+        }
     }
     else if (cmd==TELEM_CMD_KILLSWITCH)
     {
