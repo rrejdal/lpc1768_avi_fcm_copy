@@ -294,11 +294,6 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(uint8_t cmd) {
 
-//    ctrl_out[AFSI_SPEED_FWD]   = 0;
-//    ctrl_out[AFSI_SPEED_RIGHT] = 0;
-//    ctrl_out[AFSI_ALTITUDE]    = 0;
-//    ctrl_out[AFSI_HEADING]     = 0;
-
     if ((cmd != AFSI_CTRL_ID_ARM) && (cmd != AFSI_CTRL_ID_DISARM) && (cmd != AFSI_CTRL_ID_TAKEOFF) ) {
       /* altitude hold and yaw angle */
       SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
