@@ -982,7 +982,7 @@ typedef struct
     unsigned char joy_PRmode;
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio
     
-    int afsi_enable;
+    int afsi_takeoff_enable;  // only used as a flag to make sure TAKEOFF happens without interruption
 
     /* playlist stuff */
     unsigned int playlist_items;

@@ -300,18 +300,18 @@ void AFSI_Serial::EnableAFSI(uint8_t cmd) {
 //    ctrl_out[AFSI_HEADING]     = 0;
 
     if ((cmd != AFSI_CTRL_ID_ARM) && (cmd != AFSI_CTRL_ID_DISARM) && (cmd != AFSI_CTRL_ID_TAKEOFF) ) {
-    /* altitude hold and yaw angle */
-    SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-    SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
-    SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-    SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-    /* set target altitude and heading to the current one */
-    hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
+      /* altitude hold and yaw angle */
+      SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+      SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+      SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+      SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+      /* set target altitude and heading to the current one */
+      hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
     }
 
     if (hfc.playlist_status==PLAYLIST_PLAYING) {
-        telem->PlaylistSaveState();
-        hfc.playlist_status = PLAYLIST_PAUSED;
+      telem->PlaylistSaveState();
+      hfc.playlist_status = PLAYLIST_PAUSED;
     }
 
     telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
@@ -349,7 +349,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
                 hfc.takeoff_height = alt;
-                hfc.afsi_enable = 1;
+                hfc.afsi_takeoff_enable = 1;
                 telem->CommandTakeoffArm();
             }
             else {
