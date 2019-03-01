@@ -1856,15 +1856,6 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
             }
         }
         else
-        if (item->data[0]==WAYPOINT_LANDING)
-        {
-            if (hfc->waypoint_stage == FM_LANDING_LANDED)
-            {
-                hfc->waypoint_type  = WAYPOINT_NONE;
-                hfc->playlist_position++;
-            }
-        }
-        else
         {
             /* if WP is blocking, wait for the retire flag */
             if (!item->data[1] || retire_waypoint)  // WP completion flag
@@ -1912,7 +1903,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     }
 }
 
-/* this function runs after the previous control modes are saved, thus PIDs will get aqutomatically re-initialized on mode change */
+/* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc)
 {
     //GpsData gps_data = gps.GetGpsData();
@@ -2127,39 +2118,19 @@ static void ProcessFlightMode(FlightControlData *hfc)
         else
         if (hfc->waypoint_stage == FM_LANDING_TOUCHDOWN)
         {
-            /* heli is on the ground in rate mode, wait till coll is at zero angle and then shut down */
-            /* for fixed prop, kill throttle once close to the ground */
-            if (/*(pConfig->throttle_ctrl==PROP_FIXED_PITCH && hfc->altitude_lidar < 0.15f)
-            || (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH &&*/ hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
+            /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
+            if (hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
             {
                 SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
                 hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
                 hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
                 hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
-                /* cutoff motor */
-                hfc->throttle_armed = 0;
-                hfc->waypoint_stage = FM_LANDING_TIMEOUT;
-                hfc->touchdown_time = hfc->time_ms;
 
-                hfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
-
-                // TODO::SP: Error Handling on Flash write error??
-                UpdateFlashConfig(hfc);
-            }
-        }
-        else
-        if (hfc->waypoint_stage == FM_LANDING_TIMEOUT)
-        {
-            if ((hfc->time_ms-hfc->touchdown_time)>pConfig->landing_timeout)
-            {
-                telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
-                hfc->waypoint_type  = WAYPOINT_LANDING;   // set wp back to landing so playlist can detect completion
-                hfc->waypoint_stage = FM_LANDING_LANDED;
-                if (hfc->playlist_status > PLAYLIST_STOPPED) {
+                if (hfc->playlist_status == PLAYLIST_PLAYING) {
                   hfc->playlist_position++;
                   hfc->playlist_status = PLAYLIST_STOPPED;
                 }
-
+                telem.Disarm();
             }
         }
     }
