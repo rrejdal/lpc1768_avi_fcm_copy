@@ -1636,7 +1636,7 @@ void TelemSerial::CommandTakeoffArm(void)
     // it is getting reset by select source !!!!!!!!!!!!!!!!!!!!!!!!!!
     hfc->playlist_status = status;
 
-    if (!hfc->afsi_enable) {
+    if (!hfc->afsi_takeoff_enable) {
         /* send message that to prepare radio and spool up */
         if (hfc->full_auto ) {
             SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
@@ -1652,10 +1652,17 @@ void TelemSerial::CommandTakeoffArm(void)
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
     hfc->waypoint_type = WAYPOINT_TAKEOFF;
 
-    if (hfc->full_auto)
+    if (hfc->afsi_takeoff_enable) {
+      hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
+    }
+    else {
+      if (hfc->full_auto) {
         hfc->waypoint_stage  = FM_TAKEOFF_NONE;
-    else
+      }
+      else {
         hfc->waypoint_stage  = FM_TAKEOFF_ARM;
+      }
+    }
 
     hfc->message_timeout = 60000000;    // 60 seconds
 }

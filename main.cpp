@@ -1970,9 +1970,9 @@ static void ProcessFlightMode(FlightControlData *hfc)
         if (   (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
             && (    (hfc->message_from_ground>0)
                  || (hfc->message_timeout<=0)
-                 ||  hfc->afsi_enable            )              )
+                 ||  hfc->afsi_takeoff_enable            )              )
         {
-            if (hfc->afsi_enable) {
+            if (hfc->afsi_takeoff_enable) {
                 hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
             }
 
@@ -1993,7 +1993,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
             hfc->auto_throttle = true;
             hfc->throttle_value = pConfig->Stick100range;
 
-            if (!hfc->afsi_enable) {
+            if (!hfc->afsi_takeoff_enable) {
                 telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
             }
 
@@ -2005,11 +2005,11 @@ static void ProcessFlightMode(FlightControlData *hfc)
                    && (    (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
                         || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
                         || (hfc->message_timeout<=0)
-                        || hfc->afsi_enable  )                                   )
+                        || hfc->afsi_takeoff_enable  )                                   )
         {
-            if (hfc->afsi_enable) {
+            if (hfc->afsi_takeoff_enable) {
                 hfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
-                hfc->afsi_enable = 0;
+                hfc->afsi_takeoff_enable = 0;
             }
 
             hfc->inhibitRCswitches = false;
