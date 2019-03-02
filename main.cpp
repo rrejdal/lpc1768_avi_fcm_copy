@@ -681,6 +681,9 @@ static void SetAgsControls(void)
       hfc.controlStatus = CONTROL_STATUS_LAND;
     }
   }
+  else if ((hfc.waypoint_type == WAYPOINT_LANDING) && (hfc.waypoint_stage >= FM_LANDING_HIGH_ALT)) {
+      hfc.controlStatus = CONTROL_STATUS_NONE;
+  }
   else if ((hfc.waypoint_type == WAYPOINT_GOTO) && (hfc.playlist_status != PLAYLIST_PLAYING)) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
 
@@ -705,15 +708,10 @@ static void SetAgsControls(void)
     }
   }
   else if (hfc.playlist_status == PLAYLIST_PAUSED) {
-    hfc.controlStatus = CONTROL_STATUS_PLAY | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+      hfc.controlStatus = CONTROL_STATUS_PLAY | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
   }
   else if (hfc.playlist_status == PLAYLIST_PLAYING) {
-    if ((hfc.waypoint_type == WAYPOINT_LANDING) && (hfc.waypoint_stage >= FM_LANDING_HIGH_ALT)) {
-      hfc.controlStatus = CONTROL_STATUS_NONE;
-    }
-    else {
       hfc.controlStatus = CONTROL_STATUS_PAUSE | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
-    }
   }
   else if (hfc.playlist_status != PLAYLIST_PLAYING) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
