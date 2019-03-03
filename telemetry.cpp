@@ -1685,8 +1685,8 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
     if (!final && hfc->altitude_lidar>3)
     {
         /* check lidar and send a warning message if no ground lock is being received from lidar */
-        if (hfc->altitude_lidar_raw>35)
-            SendMsgToGround(MSG2GROUND_LIDAR_NOGROUND);
+        //if (hfc->altitude_lidar_raw>35)
+        //    SendMsgToGround(MSG2GROUND_LIDAR_NOGROUND);
 
         /* set 2D waypoint at the current location */
         if (setWP) {
@@ -2040,34 +2040,37 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_LAND)
     {
+      // For a landing request, we Stop any active mission. ?? maybe pause?
+      PlaylistSaveState();
+      hfc->playlist_status = PLAYLIST_STOPPED;
 
-        PlaylistSaveState();
-        hfc->playlist_status = PLAYLIST_STOPPED;
-
-        if (sub_cmd==LANDING_CURRENT) {
-            CommandLanding(false, true);
-        }
-        else if (sub_cmd==LANDING_WAYPOINT)
+      // AGS only ever requests a LANDING_SITE landing,
+      if (sub_cmd == LANDING_SITE)
+      {
+        int site = FindNearestLandingSite();
+        if (site >= 0)
         {
-            float lat = *((float*)&hfc->command.data[4]);   // lat as float
-            float lon = *((float*)&hfc->command.data[8]);   // lon as float
-            CommandLandingWP(lat, lon, 10);
-            hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
+          float alt_ground = hfc->landing_sites[site].altitude - hfc->altitude_base + hfc->landing_sites[site].above_ground ;
+          CommandLandingWP(hfc->landing_sites[site].lat, hfc->landing_sites[site].lon, alt_ground);
+          hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
         }
-        else if (sub_cmd==LANDING_SITE)
+        else
         {
-            int site = FindNearestLandingSite();
-//          debug_print("Landing at %d\r\n", site);
-            if (site>=0)
-            {
-                float alt_ground = hfc->landing_sites[site].altitude - hfc->altitude_base + hfc->landing_sites[site].above_ground ;
-                CommandLandingWP(hfc->landing_sites[site].lat, hfc->landing_sites[site].lon, alt_ground);
-                hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
-            }
-            else {
-                CommandLanding(false, true);
-            }
+          CommandLanding(false, true);
         }
+      }
+      else if (sub_cmd == LANDING_CURRENT)
+      {
+        CommandLanding(false, true);
+      }
+      else if (sub_cmd == LANDING_WAYPOINT)
+      {
+        float lat = *((float*)&hfc->command.data[4]);   // lat as float
+        float lon = *((float*)&hfc->command.data[8]);   // lon as float
+        float WPheight = hfc->command.data[0]; // first byte give us the height to nearest meter.
+        CommandLandingWP(lat, lon, WPheight);
+        hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
+      }
     }
     else
     if (cmd==TELEM_CMD_POS_HOLD)
