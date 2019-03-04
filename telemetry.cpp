@@ -1807,6 +1807,9 @@ void TelemSerial::PlaylistRestoreState(void)
     SaveValuesForAbort();
     hfc->playlist_status = PLAYLIST_PLAYING;
     hfc->delay_counter = 0;
+    // Force this to a value outside of waypoint retire, to ensure we don't process
+    // our position is at the retore waypoint, right away.
+    hfc->gps_to_waypoint[0] = 99;
 
 }
 
@@ -2034,7 +2037,9 @@ void TelemSerial::ProcessCommands(void)
     if (cmd==TELEM_CMD_TAKEOFF)
     {
         if (sub_cmd==TAKEOFF_ARM) {
-            CommandTakeoffArm();
+          // When takeoff command, we use the FCM configured takeoff height
+          hfc->takeoff_height = pConfig->takeoff_height;
+          CommandTakeoffArm();
         }
     }
     else
@@ -2056,7 +2061,9 @@ void TelemSerial::ProcessCommands(void)
         }
         else
         {
-          CommandLanding(false, true);
+          // To make landing states always ask for clear to land, set a landingWP at current location.
+          // We should really set zerospeed, wait for that and then start landing sequence. This is a TODO:
+          CommandLandingWP(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999);
         }
       }
       else if (sub_cmd == LANDING_CURRENT)

@@ -681,11 +681,8 @@ static void SetAgsControls(void)
       hfc.controlStatus = CONTROL_STATUS_LAND;
     }
   }
-  else if (hfc.waypoint_type == WAYPOINT_LANDING) {
-    if (hfc.waypoint_stage >= FM_LANDING_HIGH_ALT) {
-          // When landing All AGS controls are disabled, once we get to the landing waypoint
-          hfc.controlStatus = CONTROL_STATUS_NONE;
-    }
+  else if ((hfc.waypoint_type == WAYPOINT_LANDING) && (hfc.waypoint_stage >= FM_LANDING_HIGH_ALT)) {
+      hfc.controlStatus = CONTROL_STATUS_NONE;
   }
   else if ((hfc.waypoint_type == WAYPOINT_GOTO) && (hfc.playlist_status != PLAYLIST_PLAYING)) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
@@ -711,10 +708,10 @@ static void SetAgsControls(void)
     }
   }
   else if (hfc.playlist_status == PLAYLIST_PAUSED) {
-    hfc.controlStatus = CONTROL_STATUS_PLAY | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+      hfc.controlStatus = CONTROL_STATUS_PLAY | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
   }
   else if (hfc.playlist_status == PLAYLIST_PLAYING) {
-    hfc.controlStatus = CONTROL_STATUS_PAUSE | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
+      hfc.controlStatus = CONTROL_STATUS_PAUSE | CONTROL_STATUS_LAND | CONTROL_STATUS_HOME;
   }
   else if (hfc.playlist_status != PLAYLIST_PLAYING) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
@@ -1726,21 +1723,9 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             /* initialize it only for the first time */
             if (hfc->waypoint_type != WAYPOINT_TAKEOFF)
             {
-                // TODO::??: check if in the air, if so, do NOT TAKE OFF!
-                telem.CommandTakeoffArm();
-//              if( hfc->fixedThrottleMode == THROTTLE_DEAD ) // check to make sure motors are off
-//              {
-//                  Command_TakeoffArm(hfc);
-//              }
-//              else // check if you are flying and high enough in the air (1m)
-//              if(hfc->fixedThrottleMode == THROTTLE_FLY && hfc->altitude_lidar >= 1 )
-//              {
-//                  hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
-//              }
-//              else // do not take off if motors are on and you are not high enough
-//              {
-//                  hfc->waypoint_stage = FM_TAKEOFF_NONE;
-//              }
+              // For Mission takeoff, Set the desired takeoff height
+              hfc->takeoff_height = item->data[1];
+              telem.CommandTakeoffArm();
             }
         }
         else
@@ -2097,7 +2082,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_SPEED)
         {
-            /* once in horizontal speed mode, watch the altitude and switch to position and altitude hold */
+            /* once in horizontal speed mode, watch the altitude and switch to position and altitude hold at 0.3meters */
             if (hfc->altitude > (hfc->home_pos[2]+0.3f))
             {
                 hfc->waypoint_pos[0] = hfc->home_pos[0];
@@ -2111,8 +2096,10 @@ static void ProcessFlightMode(FlightControlData *hfc)
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_HOLD)
         {
-            if (hfc->altitude>(hfc->home_pos[2] + TAKEOFF_HEIGHT_MIN))
-                hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
+          // Once our altitude reaches the requested waypoint altitude, Takeoff is complete
+          if (hfc->altitude >= hfc->waypoint_pos[2]) {
+            hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
+          }
         }
     }
     else
