@@ -1100,6 +1100,8 @@ typedef struct
     float distance2WP_min;              // minimum distance so far to the next waypoint
 
     float takeoff_height;               // height to achieve during takeoff
+    float landingWPHeight;              // height to achieve when reaching a landing WP.
+
 
     float heading;
     float heading_offset;

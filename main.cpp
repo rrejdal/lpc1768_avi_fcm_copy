@@ -1731,11 +1731,12 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
         else
         if (item->data[0]==WAYPOINT_LANDING)
         {
+          if (hfc->waypoint_type != WAYPOINT_LANDING)
+          {
             /* initialize it only for the first time */
-            if (hfc->waypoint_type != WAYPOINT_LANDING) {
-                telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, 10);
-//                debug_print("%f %f\r\n", item->value1.i/10000000.0f, item->value2.i/10000000.0f);
-            }
+            hfc->landingWPHeight = item->data[1];
+            telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc->landingWPHeight);
+          }
         }
     }
     else
