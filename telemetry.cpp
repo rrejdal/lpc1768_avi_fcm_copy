@@ -1807,6 +1807,9 @@ void TelemSerial::PlaylistRestoreState(void)
     SaveValuesForAbort();
     hfc->playlist_status = PLAYLIST_PLAYING;
     hfc->delay_counter = 0;
+    // Force this to a value outside of waypoint retire, to ensure we don't process
+    // our position is at the retore waypoint, right away.
+    hfc->gps_to_waypoint[0] = 99;
 
 }
 
