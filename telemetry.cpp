@@ -2067,7 +2067,9 @@ void TelemSerial::ProcessCommands(void)
                 hfc->pid_Dist2T.COmax = pConfig->landing_appr_speed;
             }
             else {
-                CommandLanding(false, true);
+              // To make landing states always ask for clear to land, set a landingWP at current location.
+              // We should really set zerospeed, wait for that and then start landing sequence. This is a TODO:
+              CommandLandingWP(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999);
             }
         }
     }
