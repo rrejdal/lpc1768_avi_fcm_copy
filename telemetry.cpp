@@ -2034,7 +2034,9 @@ void TelemSerial::ProcessCommands(void)
     if (cmd==TELEM_CMD_TAKEOFF)
     {
         if (sub_cmd==TAKEOFF_ARM) {
-            CommandTakeoffArm();
+          // When takeoff command, we use the FCM configured takeoff height
+          hfc->takeoff_height = pConfig->takeoff_height;
+          CommandTakeoffArm();
         }
     }
     else
