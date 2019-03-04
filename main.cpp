@@ -1684,58 +1684,65 @@ static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax)
     *pvalue = value;
 }
 
-static void Playlist_ProcessTop(FlightControlData *hfc)
+static void Playlist_ProcessTop()
 {
     T_PlaylistItem *item;
     
     /* process only active playlist */
-    if (hfc->playlist_status!=PLAYLIST_PLAYING)
+    if (hfc.playlist_status!=PLAYLIST_PLAYING)
         return;
         
     /* check for end of the playlist */
-    if (hfc->playlist_position>=hfc->playlist_items)
+    if (hfc.playlist_position>=hfc.playlist_items)
     {
         /* stop playlist and waypoint mode - put into position hold */
-        hfc->playlist_status = PLAYLIST_STOPPED;
+        hfc.playlist_status = PLAYLIST_STOPPED;
         /* if in flight, put a waypoint at the current position, else do nothing */
-        if (hfc->throttle_armed)
+        if (hfc.throttle_armed)
             telem.SetPositionHold();
         return;
     }
 
     /* process current playlist item */
     /* only WP and PARAM are processed here, the rest is processed by Playlist_ProcessBottom() and it increments the playlist pointer */
-    item = &hfc->playlist[hfc->playlist_position];
+    item = &hfc.playlist[hfc.playlist_position];
     
     if (item->type==PL_ITEM_WP)
     {
         if (item->data[0]==WAYPOINT_GOTO || item->data[0]==WAYPOINT_FLYTHROUGH)
         {
-            if (!hfc->pl_wp_initialized)
+            if (!hfc.pl_wp_initialized)
             {
-                telem.SetWaypoint(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc->altitude_WPnext, item->data[0], item->data[1]);
-                hfc->pl_wp_initialized = true;
+                telem.SetWaypoint(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc.altitude_WPnext, item->data[0], item->data[1]);
+                hfc.pl_wp_initialized = true;
             }
         }
         else
         if (item->data[0]==WAYPOINT_TAKEOFF)
         {
             /* initialize it only for the first time */
-            if (hfc->waypoint_type != WAYPOINT_TAKEOFF)
+            if (hfc.waypoint_type != WAYPOINT_TAKEOFF)
             {
-              // For Mission takeoff, Set the desired takeoff height
-              hfc->takeoff_height = item->data[1];
-              telem.CommandTakeoffArm();
+              if (IN_THE_AIR()) {
+                hfc.playlist_status = PLAYLIST_STOPPED;
+                telem.SetZeroSpeed();
+              }
+              else {
+                // For Mission takeoff, Set the desired takeoff height
+                hfc.takeoff_height = item->data[1];
+                telem.CommandTakeoffArm();
+
+              }
             }
         }
         else
         if (item->data[0]==WAYPOINT_LANDING)
         {
-          if (hfc->waypoint_type != WAYPOINT_LANDING)
+          if (hfc.waypoint_type != WAYPOINT_LANDING)
           {
             /* initialize it only for the first time */
-            hfc->landingWPHeight = item->data[1];
-            telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc->landingWPHeight);
+            hfc.landingWPHeight = item->data[1];
+            telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc.landingWPHeight);
           }
         }
     }
@@ -1751,44 +1758,44 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
         if (group==TELEM_PARAM_WAYPOINT)
         {
             if (sub_param==TELEM_PARAM_WP_ALTITUDE) // relative altitude
-                CheckRangeAndSetF(&hfc->altitude_WPnext, item->value1.f, -8999, 9999);
+                CheckRangeAndSetF(&hfc.altitude_WPnext, item->value1.f, -8999, 9999);
             else
 //            if (sub_param==TELEM_PARAM_WP_LATITUDE)
-//                CheckRangeAndSetD(&hfc->waypoint_pos[0], item->value1.i/10000000.0, -90, 90);
+//                CheckRangeAndSetD(&hfc.waypoint_pos[0], item->value1.i/10000000.0, -90, 90);
 //            else
 //            if (sub_param==TELEM_PARAM_WP_LONGITUDE)
-//                CheckRangeAndSetD(&hfc->waypoint_pos[1], item->value1.i/10000000.0, -180, 180);
+//                CheckRangeAndSetD(&hfc.waypoint_pos[1], item->value1.i/10000000.0, -180, 180);
 //            else
             if (sub_param==TELEM_PARAM_WP_MAX_H_SPEED)
             {
-                CheckRangeAndSetF(&hfc->pid_Dist2T.COmax, item->value1.f, 0.1f, pConfig->max_params_hspeed);
-//            	DynamicAccInTurns(hfc, &hfc->pid_Dist2T);
+                CheckRangeAndSetF(&hfc.pid_Dist2T.COmax, item->value1.f, 0.1f, pConfig->max_params_hspeed);
+//            	DynamicAccInTurns(hfc, &hfc.pid_Dist2T);
 
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_H_ACC)
             {
-                CheckRangeAndSetF(&hfc->pid_Dist2T.acceleration, item->value1.f, 0.1f, 100);
-//              DynamicAccInTurns(hfc, &hfc->pid_Dist2T);
+                CheckRangeAndSetF(&hfc.pid_Dist2T.acceleration, item->value1.f, 0.1f, 100);
+//              DynamicAccInTurns(hfc, &hfc.pid_Dist2T);
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmax, item->value1.f, 0.1f, pConfig->max_params_vspeed))
-                	hfc->rw_cfg.VspeedMax = hfc->pid_CollAlt.COmax;
+                if (CheckRangeAndSetF(&hfc.pid_CollAlt.COmax, item->value1.f, 0.1f, pConfig->max_params_vspeed))
+                	hfc.rw_cfg.VspeedMax = hfc.pid_CollAlt.COmax;
             }
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, item->value1.f, 0.1f, 100))
-                    hfc->rw_cfg.VspeedAcc = hfc->pid_CollAlt.acceleration;
+                if (CheckRangeAndSetF(&hfc.pid_CollAlt.acceleration, item->value1.f, 0.1f, 100))
+                    hfc.rw_cfg.VspeedAcc = hfc.pid_CollAlt.acceleration;
             }
             else
 //            if (sub_param==TELEM_PARAM_WP_TYPE)
-//                CheckRangeAndSetI(&hfc->waypoint_type, item->value1.i, 0, 1);
+//                CheckRangeAndSetI(&hfc.waypoint_type, item->value1.i, 0, 1);
 //            else
             if (sub_param==TELEM_PARAM_WP_RETIRE)
-                CheckRangeAndSetI(&hfc->waypoint_retire, item->value1.i, 0, 1);
+                CheckRangeAndSetI(&hfc.waypoint_retire, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_WP_YAWSPEEDRATE)
             {
@@ -1796,25 +1803,25 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             }
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_RADIUS)
-                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_radius, item->value1.f, 0, 20);
+                CheckRangeAndSetF(&hfc.rw_cfg.GTWP_retire_radius, item->value1.f, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_GTWP_SPEED)
-                CheckRangeAndSetF(&hfc->rw_cfg.GTWP_retire_speed, item->value1.f, 0, 20);
+                CheckRangeAndSetF(&hfc.rw_cfg.GTWP_retire_speed, item->value1.f, 0, 20);
             else
             if (sub_param==TELEM_PARAM_WP_FTWP_SR_FACTOR)
-                CheckRangeAndSetF(&hfc->rw_cfg.FTWP_retire_sr_factor, item->value1.f, 0, 10);
+                CheckRangeAndSetF(&hfc.rw_cfg.FTWP_retire_sr_factor, item->value1.f, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc->rw_cfg.low_speed_limit, item->value1.f, 1, 30);
+                CheckRangeAndSetF(&hfc.rw_cfg.low_speed_limit, item->value1.f, 1, 30);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, item->value1.f, -10, -0.5))
-                    hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
+                if (CheckRangeAndSetF(&hfc.pid_CollAlt.COmin, item->value1.f, -10, -0.5))
+                    hfc.rw_cfg.VspeedMin = hfc.pid_CollAlt.COmin;
             }
             else
             if (sub_param==TELEM_PARAM_WP_ALTITUDE_BASE)
-                CheckRangeAndSetF(&hfc->altitude_base, item->value1.f, 0, 9999);
+                CheckRangeAndSetF(&hfc.altitude_base, item->value1.f, 0, 9999);
         }
         else
         if (group==TELEM_PARAM_JOYSTICK)
@@ -1832,31 +1839,31 @@ static void Playlist_ProcessTop(FlightControlData *hfc)
             }
             else
             if (sub_param==TELEM_PARAM_CTRL_HEADING_ABS)
-                CheckRangeAndSetF(&hfc->ctrl_out[ANGLE][YAW], item->value1.f, -180, 180);
+                CheckRangeAndSetF(&hfc.ctrl_out[ANGLE][YAW], item->value1.f, -180, 180);
             else
             if (sub_param==TELEM_PARAM_CTRL_WIND_COMP)
-                CheckRangeAndSetB(&hfc->rw_cfg.wind_compensation, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc.rw_cfg.wind_compensation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_PATH_NAVIG)
-                CheckRangeAndSetB(&hfc->rw_cfg.path_navigation, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc.rw_cfg.path_navigation, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_ANGLE_COLL_MIX)
-                CheckRangeAndSetF(&hfc->rw_cfg.AngleCollMixing, item->value1.f, 0, 2);
+                CheckRangeAndSetF(&hfc.rw_cfg.AngleCollMixing, item->value1.f, 0, 2);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_LIMIT)
-                CheckRangeAndSetF(&hfc->rw_cfg.cruise_speed_limit, item->value1.f, 0, 100);
+                CheckRangeAndSetF(&hfc.rw_cfg.cruise_speed_limit, item->value1.f, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
-                CheckRangeAndSetB(&hfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
+                CheckRangeAndSetB(&hfc.rw_cfg.nose_to_WP, item->value1.i, 0, 1);
             else
             if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
-                CheckRangeAndSetI(&hfc->box_dropper_, item->value1.i, 0, 1);
+                CheckRangeAndSetI(&hfc.box_dropper_, item->value1.i, 0, 1);
         }
     }
     else if (item->type == PL_ITEM_DELAY)
     {
-        if (hfc->delay_counter<=0)
-            hfc->delay_counter = item->value1.i*1000;
+        if (hfc.delay_counter<=0)
+            hfc.delay_counter = item->value1.i*1000;
     }
 }
 
@@ -2534,7 +2541,7 @@ static void ServoUpdate(float dT)
     
     telem.ProcessCommands();
 
-    Playlist_ProcessTop(&hfc);
+    Playlist_ProcessTop();
     
     if (xbus_new_values) {
         if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
