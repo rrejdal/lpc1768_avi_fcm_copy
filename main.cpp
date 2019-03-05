@@ -2112,6 +2112,20 @@ static void ProcessFlightMode(FlightControlData *hfc)
     else
     if (hfc->waypoint_type == WAYPOINT_LANDING)
     {
+        if (hfc->waypoint_stage == FM_LANDING_STOP)
+        {
+            if (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed )
+            {
+                /* send out message and setup timeout */
+                telem.SetPositionHold();
+                hfc->waypoint_type = WAYPOINT_LANDING;
+                hfc->waypoint_stage = FM_LANDING_HOLD;
+                hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
+                hfc->message_timeout = 30000000;    // 30 seconds
+                telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
+            }
+        }
+        else
         if (hfc->waypoint_stage == FM_LANDING_WAYPOINT)
         {
             if (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed && hfc->gps_to_waypoint[0] <= hfc->rw_cfg.GTWP_retire_radius)

@@ -2061,9 +2061,9 @@ void TelemSerial::ProcessCommands(void)
         }
         else
         {
-          // To make landing states always ask for clear to land, set a landingWP at current location.
-          // We should really set zerospeed, wait for that and then start landing sequence. This is a TODO:
-          CommandLandingWP(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999);
+          SetZeroSpeed();
+          hfc->waypoint_type = WAYPOINT_LANDING;
+          hfc->waypoint_stage = FM_LANDING_STOP;
         }
       }
       else if (sub_cmd == LANDING_CURRENT)
