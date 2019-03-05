@@ -2019,7 +2019,6 @@ void TelemSerial::ProcessCommands(void)
             {
                 PlaylistSaveState();
                 hfc->playlist_status = PLAYLIST_PAUSED;
-                hfc->waypoint_type = WAYPOINT_GOTO;
                 SetZeroSpeed();
             }
         }
