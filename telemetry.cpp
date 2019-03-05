@@ -2019,6 +2019,7 @@ void TelemSerial::ProcessCommands(void)
             {
                 PlaylistSaveState();
                 hfc->playlist_status = PLAYLIST_PAUSED;
+                hfc->waypoint_type = WAYPOINT_GOTO;
                 SetZeroSpeed();
             }
         }
@@ -2084,7 +2085,7 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_POS_HOLD)
     {
-        SetPositionHold();
+        SetZeroSpeed();
     }
     else if (cmd==TELEM_CMD_GPS_NEXT)
     {
@@ -2203,23 +2204,42 @@ void TelemSerial::SetPositionHold(void)
     /* set vcontrol to max to make sure it can hold the pos */
     ApplyDefaults();
 
-    float m_per_deg_lat =   111132.954
-                        - 559.822*COSfR(2*hfc->positionLatLon[0])
-                        + 1.175*COSfR(4*hfc->positionLatLon[0])
-                        - 0.0023*COSfR(6*hfc->positionLatLon[0]);
-
-    float m_per_deg_lon =   111412.84*COSfR(hfc->positionLatLon[0])
-                        - 93.5*COSfR(3*hfc->positionLatLon[0])
-                        + 0.118*COSfR(5*hfc->positionLatLon[0]);
+    // none of this math is currently being used.
+    // the idea was to set a waypoint slightly ahead of where we are
+    // so as to account for the stopping distance.
+    // This math is required since setting a wayponit requires a
+    // precise longitude and latitude, while the stopping distance
+    // is in meters and the distance between degrees lat or long vary
+    // with lat and long!
+//    float m_per_deg_lat =   111132.954
+//                        - 559.822*COSfR(2*hfc->positionLatLon[0])
+//                        + 1.175*COSfR(4*hfc->positionLatLon[0])
+//                        - 0.0023*COSfR(6*hfc->positionLatLon[0]);
+//
+//    float m_per_deg_lon =   111412.84*COSfR(hfc->positionLatLon[0])
+//                        - 93.5*COSfR(3*hfc->positionLatLon[0])
+//                        + 0.118*COSfR(5*hfc->positionLatLon[0]);
 
     /*calculate stopping distance*/
-    float stopping_d = hfc->gps_speed * hfc->gps_speed / (2*hfc->pid_Dist2T.acceleration);
+//    float stopping_d = hfc->gps_speed * hfc->gps_speed / (2*hfc->pid_Dist2T.acceleration);
 
-    /*calculate stopping distance*/
-    double lat = hfc->positionLatLon[0] + (stopping_d*COSfD(heading)/m_per_deg_lat);
-    double lon = hfc->positionLatLon[1] + (stopping_d*SINfD(heading)/m_per_deg_lon);
+    double lat = hfc->positionLatLon[0] ;//+ (stopping_d*COSfD(heading)/m_per_deg_lat);
+    double lon = hfc->positionLatLon[1] ;//+ (stopping_d*SINfD(heading)/m_per_deg_lon);
+
+    // Save the waypoint data since it is changed in SetWaypoint function
+    int tmp_waypoint_type = hfc->waypoint_type;
+    int tmp_waypoint_stage = hfc->waypoint_stage;
 
     SetWaypoint(lat, lon, (hfc->altitude - hfc->altitude_base), WAYPOINT_GOTO, 0);
+
+    // If I am landing, then restore the waypoint data.
+    // Otherwise, leave the waypont type to WAPOINT_GOTO, since I want
+    // to position hold there.
+    if ( tmp_waypoint_type == WAYPOINT_LANDING) {
+      hfc->waypoint_type = tmp_waypoint_type;
+      hfc->waypoint_stage = tmp_waypoint_stage;
+    }
+
     hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
 }
 
