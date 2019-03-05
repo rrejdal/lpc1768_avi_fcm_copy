@@ -1163,8 +1163,8 @@ typedef struct
     T_PID pid_PitchCruise;
     T_PID pid_RollSpeed;
     T_PID pid_CollAlt;
-    T_PID pid_Dist2T;
-    T_PID pid_Dist2P;
+    T_PID pid_Dist2T;               //distance to target
+    T_PID pid_Dist2P;               //distance to path
     T_PID pid_IMU[3];
     float   speed_Iterm_E;          // I-term for speed PID, east
     float   speed_Iterm_N;          // I-term for speed PID, north
@@ -1232,6 +1232,8 @@ typedef struct
     T_LandingSite	landing_sites[LANDING_SITES];
 
     int debug_flags[10]; // Temp debug flags to be used however
+
+    bool setZeroSpeed;
 } FlightControlData;
 
 

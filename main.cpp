@@ -1731,7 +1731,6 @@ static void Playlist_ProcessTop()
                 // For Mission takeoff, Set the desired takeoff height
                 hfc.takeoff_height = item->data[1];
                 telem.CommandTakeoffArm();
-
               }
             }
         }
@@ -2829,6 +2828,16 @@ static void ServoUpdate(float dT)
     /* speed heli - SpeedGroundEN - rotate to SpeedHeliRF, PID(CtrlSpeedRF, SpeedHeliRF)->Angle(R)(-P) */
     if (hfc.control_mode[PITCH]>=CTRL_MODE_SPEED || hfc.control_mode[ROLL]>=CTRL_MODE_SPEED)
     {
+      if (hfc.setZeroSpeed) {
+        if (hfc.pid_Dist2T.acceleration <= 0 ) {
+          hfc.pid_Dist2T.acceleration = 0.6; // m/s^2
+        }
+        telem.Accelerate(-hfc.pid_Dist2T.acceleration,dT);
+
+        if (gps.gps_data_.HspeedC <= hfc.rw_cfg.GTWP_retire_speed )  {
+          hfc.setZeroSpeed = false;
+        }
+      }
 //      if (!(hfc.print_counter&0x1f))
 //        debug_print("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
       /* rotate E/N speed PID I-terms into current R/F */

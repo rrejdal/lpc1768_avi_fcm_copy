@@ -2160,6 +2160,25 @@ void TelemSerial::ProcessCommands(void)
     hfc->command.command = TELEM_CMD_NONE;
 }
 
+void TelemSerial::Accelerate(float acceleration, float time)
+{
+    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+
+    float pitch_speed = hfc->ctrl_out[SPEED][PITCH] + (acceleration * time);
+    float roll_speed = hfc->ctrl_out[SPEED][ROLL] + (acceleration * time);
+
+    pitch_speed = ClipMinMax(pitch_speed, 0, pConfig->max_params_hspeed);
+    roll_speed = ClipMinMax(roll_speed, 0, pConfig->max_params_hspeed);
+
+    /* set zero speed in x-y, keep current heading,
+     * and hold current altitude */
+    hfc->ctrl_out[SPEED][PITCH] = pitch_speed;
+    hfc->ctrl_out[SPEED][ROLL]  = roll_speed;
+    hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
+    hfc->ctrl_out[POS][COLL]    = hfc->altitude;
+}
+
+
 void TelemSerial::SetZeroSpeed(void)
 {
     SelectCtrlSource(CTRL_SOURCE_AUTO3D);
@@ -2171,12 +2190,7 @@ void TelemSerial::SetZeroSpeed(void)
     SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
     SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
 
-    /* set zero speed in x-y, keep current heading,
-     * and hold current altitude */
-    hfc->ctrl_out[SPEED][PITCH] = 0;
-    hfc->ctrl_out[SPEED][ROLL]  = 0;
-    hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
-    hfc->ctrl_out[POS][COLL]    = hfc->altitude;
+    hfc->setZeroSpeed = true;
 }
 
 void TelemSerial::SetPositionHold(void)
@@ -2197,7 +2211,7 @@ void TelemSerial::SetPositionHold(void)
                         + 0.118*COSfR(5*hfc->positionLatLon[0]);
 
     /*calculate stopping distance*/
-    float stopping_d = hfc->gps_speed * hfc->gps_speed / (2*hfc->pid_Dist2P.acceleration);
+    float stopping_d = hfc->gps_speed * hfc->gps_speed / (2*hfc->pid_Dist2T.acceleration);
 
     /*calculate stopping distance*/
     double lat = hfc->positionLatLon[0] + (stopping_d*COSfD(heading)/m_per_deg_lat);
