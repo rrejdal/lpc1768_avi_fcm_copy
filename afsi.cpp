@@ -294,6 +294,11 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(uint8_t cmd) {
 
+    ctrl_out[AFSI_SPEED_RIGHT] = hfc.speedHeliRFU[RIGHT];
+    ctrl_out[AFSI_SPEED_FWD] = hfc.speedHeliRFU[FORWARD];
+    ctrl_out[AFSI_ALTITUDE] = hfc.altitude;
+    ctrl_out[AFSI_HEADING] = hfc.IMUorient[YAW]*R2D;
+
     if ((cmd != AFSI_CTRL_ID_ARM) && (cmd != AFSI_CTRL_ID_DISARM) && (cmd != AFSI_CTRL_ID_TAKEOFF) ) {
       /* altitude hold and yaw angle */
       SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
@@ -442,8 +447,12 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_HOLD:
-            ctrl_out[AFSI_SPEED_FWD]   = 0;
             ctrl_out[AFSI_SPEED_RIGHT] = 0;
+            ctrl_out[AFSI_SPEED_FWD] = 0;
+
+            // NOTE: SetZeroSpeed() needs to set the control source to
+            // CTRL_SOURCE_AUTO3D so that ctrl_out speed values are not
+            // applied immediately and abruptly.
             telem->SetZeroSpeed();
             debug_print("HOLD POSITION!\r\n");
             break;
