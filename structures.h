@@ -230,14 +230,15 @@
 
 /* landing states */
 #define FM_LANDING_NONE         0
-#define FM_LANDING_WAYPOINT		1
-#define FM_LANDING_HOLD         2
-#define FM_LANDING_HIGH_ALT     3
-#define FM_LANDING_LOW_ALT      4
-#define FM_LANDING_FINAL_APP	5
-#define FM_LANDING_TOUCHDOWN    6
-#define FM_LANDING_TIMEOUT      7
-#define FM_LANDING_LANDED       8
+#define FM_LANDING_STOP         1
+#define FM_LANDING_WAYPOINT		  2
+#define FM_LANDING_HOLD         3
+#define FM_LANDING_HIGH_ALT     4
+#define FM_LANDING_LOW_ALT      5
+#define FM_LANDING_FINAL_APP	  6
+#define FM_LANDING_TOUCHDOWN    7
+#define FM_LANDING_TIMEOUT      8
+#define FM_LANDING_LANDED       9
 
 #define MSG2GROUND_RESEND_COUNT			10	// how many times the same message is send, no TCPIP yet
 #define MSG2GROUND_ARMED_FOR_TAKEOFF	1	// system has to be armed before takeoff
