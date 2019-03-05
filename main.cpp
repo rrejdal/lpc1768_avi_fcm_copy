@@ -1699,7 +1699,7 @@ static void Playlist_ProcessTop()
         hfc.playlist_status = PLAYLIST_STOPPED;
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc.throttle_armed)
-            telem.SetPositionHold();
+            telem.SetZeroSpeed();
         return;
     }
 
@@ -1731,7 +1731,6 @@ static void Playlist_ProcessTop()
                 // For Mission takeoff, Set the desired takeoff height
                 hfc.takeoff_height = item->data[1];
                 telem.CommandTakeoffArm();
-
               }
             }
         }
@@ -1938,7 +1937,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc->throttle_armed) {
-            telem.SetPositionHold();
+            telem.SetZeroSpeed();
         }
     }
 }
@@ -2114,11 +2113,10 @@ static void ProcessFlightMode(FlightControlData *hfc)
     {
         if (hfc->waypoint_stage == FM_LANDING_STOP)
         {
-            if (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed )
+            if ((hfc->setZeroSpeed == false) && (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed)
+                && (hfc->gps_to_waypoint[0] <= hfc->rw_cfg.GTWP_retire_radius))
             {
                 /* send out message and setup timeout */
-                telem.SetPositionHold();
-                hfc->waypoint_type = WAYPOINT_LANDING;
                 hfc->waypoint_stage = FM_LANDING_HOLD;
                 hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
                 hfc->message_timeout = 30000000;    // 30 seconds
@@ -2829,6 +2827,17 @@ static void ServoUpdate(float dT)
     /* speed heli - SpeedGroundEN - rotate to SpeedHeliRF, PID(CtrlSpeedRF, SpeedHeliRF)->Angle(R)(-P) */
     if (hfc.control_mode[PITCH]>=CTRL_MODE_SPEED || hfc.control_mode[ROLL]>=CTRL_MODE_SPEED)
     {
+      if (hfc.setZeroSpeed) {
+        if (hfc.pid_Dist2T.acceleration <= 0 ) {
+          hfc.pid_Dist2T.acceleration = 0.6; // m/s^2
+        }
+        telem.Accelerate(-hfc.pid_Dist2T.acceleration,dT);
+
+        if (gps.gps_data_.HspeedC <= hfc.rw_cfg.GTWP_retire_speed )  {
+          telem.SetPositionHold();
+          hfc.setZeroSpeed = false;
+        }
+      }
 //      if (!(hfc.print_counter&0x1f))
 //        debug_print("%4.1f %4.1f ", hfc.speed_Iterm_E, hfc.speed_Iterm_N);
       /* rotate E/N speed PID I-terms into current R/F */

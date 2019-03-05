@@ -48,6 +48,7 @@ public:
 
     void CalcDynYawRate(void);
     float CalcFTWPlimit(char gps_in_cruise);
+    void Accelerate(float speed, float time);
     void SetZeroSpeed(void);
     void SetPositionHold(void);
     void SetHome(void);

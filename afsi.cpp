@@ -354,8 +354,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
         case  AFSI_CTRL_ID_LAND:
             hfc.playlist_status = PLAYLIST_STOP;
-            // TODO MMRI: check if this is immediate landing
-            telem->CommandLanding(false, true);
+            telem->SetZeroSpeed();
+            hfc.waypoint_type = WAYPOINT_LANDING;
+            hfc.waypoint_stage = FM_LANDING_STOP;
             debug_print("LANDING!\r\n");
             break;
 
@@ -443,7 +444,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
         case AFSI_CTRL_ID_HOLD:
             ctrl_out[AFSI_SPEED_FWD]   = 0;
             ctrl_out[AFSI_SPEED_RIGHT] = 0;
-            telem->SetPositionHold();
+            telem->SetZeroSpeed();
             debug_print("HOLD POSITION!\r\n");
             break;
 
