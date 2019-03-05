@@ -2835,6 +2835,7 @@ static void ServoUpdate(float dT)
         telem.Accelerate(-hfc.pid_Dist2T.acceleration,dT);
 
         if (gps.gps_data_.HspeedC <= hfc.rw_cfg.GTWP_retire_speed )  {
+          telem.SetPositionHold();
           hfc.setZeroSpeed = false;
         }
       }

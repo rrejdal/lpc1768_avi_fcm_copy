@@ -927,6 +927,8 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     float Sx, Sy, Tx, Ty;
 //    float prev_STcourse;
     
+    hfc->setZeroSpeed = false;
+
     hfc->waypoint_pos[0] = lat;
     hfc->waypoint_pos[1] = lon;
 
