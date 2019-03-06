@@ -294,10 +294,10 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(uint8_t cmd) {
 
-    ctrl_out[AFSI_SPEED_RIGHT] = hfc.speedHeliRFU[RIGHT];
-    ctrl_out[AFSI_SPEED_FWD] = hfc.speedHeliRFU[FORWARD];
-    ctrl_out[AFSI_ALTITUDE] = hfc.altitude;
-    ctrl_out[AFSI_HEADING] = hfc.IMUorient[YAW]*R2D;
+    ctrl_out[AFSI_SPEED_RIGHT] = hfc.ctrl_out[SPEED][ROLL];
+    ctrl_out[AFSI_SPEED_FWD] = hfc.ctrl_out[SPEED][PITCH];
+    ctrl_out[AFSI_ALTITUDE] = hfc.ctrl_out[POS][COLL];
+    ctrl_out[AFSI_HEADING] = hfc.ctrl_out[ANGLE][YAW];
 
     if ((cmd != AFSI_CTRL_ID_ARM) && (cmd != AFSI_CTRL_ID_DISARM) && (cmd != AFSI_CTRL_ID_TAKEOFF) ) {
       /* altitude hold and yaw angle */
