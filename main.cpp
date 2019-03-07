@@ -1774,7 +1774,7 @@ static void Playlist_ProcessTop()
             else
             if (sub_param==TELEM_PARAM_WP_MAX_H_ACC)
             {
-                CheckRangeAndSetF(&hfc.pid_Dist2T.acceleration, item->value1.f, 0.1f, 100);
+                CheckRangeAndSetF(&hfc.pid_Dist2T.acceleration, item->value1.f, 0.1f, pConfig->HspeedAcc);
 //              DynamicAccInTurns(hfc, &hfc.pid_Dist2T);
             }
             else
@@ -1786,7 +1786,7 @@ static void Playlist_ProcessTop()
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
-                if (CheckRangeAndSetF(&hfc.pid_CollAlt.acceleration, item->value1.f, 0.1f, 100))
+                if (CheckRangeAndSetF(&hfc.pid_CollAlt.acceleration, item->value1.f, 0.1f, pConfig->VspeedAcc))
                     hfc.rw_cfg.VspeedAcc = hfc.pid_CollAlt.acceleration;
             }
             else
@@ -1811,11 +1811,12 @@ static void Playlist_ProcessTop()
                 CheckRangeAndSetF(&hfc.rw_cfg.FTWP_retire_sr_factor, item->value1.f, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc.rw_cfg.low_speed_limit, item->value1.f, 1, 30);
+              // Note: Low_speed_limit not used
+                CheckRangeAndSetF(&hfc.rw_cfg.low_speed_limit, item->value1.f, 1, pConfig->low_speed_limit);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc.pid_CollAlt.COmin, item->value1.f, -10, -0.5))
+                if (CheckRangeAndSetF(&hfc.pid_CollAlt.COmin, item->value1.f, -5, pConfig->VspeedMin))
                     hfc.rw_cfg.VspeedMin = hfc.pid_CollAlt.COmin;
             }
             else
