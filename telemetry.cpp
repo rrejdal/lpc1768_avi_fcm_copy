@@ -1094,7 +1094,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->pid_Dist2T.COmax, p->data, 0.1f, pConfig->max_params_hspeed);
             else
             if (sub_param==TELEM_PARAM_WP_MAX_H_ACC)
-                CheckRangeAndSetF(&hfc->pid_Dist2T.acceleration, p->data, 0.1f, 100);
+                CheckRangeAndSetF(&hfc->pid_Dist2T.acceleration, p->data, 0.1f, pConfig->HspeedAcc);
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_SPEED)
             {
@@ -1105,7 +1105,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             else
             if (sub_param==TELEM_PARAM_WP_MAX_V_ACC)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, p->data, 0.1f, 100)) {
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.acceleration, p->data, 0.1f, pConfig->VspeedAcc)) {
                     hfc->rw_cfg.VspeedAcc = hfc->pid_CollAlt.acceleration;
                 }
             }
@@ -1131,11 +1131,11 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->rw_cfg.FTWP_retire_sr_factor, p->data, 0, 10);
             else
             if (sub_param==TELEM_PARAM_WP_LOW_SPEED_LMT)
-                CheckRangeAndSetF(&hfc->rw_cfg.low_speed_limit, p->data, 1, 30);
+                CheckRangeAndSetF(&hfc->rw_cfg.low_speed_limit, p->data, 1, pConfig->low_speed_limit);
             else
             if (sub_param==TELEM_PARAM_WP_MIN_V_SPEED)
             {
-                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, p->data, -10, -0.5)) {
+                if (CheckRangeAndSetF(&hfc->pid_CollAlt.COmin, p->data, -5, pConfig->VspeedMin)) {
                     hfc->rw_cfg.VspeedMin = hfc->pid_CollAlt.COmin;
                 }
             }
