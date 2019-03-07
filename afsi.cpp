@@ -589,16 +589,25 @@ void AFSI_Serial::GenerateSensorsStatus(void)
     msg_stat_sensors.hdr.id          = AFSI_STAT_ID_SEN;
     msg_stat_sensors.hdr.len         = AFSI_STAT_PAYL_LEN_SEN;
 
-    msg_stat_sensors.gyro_temp       = hfc.gyro_temp_lp       * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.baro_temp       = hfc.baro_temperature   * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.esc_temp        = hfc.esc_temp           * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.gyro_temp       = hfc.gyro_temp_lp          * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.baro_temp       = hfc.baro_temperature      * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.esc_temp        = hfc.esc_temp              * AFSI_STAT_SCALE_TEMP;
     msg_stat_sensors.baro_pressure   = hfc.baro_pressure;
-    msg_stat_sensors.wind_speed      = hfc.wind_speed         * AFSI_STAT_SCALE_WIND;
-    msg_stat_sensors.wind_course     = hfc.wind_course        * AFSI_STAT_SCALE_WIND;
+    msg_stat_sensors.wind_speed      = hfc.wind_speed            * AFSI_STAT_SCALE_WIND;
+    msg_stat_sensors.wind_course     = hfc.wind_course           * AFSI_STAT_SCALE_WIND;
     msg_stat_sensors.rpm             = hfc.RPM;
-    msg_stat_sensors.lidar_altitude  = hfc.altitude_lidar     * AFSI_STAT_SCALE_LIDAR;
-    msg_stat_sensors.compass_heading = hfc.compass_heading    * AFSI_STAT_SCALE_COMPASS;
-    msg_stat_sensors.altitude        = hfc.altitude           * AFSI_STAT_SCALE_ALT;
+    msg_stat_sensors.lidar_altitude  = hfc.altitude_lidar        * AFSI_STAT_SCALE_LIDAR;
+    msg_stat_sensors.compass_heading = hfc.compass_heading       * AFSI_STAT_SCALE_COMPASS;
+    msg_stat_sensors.altitude        = hfc.altitude              * AFSI_STAT_SCALE_ALT;
+
+    msg_stat_sensors.right_speed     = hfc.speedHeliRFU[RIGHT]   * AFSI_STAT_SCALE_SPEED;
+    msg_stat_sensors.fwd_speed       = hfc.speedHeliRFU[FORWARD] * AFSI_STAT_SCALE_SPEED;
+    msg_stat_sensors.vertical_speed  = hfc.speedHeliRFU[UP]      * AFSI_STAT_SCALE_SPEED;
+
+    msg_stat_sensors.imu_pitch       = hfc.IMUorient[PITCH]*R2D  * AFSI_STAT_SCALE_DEGREES;
+    msg_stat_sensors.imu_roll        = hfc.IMUorient[ROLL]*R2D   * AFSI_STAT_SCALE_DEGREES;
+    msg_stat_sensors.imu_yaw         = hfc.IMUorient[YAW]*R2D    * AFSI_STAT_SCALE_DEGREES;
+
 
     GetCRC( (uint8_t*)&(msg_stat_sensors.hdr.msg_class),
             msg_stat_sensors.hdr.len + AFSI_HEADER_LEN,

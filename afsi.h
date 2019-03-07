@@ -58,7 +58,7 @@
 
 #define AFSI_STAT_PAYL_LEN_PWR          12
 #define AFSI_STAT_PAYL_LEN_GPS          23
-#define AFSI_STAT_PAYL_LEN_SEN          26
+#define AFSI_STAT_PAYL_LEN_SEN          42
 #define AFSI_STAT_PAYL_LEN_FCM          6
 
 #define AFSI_NUM_STAT_MSGS              4
@@ -105,6 +105,8 @@
 #define AFSI_STAT_SCALE_COMPASS         100
 #define AFSI_STAT_SCALE_ALT             100
 #define AFSI_STAT_SCALE_GPS_ALT         1000
+#define AFSI_STAT_SCALE_DEGREES         100
+#define AFSI_STAT_SCALE_SPEED           100
 
 // Max and mins of variables
 #define AFSI_MAX_SPEED                  10
@@ -145,7 +147,6 @@ typedef struct AFSI_MSG{
     uint8_t    payload[200];
     AFSI_CRC   crc;
 }AFSI_MSG;
-
 
 typedef struct AFSI_ACK_MSG{
     AFSI_HDR   hdr;
@@ -200,7 +201,13 @@ typedef struct AFSI_STAT_MSG_SEN{
     uint16_t   rpm;
     uint16_t   lidar_altitude;
     int32_t    compass_heading;
-    uint32_t   altitude;
+    uint16_t   altitude;
+    int16_t    right_speed;
+    int16_t    fwd_speed;
+    int16_t    vertical_speed;
+    int16_t    imu_pitch;
+    int32_t    imu_roll;
+    int32_t    imu_yaw;
     AFSI_CRC   crc;
 }AFSI_STAT_MSG_SEN;
 
