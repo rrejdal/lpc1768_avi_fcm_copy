@@ -767,7 +767,7 @@ static void SetControlMode(void)
 
             // When in AUTO3D, if the throttle lever is not UP, and we are
             // in the air, then STAY in AUTO 3D and send message to ground station.
-            if (!THROTTLE_LEVER_UP() && IN_THE_AIR()) {
+            if (!THROTTLE_LEVER_UP()) {
 
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
                hfc.auto_throttle = true;
