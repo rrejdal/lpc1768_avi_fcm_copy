@@ -2162,7 +2162,7 @@ void TelemSerial::ProcessCommands(void)
     hfc->command.command = TELEM_CMD_NONE;
 }
 
-void TelemSerial::Accelerate(float acceleration, float time)
+int TelemSerial::Accelerate(float acceleration, float time)
 {
     SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
@@ -2178,6 +2178,16 @@ void TelemSerial::Accelerate(float acceleration, float time)
     hfc->ctrl_out[SPEED][ROLL]  = roll_speed;
     hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
     hfc->ctrl_out[POS][COLL]    = hfc->altitude;
+
+    if ((pitch_speed == 0) && (roll_speed == 0)) {
+      return -1;
+    }
+    else if ((pitch_speed == pConfig->max_params_hspeed) && (roll_speed == pConfig->max_params_hspeed) ){
+      return 1;
+    }
+    else {
+      return 0;
+    }
 }
 
 
@@ -2239,7 +2249,7 @@ void TelemSerial::SetPositionHold(void)
       hfc->waypoint_stage = tmp_waypoint_stage;
     }
 
-    hfc->ctrl_source = CTRL_SOURCE_AUTO3D;
+    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 }
 
 void TelemSerial::ResetIMU(bool print)
