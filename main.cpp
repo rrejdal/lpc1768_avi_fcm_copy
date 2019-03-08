@@ -5423,7 +5423,7 @@ void InitializeRuntimeData(void)
     hfc.AltitudeBaroGPSblend = ALTITUDE_BARO_GPS_BLEND_FREQ_INIT;
     hfc.baro_altitude_raw_lp = -9999;
     hfc.esc_temp = 20;
-    hfc.altitude_lidar_raw = 40;
+    hfc.altitude_lidar_raw = 0;
     hfc.distance2WP_min = 999999;
     hfc.rpm_ticks          = Ticks1();
     hfc.comp_calibrate = NO_COMP_CALIBRATE;
