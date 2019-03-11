@@ -2114,8 +2114,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
     {
         if (hfc->waypoint_stage == FM_LANDING_STOP)
         {
-            if ((hfc->setZeroSpeed == false) && (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed)
-                && (hfc->gps_to_waypoint[0] <= hfc->rw_cfg.GTWP_retire_radius))
+            if ((hfc->setZeroSpeed == false) && (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed))
             {
                 /* send out message and setup timeout */
                 hfc->waypoint_stage = FM_LANDING_HOLD;
