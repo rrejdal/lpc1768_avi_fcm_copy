@@ -2446,27 +2446,25 @@ static void ServoUpdate(float dT)
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
-    if (!hfc.full_auto)
-    {
-        if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
-            hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
-            hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
-            hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
-            hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
+
+    if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO) {
+        hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
+        hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
+        hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
+        hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
+    }
+    else if (hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) {
+        hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
+        hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
+        hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
+        hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
+
+        if (hfc.joystick_new_values) {
+            xbus_new_values = XBUS_NEW_VALUES;
+            hfc.joystick_new_values = 0;
         }
         else {
-            hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
-            hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
-            hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
-            hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
-
-            if (hfc.joystick_new_values) {
-                xbus_new_values = XBUS_NEW_VALUES;
-                hfc.joystick_new_values = 0;
-            }
-            else {
-                xbus_new_values = XBUS_NO_NEW_VALUES;
-            }
+            xbus_new_values = XBUS_NO_NEW_VALUES;
         }
     }
 
