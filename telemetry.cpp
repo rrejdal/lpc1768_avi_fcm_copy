@@ -854,7 +854,7 @@ void TelemSerial::SelectCtrlSource(byte source)
 
     if (source == CTRL_SOURCE_JOYSTICK) {
       //If we are not in the air, we cannot change control source to joystick
-      if ( NOT_IN_THE_AIR() ) {
+      if ( !IN_THE_AIR(hfc->altitude_lidar) ) {
         source = hfc->ctrl_source;
       }
       //If we are in the air, then change the control source to joystick

@@ -692,7 +692,7 @@ static void SetAgsControls(void)
     }
   }
   else if (hfc.playlist_status <= PLAYLIST_STOPPED) {
-    if (IN_THE_AIR()) {
+    if (IN_THE_AIR(hfc.altitude_lidar)) {
       hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
       if ((hfc.playlist_items > 0) && (hfc.playlist_position < hfc.playlist_items)) {
         hfc.controlStatus |= CONTROL_STATUS_PLAY;
@@ -735,12 +735,12 @@ static void SetControlMode(void)
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
-          if (IN_THE_AIR()) {
+          if (IN_THE_AIR(hfc.altitude_lidar)) {
             telem.SetZeroSpeed();
           }
           // if you're on the ground and armed, and we just switched from
           // RC Control to AUTO 3D, just disarm.
-          else if (!IN_THE_AIR() && hfc.throttle_armed) {
+          else if (!IN_THE_AIR(hfc.altitude_lidar) && hfc.throttle_armed) {
               telem.Disarm();
           }
       }
@@ -761,7 +761,7 @@ static void SetControlMode(void)
         char abort = 0;
 
         // if we're flying, or taking off or landing
-        if (   IN_THE_AIR()
+        if (   IN_THE_AIR(hfc.altitude_lidar)
             || (hfc.waypoint_type == WAYPOINT_TAKEOFF)
             || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
@@ -790,13 +790,13 @@ static void SetControlMode(void)
                 // If we are not in the air, then a change in the throttle
                 // lever passes over control to the RC RADIO
                 if (  (ABS(hfc.ctrl_initial[THRO]   - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
-                   && !IN_THE_AIR() ){
+                   && !IN_THE_AIR(hfc.altitude_lidar) ){
                     abort = 1;
                 }
             }
         }
         // check if we're on the ground
-        else if (!IN_THE_AIR()) {
+        else if (!IN_THE_AIR(hfc.altitude_lidar)) {
             // If the throttle lever is not DOWN, then send message to ground station
             // otherwise, hand over control to RC controller immediately.
           if (!THROTTLE_LEVER_DOWN()) {
@@ -1723,7 +1723,7 @@ static void Playlist_ProcessTop()
             /* initialize it only for the first time */
             if (hfc.waypoint_type != WAYPOINT_TAKEOFF)
             {
-              if (IN_THE_AIR()) {
+              if (IN_THE_AIR(hfc.altitude_lidar)) {
                 hfc.playlist_status = PLAYLIST_STOPPED;
                 telem.SetZeroSpeed();
               }
