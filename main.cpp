@@ -2614,7 +2614,7 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
     }
 
-    if ((hfc.ctrl_source != CTRL_SOURCE_AUTO3D) && (hfc.ctrl_source != CTRL_SOURCE_AFSI)) {
+    if ( (hfc.ctrl_source == CTRL_SOURCE_RCRADIO) || (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ) {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
