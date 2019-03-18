@@ -867,8 +867,8 @@ void TelemSerial::SelectCtrlSource(byte source)
         /* set target altitude and heading to the current one */
         hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
         hfc->joystick_new_values = 1;
+        hfc->telem_ctrl_period = 100000;   // in us - 10Hz
       }
-      hfc->telem_ctrl_period = 100000;   // in us - 10Hz
     }
     else if (source == CTRL_SOURCE_AFSI) {
       hfc->telem_ctrl_period = 100000;   // in us - 10Hz
@@ -1966,10 +1966,13 @@ void TelemSerial::ProcessCommands(void)
         else
         {
             /* disabling joystick */
-            if (hfc->playlist_status == PLAYLIST_PAUSED)
-                PlaylistRestoreState();
-            else
-                SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            if (hfc->playlist_status == PLAYLIST_PAUSED) {
+              PlaylistRestoreState();
+            }
+            else {
+              SetZeroSpeed();
+              SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            }
         }
     }
     else
