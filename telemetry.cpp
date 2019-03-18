@@ -851,6 +851,31 @@ void TelemSerial::SelectCtrlSource(byte source)
     if (hfc->ctrl_source==CTRL_SOURCE_RCRADIO) {
         SaveValuesForAbort();
     }
+
+    if (source == CTRL_SOURCE_JOYSTICK) {
+      //If we are not in the air, we cannot change control source to joystick
+      if ( !IN_THE_AIR(hfc->altitude_lidar) ) {
+        source = hfc->ctrl_source;
+      }
+      //If we are in the air, then change the control source to joystick
+      else {
+        /* altitude hold and yaw angle */
+        SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+        SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+        SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+        /* set target altitude and heading to the current one */
+        hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D;
+        hfc->joystick_new_values = 1;
+        hfc->telem_ctrl_period = 100000;   // in us - 10Hz
+      }
+    }
+    else if (source == CTRL_SOURCE_AFSI) {
+      hfc->telem_ctrl_period = 100000;   // in us - 10Hz
+    }
+    else {
+      hfc->telem_ctrl_period = 0;
+    }
     
     // Update prev_ctrl_source if our source has changed.
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
@@ -871,16 +896,6 @@ void TelemSerial::SelectCtrlSource(byte source)
         }
     }
     
-    if (source == CTRL_SOURCE_JOYSTICK) {
-        hfc->telem_ctrl_period = 100000;   // in us - 10Hz
-    }
-    else if (source == CTRL_SOURCE_AFSI) {
-        hfc->telem_ctrl_period = 100000;   // in us - 10Hz
-    }
-    else {
-        hfc->telem_ctrl_period = 0;
-    }
-
     hfc->telem_ctrl_period = max(hfc->telem_ctrl_period, pConfig->telem_min_ctrl_period*1000);
 
     hfc->ctrl_source = source;
@@ -1946,37 +1961,18 @@ void TelemSerial::ProcessCommands(void)
             hfc->joy_values[THRO] = 0;
             hfc->joy_PRmode = true;
 
-            /* altitude hold and yaw angle */
-            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
-            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-            /* set target altitude and heading to the current one */
-            hfc->ctrl_out[ANGLE][YAW] = hfc->IMUorient[YAW]*R2D; 
-            hfc->joystick_new_values = 1;
-
-            if (hfc->playlist_status==PLAYLIST_PLAYING)
-            {
-                PlaylistSaveState();
-                SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
-                hfc->playlist_status = PLAYLIST_PAUSED;
-            }
-            else
-            if (hfc->playlist_status==PLAYLIST_PAUSED)
-            {
-                SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
-                hfc->playlist_status = PLAYLIST_PAUSED;
-            }
-            else
-                SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
+            SelectCtrlSource(CTRL_SOURCE_JOYSTICK);
         }
         else
         {
             /* disabling joystick */
-            if (hfc->playlist_status == PLAYLIST_PAUSED)
-                PlaylistRestoreState();
-            else
-                SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            if (hfc->playlist_status == PLAYLIST_PAUSED) {
+              PlaylistRestoreState();
+            }
+            else {
+              SetZeroSpeed();
+              SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            }
         }
     }
     else

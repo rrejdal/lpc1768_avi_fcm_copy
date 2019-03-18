@@ -692,7 +692,7 @@ static void SetAgsControls(void)
     }
   }
   else if (hfc.playlist_status <= PLAYLIST_STOPPED) {
-    if (IN_THE_AIR()) {
+    if (IN_THE_AIR(hfc.altitude_lidar)) {
       hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
       if ((hfc.playlist_items > 0) && (hfc.playlist_position < hfc.playlist_items)) {
         hfc.controlStatus |= CONTROL_STATUS_PLAY;
@@ -735,12 +735,12 @@ static void SetControlMode(void)
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
 
-          if (IN_THE_AIR()) {
+          if (IN_THE_AIR(hfc.altitude_lidar)) {
             telem.SetZeroSpeed();
           }
           // if you're on the ground and armed, and we just switched from
           // RC Control to AUTO 3D, just disarm.
-          else if (!IN_THE_AIR() && hfc.throttle_armed) {
+          else if (!IN_THE_AIR(hfc.altitude_lidar) && hfc.throttle_armed) {
               telem.Disarm();
           }
       }
@@ -761,7 +761,7 @@ static void SetControlMode(void)
         char abort = 0;
 
         // if we're flying, or taking off or landing
-        if (   IN_THE_AIR()
+        if (   IN_THE_AIR(hfc.altitude_lidar)
             || (hfc.waypoint_type == WAYPOINT_TAKEOFF)
             || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
@@ -790,13 +790,13 @@ static void SetControlMode(void)
                 // If we are not in the air, then a change in the throttle
                 // lever passes over control to the RC RADIO
                 if (  (ABS(hfc.ctrl_initial[THRO]   - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
-                   && !IN_THE_AIR() ){
+                   && !IN_THE_AIR(hfc.altitude_lidar) ){
                     abort = 1;
                 }
             }
         }
         // check if we're on the ground
-        else if (!IN_THE_AIR()) {
+        else if (!IN_THE_AIR(hfc.altitude_lidar)) {
             // If the throttle lever is not DOWN, then send message to ground station
             // otherwise, hand over control to RC controller immediately.
           if (!THROTTLE_LEVER_DOWN()) {
@@ -1723,7 +1723,7 @@ static void Playlist_ProcessTop()
             /* initialize it only for the first time */
             if (hfc.waypoint_type != WAYPOINT_TAKEOFF)
             {
-              if (IN_THE_AIR()) {
+              if (IN_THE_AIR(hfc.altitude_lidar)) {
                 hfc.playlist_status = PLAYLIST_STOPPED;
                 telem.SetZeroSpeed();
               }
@@ -2446,27 +2446,25 @@ static void ServoUpdate(float dT)
 
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
-    if (!hfc.full_auto)
-    {
-        if (hfc.ctrl_source!=CTRL_SOURCE_JOYSTICK) {
-            hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
-            hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
-            hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
-            hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
+
+    if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO) {
+        hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
+        hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
+        hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
+        hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
+    }
+    else if (hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) {
+        hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
+        hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
+        hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
+        hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
+
+        if (hfc.joystick_new_values) {
+            xbus_new_values = XBUS_NEW_VALUES;
+            hfc.joystick_new_values = 0;
         }
         else {
-            hfc.ctrl_out[RAW][PITCH] = hfc.joy_values[PITCH];
-            hfc.ctrl_out[RAW][ROLL]  = hfc.joy_values[ROLL];
-            hfc.ctrl_out[RAW][YAW]   = hfc.joy_values[YAW];
-            hfc.ctrl_out[RAW][COLL]  = hfc.joy_values[COLL];
-
-            if (hfc.joystick_new_values) {
-                xbus_new_values = XBUS_NEW_VALUES;
-                hfc.joystick_new_values = 0;
-            }
-            else {
-                xbus_new_values = XBUS_NO_NEW_VALUES;
-            }
+            xbus_new_values = XBUS_NO_NEW_VALUES;
         }
     }
 
@@ -2616,7 +2614,7 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
     }
 
-    if ((hfc.ctrl_source != CTRL_SOURCE_AUTO3D) && (hfc.ctrl_source != CTRL_SOURCE_AFSI)) {
+    if ( (hfc.ctrl_source == CTRL_SOURCE_RCRADIO) || (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ) {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
