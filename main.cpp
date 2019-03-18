@@ -832,22 +832,22 @@ static void SetControlMode(void)
     /* set RC radio control modes */
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
     {
-        if(    THROTTLE_LEVER_DOWN()
-            && hfc.throttle_armed
-            && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
-            && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
-          telem.Disarm();
-        }
+      if(    THROTTLE_LEVER_DOWN()
+          && hfc.throttle_armed
+          && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
+          && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
+        telem.Disarm();
+      }
 
-        if (!pConfig->ctrl_mode_inhibit[COLL])
-        {
-            if (xbus.valuesf[XBUS_THR_SW]>0.5f)
-                hfc.control_mode[COLL] = CTRL_MODE_MANUAL;
-            else if (xbus.valuesf[XBUS_THR_SW]<-0.5f)
-                hfc.control_mode[COLL] = CTRL_MODE_POSITION;
-            else
-                hfc.control_mode[COLL] = CTRL_MODE_SPEED;
-        }
+      if (!pConfig->ctrl_mode_inhibit[COLL])
+      {
+          if (xbus.valuesf[XBUS_THR_SW]>0.5f)
+              hfc.control_mode[COLL] = CTRL_MODE_MANUAL;
+          else if (xbus.valuesf[XBUS_THR_SW]<-0.5f)
+              hfc.control_mode[COLL] = CTRL_MODE_POSITION;
+          else
+              hfc.control_mode[COLL] = CTRL_MODE_SPEED;
+      }
 
       /* pitch/rate/yaw mode switches checked only in RCradio mode */
       int mode;
