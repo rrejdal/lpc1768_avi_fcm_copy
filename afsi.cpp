@@ -451,7 +451,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             ctrl_out[AFSI_SPEED_FWD] = 0;
 
             // NOTE: SetZeroSpeed() needs to set the control source to
-            // CTRL_SOURCE_AUTO3D so that ctrl_out speed values are not
+            // CTRL_SOURCE_AUTOPILOT so that ctrl_out speed values are not
             // applied immediately and abruptly.
             telem->SetZeroSpeed();
             debug_print("HOLD POSITION!\r\n");
@@ -622,10 +622,9 @@ void AFSI_Serial::GenerateSensorsStatus(void)
 
 void AFSI_Serial::GenerateFcmStatus(void)
 {
-    uint8_t waypoint_ctrl_mode = ( (hfc.ctrl_source == CTRL_SOURCE_AUTO2D) ||
-                                   (hfc.ctrl_source == CTRL_SOURCE_AUTO3D)    ) ? 1 : 0;
+    uint8_t waypoint_ctrl_mode = (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) ? 1 : 0;
 
-    uint8_t joystick_ctrl_mode =   (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ? 1 : 0;
+    uint8_t joystick_ctrl_mode = (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ? 1 : 0;
 
     msg_stat_fcm.hdr.sync1            = AFSI_SYNC_BYTE_1;
     msg_stat_fcm.hdr.sync2            = AFSI_SYNC_BYTE_2;

@@ -730,16 +730,16 @@ static void SetControlMode(void)
     // in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle
     if (hfc.full_auto) {
 
-      // if not already in AUTO3D, then switch to AUTO3D
+      // if not already in AUTOPILOT, then switch to AUTOPILOT
       if ((hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)) {
 
-          telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+          telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
           if (IN_THE_AIR(hfc.altitude_lidar)) {
             telem.SetZeroSpeed();
           }
           // if you're on the ground and armed, and we just switched from
-          // RC Control to AUTO 3D, just disarm.
+          // RC Control to AUTOPILOT, just disarm.
           else if (!IN_THE_AIR(hfc.altitude_lidar) && hfc.throttle_armed) {
               telem.Disarm();
           }
@@ -765,7 +765,7 @@ static void SetControlMode(void)
             || (hfc.waypoint_type == WAYPOINT_TAKEOFF)
             || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
-            // When in AUTO3D, if the throttle lever is not UP, and we are
+            // When in AUTOPILOT, if the throttle lever is not UP, and we are
             // in the air, then STAY in AUTO 3D and send message to ground station.
             if (!THROTTLE_LEVER_UP()) {
 
@@ -829,30 +829,27 @@ static void SetControlMode(void)
             hfc.auto_throttle = false;
     }
 
-    /* collective mode, only in RCradio or auto2D modes */
-    if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_AUTO2D)
-    {
-        if(    THROTTLE_LEVER_DOWN()
-            && hfc.throttle_armed
-            && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
-            && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
-          telem.Disarm();
-        }
-
-        if (!pConfig->ctrl_mode_inhibit[COLL])
-        {
-            if (xbus.valuesf[XBUS_THR_SW]>0.5f)
-                hfc.control_mode[COLL] = CTRL_MODE_MANUAL;
-            else if (xbus.valuesf[XBUS_THR_SW]<-0.5f)
-                hfc.control_mode[COLL] = CTRL_MODE_POSITION;
-            else
-                hfc.control_mode[COLL] = CTRL_MODE_SPEED;
-        }
-    }
-
-    /* pitch/rate/yaw mode switches checked only in RCradio mode */
+    /* set RC radio control modes */
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
     {
+      if(    THROTTLE_LEVER_DOWN()
+          && hfc.throttle_armed
+          && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
+          && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
+        telem.Disarm();
+      }
+
+      if (!pConfig->ctrl_mode_inhibit[COLL])
+      {
+          if (xbus.valuesf[XBUS_THR_SW]>0.5f)
+              hfc.control_mode[COLL] = CTRL_MODE_MANUAL;
+          else if (xbus.valuesf[XBUS_THR_SW]<-0.5f)
+              hfc.control_mode[COLL] = CTRL_MODE_POSITION;
+          else
+              hfc.control_mode[COLL] = CTRL_MODE_SPEED;
+      }
+
+      /* pitch/rate/yaw mode switches checked only in RCradio mode */
       int mode;
 
       if (xbus.valuesf[XBUS_MODE_SW] < -0.5f) {
@@ -1872,10 +1869,10 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     T_PlaylistItem *item;
     
     /* single waypoint mode handling - waypoint retire logic */
-    if ((hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D) && hfc->playlist_status==PLAYLIST_STOPPED)
+    if ( (hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT) && (hfc->playlist_status==PLAYLIST_STOPPED) )
     {
         if (retire_waypoint)
-            telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
         return;
     }
     
@@ -2020,7 +2017,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 return;
             }
 
-            telem.SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
             telem.SaveValuesForAbort();
             hfc->waypoint_type = WAYPOINT_TAKEOFF;
 
@@ -2775,7 +2772,7 @@ static void ServoUpdate(float dT)
       hfc.ctrl_out[SPEED][ROLL]  += PathSpeedR; // side component only
       
       /* altitude control - interpolation between waypoints */
-      if (    ( (hfc.ctrl_source == CTRL_SOURCE_AUTO3D) || (hfc.ctrl_source == CTRL_SOURCE_AFSI) )
+      if (    ( (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) || (hfc.ctrl_source == CTRL_SOURCE_AFSI) )
            && hfc.waypoint_type != WAYPOINT_TAKEOFF)
       {
         if (hfc.waypoint_STdist>2)
@@ -2936,7 +2933,7 @@ static void ServoUpdate(float dT)
     }
 
     if (hfc.control_mode[PITCH] >= CTRL_MODE_ANGLE) {
-        if (hfc.control_mode[PITCH] == CTRL_MODE_ANGLE && hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+        if (hfc.control_mode[PITCH] == CTRL_MODE_ANGLE && hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) {
             SetSpeedAcc(&hfc.ctrl_out[ANGLE][PITCH], hfc.ctrl_angle_pitch_3d, pConfig->takeoff_angle_rate, dT);
         }
 
@@ -2949,7 +2946,7 @@ static void ServoUpdate(float dT)
     }
 
     if (hfc.control_mode[ROLL] >= CTRL_MODE_ANGLE) {
-        if (hfc.control_mode[ROLL] == CTRL_MODE_ANGLE && hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+        if (hfc.control_mode[ROLL] == CTRL_MODE_ANGLE && hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) {
             SetSpeedAcc(&hfc.ctrl_out[ANGLE][ROLL], hfc.ctrl_angle_roll_3d, pConfig->takeoff_angle_rate, dT);
         }
 
@@ -3066,7 +3063,7 @@ static void ServoUpdate(float dT)
     }
         
     if (hfc.control_mode[COLL] >= CTRL_MODE_SPEED) {
-        if (hfc.control_mode[COLL] == CTRL_MODE_SPEED && hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+        if (hfc.control_mode[COLL] == CTRL_MODE_SPEED && hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) {
             SetSpeedAcc(&hfc.ctrl_out[SPEED][COLL], hfc.ctrl_vspeed_3d, pConfig->landing_vspeed_acc, dT);
         }
 
@@ -3082,7 +3079,7 @@ static void ServoUpdate(float dT)
       /* RC stick always sets RAW values. In full auto, manual coll needs to be explicitly set here */
       /* this is only for auto takeoff-arm */
       float ctrl = hfc.ctrl_out[RAW][COLL];
-      if (hfc.ctrl_source == CTRL_SOURCE_AUTO3D) {
+      if (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) {
           //ctrl = pConfig->CollZeroAngle;
           SetSpeedAcc(&hfc.ctrl_collective_raw, hfc.ctrl_collective_3d, pConfig->collective_man_speed, dT);
           ctrl = hfc.ctrl_collective_raw;

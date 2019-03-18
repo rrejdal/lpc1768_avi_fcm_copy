@@ -513,7 +513,7 @@ void TelemSerial::Generate_GPS1(int time_ms)
     msg->gps_speed   = Float32toFloat16(gps_data.HspeedC);
     msg->gps_heading = Float32toFloat16(gps_data.courseC);
     for (i=0; i<3; i++) msg->gps_to_home[i]     = Float32toFloat16(hfc->gps_to_home[i]);     // distance/heading/altitude difference
-    if (hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D)
+    if (hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT)
         for (i=0; i<3; i++) msg->gps_to_waypoint[i] = Float32toFloat16(hfc->gps_to_waypoint[i]); // distance/heading/altitude difference
     else
         for (i=0; i<3; i++) msg->gps_to_waypoint[i] = Float32toFloat16(0);
@@ -569,7 +569,7 @@ void TelemSerial::Generate_System2(int time_ms)
     hfc->wind_speed = Wspeed;
     hfc->wind_course = Wcour;
     
-    byte waypoint_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_AUTO2D || hfc->ctrl_source==CTRL_SOURCE_AUTO3D ? 1 : 0;
+    byte waypoint_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT ? 1 : 0;
     byte joystick_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_JOYSTICK ? 1 : 0;
     
     /* payload */
@@ -938,9 +938,7 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
 {
 //    debug_print("Telemetry_SetWaypoint %f %f\r\n", lat, lon);
     /* store stick values for an abort, only the first the waypoint mode is turned on */
-    unsigned char source;
     float Sx, Sy, Tx, Ty;
-//    float prev_STcourse;
     
     hfc->setZeroSpeed = false;
 
@@ -964,28 +962,21 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
 //        prev_STcourse = hfc->IMUorient[YAW]*R2D;  // use current heading
     }
     
-    if (altitude>-9999)  // if altitude present, set source to 3D
-        source = CTRL_SOURCE_AUTO3D;
-    else
-    if (hfc->ctrl_source==CTRL_SOURCE_AUTO3D)   // if already at 3D keep it
-        source = CTRL_SOURCE_AUTO3D;
-    else
-        source = CTRL_SOURCE_AUTO2D;    // 2D otherwise
-
-    SelectCtrlSource(source);
+    SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
     
     hfc->waypoint_retire = wp_retire;
     hfc->waypoint_type = waypoint_type;
 
-    /* turn on horizontal position mode, yaw angle and keep collective and throttle as is */
+    /* turn on horizontal position mode, yaw angle and vertical position mode */
     SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
     SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
     SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-    /* if altitude specified, set collective to position */
+    SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+
+    /* if altitude specified set it, otherwise use the last waypoint's altitude*/
     if (altitude>-9999)
     {
-        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-        hfc->waypoint_pos[2] = hfc->altitude_base + altitude;
+      hfc->waypoint_pos[2] = hfc->altitude_base + altitude;
     }
     hfc->altitude_WPnext = -9999;   // mark as used
     
@@ -1649,8 +1640,8 @@ void TelemSerial::CommandTakeoffArm(void)
     hfc->ctrl_collective_3d  = pConfig->CollZeroAngle;   // target
     
     /* enable fixed control mode */
-    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
-    // it is getting reset by select source !!!!!!!!!!!!!!!!!!!!!!!!!!
+    SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
+    // if the control source changes SelectCtrlSource pauses the play-list status.
     hfc->playlist_status = status;
 
     if (!hfc->afsi_takeoff_enable) {
@@ -1710,7 +1701,7 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
             SetWaypoint(hfc->positionLatLon[0], hfc->positionLatLon[1], -9999, WAYPOINT_GOTO, 0); // need to set altitude to switch to 3D control mode
         }
 
-        SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+        SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
         SetCtrlMode(hfc, pConfig, YAW, CTRL_MODE_ANGLE);
 
         /* if wind strong enough, rotate tail down-wind otherwise just keep the current heading */
@@ -1747,7 +1738,7 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
         /* set vspeed mode and initialize it */
 //            hfc->ctrl_out[SPEED][COLL] = vspeed;
         hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed;
-        SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+        SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
         hfc->waypoint_type  = WAYPOINT_LANDING;
         hfc->waypoint_stage = FM_LANDING_LOW_ALT;
@@ -1971,7 +1962,7 @@ void TelemSerial::ProcessCommands(void)
             }
             else {
               SetZeroSpeed();
-              SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+              SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
             }
         }
     }
@@ -2107,7 +2098,7 @@ void TelemSerial::ProcessCommands(void)
     {
         if (sub_cmd==KILLSWITCH_AUTOROTATE)
         {
-            SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+            SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
             SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
             SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
@@ -2160,7 +2151,7 @@ void TelemSerial::ProcessCommands(void)
 
 int TelemSerial::Accelerate(float acceleration, float time)
 {
-    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+    SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
     float pitch_speed = hfc->ctrl_out[SPEED][PITCH] + (acceleration * time);
     float roll_speed = hfc->ctrl_out[SPEED][ROLL] + (acceleration * time);
@@ -2189,7 +2180,7 @@ int TelemSerial::Accelerate(float acceleration, float time)
 
 void TelemSerial::SetZeroSpeed(void)
 {
-    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+    SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
     /* set speed mode pitch and roll to speed mode
      * yaw to angle mode, and collective to position hold*/
@@ -2245,7 +2236,7 @@ void TelemSerial::SetPositionHold(void)
       hfc->waypoint_stage = tmp_waypoint_stage;
     }
 
-    SelectCtrlSource(CTRL_SOURCE_AUTO3D);
+    SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 }
 
 void TelemSerial::ResetIMU(bool print)
