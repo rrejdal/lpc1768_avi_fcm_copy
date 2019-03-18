@@ -213,9 +213,8 @@
 /* control source, transition from RCradio to anything saves stick values */
 #define CTRL_SOURCE_RCRADIO     0
 #define CTRL_SOURCE_JOYSTICK    1
-#define CTRL_SOURCE_AUTO2D      2   // collective comes from RC radio
-#define CTRL_SOURCE_AUTO3D      3   // everything internally driven
-#define CTRL_SOURCE_AFSI        4   // use serial interface
+#define CTRL_SOURCE_AUTOPILOT   2   // everything internally driven
+#define CTRL_SOURCE_AFSI        3   // use serial interface
 
 /* take off states */
 #define FM_TAKEOFF_NONE         0
