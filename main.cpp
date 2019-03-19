@@ -815,8 +815,13 @@ static void SetRCRadioControl(void)
         }
         else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_COMPLETE))
                  || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
+          // In the case of take off with the RC radio in the loop,
+          // hfc.rc_ctrl_request = true even though hfc.ctrl_source = AUTOPILOT.
+          // This is a necessary state during take off to ensure that expert human pilot
+          // can take control in case of emergency.
+          // Once take off is complete, hfc.rc_ctrl_request must be set to false
           hfc.rc_ctrl_request = false;
-    }
+        }
     }
 
     /* set RC radio control modes */
