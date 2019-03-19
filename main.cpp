@@ -727,7 +727,7 @@ static void SetRCRadioControl(void)
         hfc.rc_ctrl_request = true;
     }
 
-    // if not rc_ctrl_request, ignore all switches, keep storing stick values inc throttle, auto throttle
+    // if not rc_ctrl_request, ignore all switches, keep storing stick values
     if (!hfc.rc_ctrl_request) {
 
       // if not already in AUTOPILOT, then switch to AUTOPILOT
@@ -749,7 +749,7 @@ static void SetRCRadioControl(void)
       return;
     }
 
-    /* this needs to be after full_auto check otherwise takeoff cannot be aborted */
+    /* always ignore RC radio control, cannot switch from AUTOPILOT to RCRADIO */
     if (hfc.inhibitRCswitches) {
         return;
     }
@@ -765,7 +765,7 @@ static void SetRCRadioControl(void)
             || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
             // When in AUTOPILOT, if the throttle lever is not UP, and we are
-            // in the air, then STAY in AUTO 3D and send message to ground station.
+            // in the air, then STAY in AUTOPILOT and send message to ground station.
             if (!THROTTLE_LEVER_UP()) {
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
             }
@@ -1963,7 +1963,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 return;
             }
 
-            /* switch to auto throttle and go to full throttle */
+            /* set the throttle value to spool */
             hfc->throttle_value = pConfig->Stick100range;
 
             if (!hfc->afsi_takeoff_enable) {
@@ -1996,7 +1996,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
 
 //                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 telem.Disarm();
-                /* on takeoff abort, keep in 3D ctrl source with manual coll at the last value,
+                /* on takeoff abort, keep in AUTOPILOT ctrl source with manual coll at the last value,
                  * use final landing timeout to prevent RC radio from instantly changing collective */
                 SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
                 hfc->ctrl_out[RAW][COLL] = pConfig->CollZeroAngle;
@@ -3051,7 +3051,7 @@ static void ServoUpdate(float dT)
         //debug_print("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
     }
     else {
-      /* RC stick always sets RAW values. In full auto, manual coll needs to be explicitly set here */
+      /* RC stick always sets RAW values. In AUTOPILOT, manual coll needs to be explicitly set here */
       /* this is only for auto takeoff-arm */
       float ctrl = hfc.ctrl_out[RAW][COLL];
       if (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) {
