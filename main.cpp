@@ -718,17 +718,17 @@ static void SetAgsControls(void)
   }
 }
 
-static void SetControlMode(void)
+static void SetRCRadioControl(void)
 {
     if (xbus.valuesf[XBUS_CTRLMODE_SW] > 0.5f) {
-        hfc.full_auto = true;
+        hfc.rc_ctrl_request = false;
     }
     else {
-        hfc.full_auto = false;
+        hfc.rc_ctrl_request = true;
     }
 
-    // in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle
-    if (hfc.full_auto) {
+    // if not rc_ctrl_request, ignore all switches, keep storing stick values inc throttle, auto throttle
+    if (!hfc.rc_ctrl_request) {
 
       // if not already in AUTOPILOT, then switch to AUTOPILOT
       if ((hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)) {
@@ -746,7 +746,6 @@ static void SetControlMode(void)
       }
 
       telem.SaveValuesForAbort();
-      hfc.auto_throttle = true;
       return;
     }
 
@@ -768,10 +767,7 @@ static void SetControlMode(void)
             // When in AUTOPILOT, if the throttle lever is not UP, and we are
             // in the air, then STAY in AUTO 3D and send message to ground station.
             if (!THROTTLE_LEVER_UP()) {
-
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
-               hfc.auto_throttle = true;
-               hfc.full_auto = true;
             }
             // Otherwise, pass control to RC RADIO if sticks move
             else {
@@ -802,31 +798,25 @@ static void SetControlMode(void)
           if (!THROTTLE_LEVER_DOWN()) {
 
                // if we are doing a take off, then don't send this dialog to AGS
-               // since the use was just asked to throttle up with the RC lever.
+              // since the user was just asked to throttle up with the RC lever.
                if (hfc.waypoint_type != WAYPOINT_TAKEOFF) {
                  telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
                }
-               hfc.auto_throttle = true;
-               hfc.full_auto = true;
             }
             else {
               abort = 1;
-              hfc.auto_throttle = false;
-              hfc.full_auto = false;
             }
         }
 
         
         if (abort)  {
+          hfc.rc_ctrl_request = true;
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         }
+        else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_COMPLETE))
+                 || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
+          hfc.rc_ctrl_request = false;
     }
-
-    /* if auto throttle in auto mode, switch back to manual throttle on a throttle lever move */
-    if (hfc.auto_throttle)
-    {
-        if (ABS(hfc.ctrl_initial[THRO] - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
-            hfc.auto_throttle = false;
     }
 
     /* set RC radio control modes */
@@ -1974,7 +1964,6 @@ static void ProcessFlightMode(FlightControlData *hfc)
             }
 
             /* switch to auto throttle and go to full throttle */
-            hfc->auto_throttle = true;
             hfc->throttle_value = pConfig->Stick100range;
 
             if (!hfc->afsi_takeoff_enable) {
@@ -2103,6 +2092,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
           // Once our altitude reaches the requested waypoint altitude, Takeoff is complete
           if (hfc->altitude >= hfc->waypoint_pos[2]) {
             hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
+            hfc->rc_ctrl_request = false;
           }
         }
     }
@@ -2243,15 +2233,14 @@ static void ServoUpdateRAW(float dT)
     }
 #endif
 
-    if (!hfc.full_auto && !hfc.throttle_armed) {
-        hfc.auto_throttle = false;
+    if (hfc.rc_ctrl_request && hfc.throttle_armed) {
         hfc.collective_value = xbus.valuesf[XBUS_THRO];
     }
     else {
         hfc.collective_value = 0;
     }
 
-    if (!hfc.auto_throttle) {
+    if (hfc.rc_ctrl_request) {
         hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
     }
     else if (!hfc.throttle_armed) {
@@ -2270,7 +2259,7 @@ static void ServoUpdateRAW(float dT)
         if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
             telem.SaveValuesForAbort();
         }
-        SetControlMode();
+        SetRCRadioControl();
     }
 
     telem.ProcessCommands();
@@ -2422,12 +2411,11 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
 
-    if (hfc.throttle_armed) {
-        if (!hfc.full_auto) {
-            hfc.auto_throttle = false;
-        }
-
-        if (!hfc.auto_throttle) {
+    // This is necessary for the scenario in which takeoff is
+    // Initiated on the AGS when the control source is RC Radio
+    // In that case, the RC Radio can be used to spool up, even
+    // though the control source is AUTOPILOT
+    if (hfc.throttle_armed && hfc.rc_ctrl_request) {
             if (THROTTLE_LEVER_DOWN()) {
                 hfc.throttle_value = -pConfig->Stick100range;
             }
@@ -2435,8 +2423,7 @@ static void ServoUpdate(float dT)
                 hfc.throttle_value = pConfig->Stick100range;
             }
         }
-    }
-    else {
+    else if (!hfc.throttle_armed){
         // Throttle Off
         hfc.throttle_value = -pConfig->Stick100range;
     }
@@ -2469,8 +2456,7 @@ static void ServoUpdate(float dT)
     if(!hfc.throttle_armed) {
         hfc.fixedThrottleMode = THROTTLE_IDLE;      //  set to follow lever
     }
-
-    if (!hfc.full_auto && !hfc.auto_throttle)
+    else if (hfc.rc_ctrl_request && hfc.throttle_armed)
     {
         if (pConfig->throttle_ctrl==PROP_FIXED_PITCH && pConfig->SbusEnable == 1)
         {
@@ -2555,7 +2541,7 @@ static void ServoUpdate(float dT)
             telem.SaveValuesForAbort();
         }
 
-        SetControlMode();
+        SetRCRadioControl();
     }
 
     ProcessStickInputs(&hfc, dT);
@@ -5400,8 +5386,7 @@ void InitializeRuntimeData(void)
     hfc.rw_cfg.throttle_offset = pConfig->throttle_offset;
 
     hfc.command.command = TELEM_CMD_NONE;
-    hfc.full_auto = true;
-    hfc.auto_throttle = true;
+    hfc.rc_ctrl_request = false;
     hfc.playlist_status = PLAYLIST_NONE;
     hfc.display_mode = DISPLAY_SPLASH;
     hfc.control_mode[PITCH] = CTRL_MODE_ANGLE;
