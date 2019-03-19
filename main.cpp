@@ -2092,7 +2092,6 @@ static void ProcessFlightMode(FlightControlData *hfc)
           // Once our altitude reaches the requested waypoint altitude, Takeoff is complete
           if (hfc->altitude >= hfc->waypoint_pos[2]) {
             hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
-            hfc->rc_ctrl_request = false;
           }
         }
     }
@@ -2411,23 +2410,6 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
 
-    // This is necessary for the scenario in which takeoff is
-    // Initiated on the AGS when the control source is RC Radio
-    // In that case, the RC Radio can be used to spool up, even
-    // though the control source is AUTOPILOT
-    if (hfc.throttle_armed && hfc.rc_ctrl_request) {
-            if (THROTTLE_LEVER_DOWN()) {
-                hfc.throttle_value = -pConfig->Stick100range;
-            }
-            else if (THROTTLE_LEVER_UP()) {
-                hfc.throttle_value = pConfig->Stick100range;
-            }
-        }
-    else if (!hfc.throttle_armed){
-        // Throttle Off
-        hfc.throttle_value = -pConfig->Stick100range;
-    }
-
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
 
@@ -2455,9 +2437,21 @@ static void ServoUpdate(float dT)
     // RVW throttle stick to collective logic section
     if(!hfc.throttle_armed) {
         hfc.fixedThrottleMode = THROTTLE_IDLE;      //  set to follow lever
+        hfc.throttle_value = -pConfig->Stick100range; // Throttle off
     }
     else if (hfc.rc_ctrl_request && hfc.throttle_armed)
     {
+        // This is necessary for the scenario in which takeoff is
+        // Initiated on the AGS when the control source is RC Radio
+        // In that case, the RC Radio can be used to spool up, even
+        // though the control source is AUTOPILOT
+        if (THROTTLE_LEVER_DOWN()) {
+          hfc.throttle_value = -pConfig->Stick100range;
+        }
+        else if (THROTTLE_LEVER_UP()) {
+          hfc.throttle_value = pConfig->Stick100range;
+        }
+
         if (pConfig->throttle_ctrl==PROP_FIXED_PITCH && pConfig->SbusEnable == 1)
         {
             // throttle follows xbus stick position
