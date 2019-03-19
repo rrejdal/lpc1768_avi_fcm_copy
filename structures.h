@@ -212,9 +212,9 @@
 
 /* control source, transition from RCradio to anything saves stick values */
 #define CTRL_SOURCE_RCRADIO     0
-#define CTRL_SOURCE_JOYSTICK    1
-#define CTRL_SOURCE_AUTOPILOT   2   // everything internally driven
-#define CTRL_SOURCE_AFSI        3   // use serial interface
+#define CTRL_SOURCE_JOYSTICK    1   // 2 is skipped to keep compatibility with Release v.4.01 AGS
+#define CTRL_SOURCE_AUTOPILOT   3   // everything internally driven
+#define CTRL_SOURCE_AFSI        4   // use serial interface
 
 /* take off states */
 #define FM_TAKEOFF_NONE         0
@@ -966,8 +966,7 @@ typedef struct
     unsigned char throttle_armed;    // enables throttle
     unsigned char waypoint_stage;    // current stage of takeoff/landing WP
 
-    unsigned char full_auto;			// NOT responding to changes in RC Radio inputs
-    unsigned char auto_throttle;		// throttle is controlled internally in auto-throttle, as opposed to using RC throttle lever
+    unsigned char rc_ctrl_request;			// Responding to changes in RC Radio inputs
     unsigned char ctrl_source;          // selects source of control - rc, joy, auto....
     unsigned char prev_ctrl_source;     // state of last ctrl source
     unsigned char inhibitRCswitches;    // inhibits RC radio mode switches, needed during takeoff

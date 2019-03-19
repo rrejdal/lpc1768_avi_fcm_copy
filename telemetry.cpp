@@ -604,7 +604,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 
     msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
-                            | ((hfc->playlist_status&0x3)<<4) | ((hfc->full_auto&1)<<6) | ((hfc->auto_throttle&1)<<7);
+                            | ((hfc->playlist_status&0x3)<<4) | ((hfc->rc_ctrl_request&1)<<6) | ((0)<<7);
 
     msg->playlist_items    = hfc->playlist_items;
     msg->playlist_position = hfc->playlist_position;
@@ -1646,7 +1646,7 @@ void TelemSerial::CommandTakeoffArm(void)
 
     if (!hfc->afsi_takeoff_enable) {
         /* send message that to prepare radio and spool up */
-        if (hfc->full_auto ) {
+        if (!hfc->rc_ctrl_request ) {
             SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
         }
         else {
@@ -1654,7 +1654,7 @@ void TelemSerial::CommandTakeoffArm(void)
         }
     }
     else {
-        hfc->full_auto = true;
+        hfc->rc_ctrl_request = false;
     }
     
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
@@ -1664,7 +1664,7 @@ void TelemSerial::CommandTakeoffArm(void)
       hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
     }
     else {
-      if (hfc->full_auto) {
+      if (!hfc->rc_ctrl_request) {
         hfc->waypoint_stage  = FM_TAKEOFF_NONE;
       }
       else {
@@ -2084,7 +2084,7 @@ void TelemSerial::ProcessCommands(void)
                 hfc->message_timeout += 60000000;   // add 60sec, only once to prevent multiple messages to keep incrementing, until TCPIP works
         }
         else if (sub_cmd == CMD_MSG_TAKEOFF_OK) {
-          if (hfc->full_auto) {
+          if (!hfc->rc_ctrl_request) {
                   hfc->waypoint_stage = FM_TAKEOFF_AUTO_SPOOL;
                   hfc->message_timeout =60000000;    // 60 seconds
                   hfc->message_from_ground = sub_cmd;
@@ -2106,7 +2106,7 @@ void TelemSerial::ProcessCommands(void)
             hfc->ctrl_angle_pitch_3d    = 0;
             hfc->ctrl_angle_roll_3d     = 0;
             hfc->ctrl_out[RAW][COLL]    = pConfig->CollAngleAutoRotate;
-            hfc->auto_throttle          = true;
+            hfc->rc_ctrl_request        = false;
             hfc->throttle_value         = -pConfig->Stick100range;
         }
     }

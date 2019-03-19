@@ -718,17 +718,17 @@ static void SetAgsControls(void)
   }
 }
 
-static void SetControlMode(void)
+static void SetRCRadioControl(void)
 {
     if (xbus.valuesf[XBUS_CTRLMODE_SW] > 0.5f) {
-        hfc.full_auto = true;
+        hfc.rc_ctrl_request = false;
     }
     else {
-        hfc.full_auto = false;
+        hfc.rc_ctrl_request = true;
     }
 
-    // in full auto mode, ignore all switches, keep storing stick values inc throttle, auto throttle
-    if (hfc.full_auto) {
+    // if not rc_ctrl_request, ignore all switches, keep storing stick values
+    if (!hfc.rc_ctrl_request) {
 
       // if not already in AUTOPILOT, then switch to AUTOPILOT
       if ((hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)) {
@@ -746,11 +746,10 @@ static void SetControlMode(void)
       }
 
       telem.SaveValuesForAbort();
-      hfc.auto_throttle = true;
       return;
     }
 
-    /* this needs to be after full_auto check otherwise takeoff cannot be aborted */
+    /* always ignore RC radio control, cannot switch from AUTOPILOT to RCRADIO */
     if (hfc.inhibitRCswitches) {
         return;
     }
@@ -766,12 +765,9 @@ static void SetControlMode(void)
             || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
 
             // When in AUTOPILOT, if the throttle lever is not UP, and we are
-            // in the air, then STAY in AUTO 3D and send message to ground station.
+            // in the air, then STAY in AUTOPILOT and send message to ground station.
             if (!THROTTLE_LEVER_UP()) {
-
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
-               hfc.auto_throttle = true;
-               hfc.full_auto = true;
             }
             // Otherwise, pass control to RC RADIO if sticks move
             else {
@@ -802,31 +798,30 @@ static void SetControlMode(void)
           if (!THROTTLE_LEVER_DOWN()) {
 
                // if we are doing a take off, then don't send this dialog to AGS
-               // since the use was just asked to throttle up with the RC lever.
+              // since the user was just asked to throttle up with the RC lever.
                if (hfc.waypoint_type != WAYPOINT_TAKEOFF) {
                  telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
                }
-               hfc.auto_throttle = true;
-               hfc.full_auto = true;
             }
             else {
               abort = 1;
-              hfc.auto_throttle = false;
-              hfc.full_auto = false;
             }
         }
 
         
         if (abort)  {
+            hfc.rc_ctrl_request = true;
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
         }
-    }
-
-    /* if auto throttle in auto mode, switch back to manual throttle on a throttle lever move */
-    if (hfc.auto_throttle)
-    {
-        if (ABS(hfc.ctrl_initial[THRO] - xbus.valuesf[XBUS_THR_LV]) > AUTO_PROF_TERMINATE_THRS)
-            hfc.auto_throttle = false;
+        else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_COMPLETE))
+                 || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
+          // In the case of take off with the RC radio in the loop,
+          // hfc.rc_ctrl_request = true even though hfc.ctrl_source = AUTOPILOT.
+          // This is a necessary state during take off to ensure that expert human pilot
+          // can take control in case of emergency.
+          // Once take off is complete, hfc.rc_ctrl_request must be set to false
+          hfc.rc_ctrl_request = false;
+        }
     }
 
     /* set RC radio control modes */
@@ -1973,8 +1968,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
                 return;
             }
 
-            /* switch to auto throttle and go to full throttle */
-            hfc->auto_throttle = true;
+            /* set the throttle value to spool */
             hfc->throttle_value = pConfig->Stick100range;
 
             if (!hfc->afsi_takeoff_enable) {
@@ -2007,7 +2001,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
 
 //                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 telem.Disarm();
-                /* on takeoff abort, keep in 3D ctrl source with manual coll at the last value,
+                /* on takeoff abort, keep in AUTOPILOT ctrl source with manual coll at the last value,
                  * use final landing timeout to prevent RC radio from instantly changing collective */
                 SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
                 hfc->ctrl_out[RAW][COLL] = pConfig->CollZeroAngle;
@@ -2243,15 +2237,14 @@ static void ServoUpdateRAW(float dT)
     }
 #endif
 
-    if (!hfc.full_auto && !hfc.throttle_armed) {
-        hfc.auto_throttle = false;
+    if (hfc.rc_ctrl_request && hfc.throttle_armed) {
         hfc.collective_value = xbus.valuesf[XBUS_THRO];
     }
     else {
         hfc.collective_value = 0;
     }
 
-    if (!hfc.auto_throttle) {
+    if (hfc.rc_ctrl_request) {
         hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
     }
     else if (!hfc.throttle_armed) {
@@ -2270,7 +2263,7 @@ static void ServoUpdateRAW(float dT)
         if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
             telem.SaveValuesForAbort();
         }
-        SetControlMode();
+        SetRCRadioControl();
     }
 
     telem.ProcessCommands();
@@ -2422,25 +2415,6 @@ static void ServoUpdate(float dT)
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
 
-    if (hfc.throttle_armed) {
-        if (!hfc.full_auto) {
-            hfc.auto_throttle = false;
-        }
-
-        if (!hfc.auto_throttle) {
-            if (THROTTLE_LEVER_DOWN()) {
-                hfc.throttle_value = -pConfig->Stick100range;
-            }
-            else if (THROTTLE_LEVER_UP()) {
-                hfc.throttle_value = pConfig->Stick100range;
-            }
-        }
-    }
-    else {
-        // Throttle Off
-        hfc.throttle_value = -pConfig->Stick100range;
-    }
-
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
 
 
@@ -2468,10 +2442,21 @@ static void ServoUpdate(float dT)
     // RVW throttle stick to collective logic section
     if(!hfc.throttle_armed) {
         hfc.fixedThrottleMode = THROTTLE_IDLE;      //  set to follow lever
+        hfc.throttle_value = -pConfig->Stick100range; // Throttle off
     }
-
-    if (!hfc.full_auto && !hfc.auto_throttle)
+    else if (hfc.rc_ctrl_request && hfc.throttle_armed)
     {
+        // This is necessary for the scenario in which takeoff is
+        // Initiated on the AGS when the control source is RC Radio
+        // In that case, the RC Radio can be used to spool up, even
+        // though the control source is AUTOPILOT
+        if (THROTTLE_LEVER_DOWN()) {
+          hfc.throttle_value = -pConfig->Stick100range;
+        }
+        else if (THROTTLE_LEVER_UP()) {
+          hfc.throttle_value = pConfig->Stick100range;
+        }
+
         if (pConfig->throttle_ctrl==PROP_FIXED_PITCH && pConfig->SbusEnable == 1)
         {
             // throttle follows xbus stick position
@@ -2555,7 +2540,7 @@ static void ServoUpdate(float dT)
             telem.SaveValuesForAbort();
         }
 
-        SetControlMode();
+        SetRCRadioControl();
     }
 
     ProcessStickInputs(&hfc, dT);
@@ -2563,6 +2548,11 @@ static void ServoUpdate(float dT)
     if (pConfig->throttle_ctrl == PROP_VARIABLE_PITCH) {
         hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)
                                         * pConfig->throttle_values[1] + pConfig->throttle_values[0];
+    }
+
+    // set heading to the IMU's heading for throttle stick below -0.55, kind of like Landed mode detection
+    if (hfc.throttle_value < -0.55f) {
+        hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
     }
 
     //Profiling_Process(&hfc, pConfig);
@@ -2602,16 +2592,6 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[ANGLE][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.PRstick_angle  + hfc.pid_RollSpeed.COofs;
         hfc.ctrl_out[RAW][ROLL]   += hfc.pid_RollRate.COofs;
 
-        // hfc.ctrl_out[SPEED][PITCH] =-hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed;
-        // hfc.ctrl_out[SPEED][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed;
-    }
-    
-    // set heading to the IMU's heading for throttle stick below -0.55, kind of like Landed mode detection
-    if (hfc.throttle_value < -0.55f) {
-        hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
-    }
-
-    if ( (hfc.ctrl_source == CTRL_SOURCE_RCRADIO) || (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ) {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
@@ -3076,7 +3056,7 @@ static void ServoUpdate(float dT)
         //debug_print("%4.2f %4.2f %4.2f %5.3f - ", hfc.ctrl_out[RAW][COLL], hfc.ctrl_out[SPEED][COLL], hfc.IMUspeedGroundENU[UP], dT);
     }
     else {
-      /* RC stick always sets RAW values. In full auto, manual coll needs to be explicitly set here */
+      /* RC stick always sets RAW values. In AUTOPILOT, manual coll needs to be explicitly set here */
       /* this is only for auto takeoff-arm */
       float ctrl = hfc.ctrl_out[RAW][COLL];
       if (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) {
@@ -5400,8 +5380,7 @@ void InitializeRuntimeData(void)
     hfc.rw_cfg.throttle_offset = pConfig->throttle_offset;
 
     hfc.command.command = TELEM_CMD_NONE;
-    hfc.full_auto = true;
-    hfc.auto_throttle = true;
+    hfc.rc_ctrl_request = false;
     hfc.playlist_status = PLAYLIST_NONE;
     hfc.display_mode = DISPLAY_SPLASH;
     hfc.control_mode[PITCH] = CTRL_MODE_ANGLE;

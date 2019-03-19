@@ -643,7 +643,7 @@ void AFSI_Serial::GenerateFcmStatus(void)
                                    ( ( (!hfc.throttle_armed) & 1   ) << 2 ) |
                                    (     (joystick_ctrl_mode & 1   ) << 3 ) |
                                    (   ( hfc.playlist_status & 0x3 ) << 4 ) |
-                                   (         ( hfc.full_auto & 1   ) << 6 );
+                                   (   ( hfc.rc_ctrl_request & 1   ) << 6 );
 
     GetCRC( (uint8_t*)&(msg_stat_fcm.hdr.msg_class),
             msg_stat_fcm.hdr.len + AFSI_HEADER_LEN,
