@@ -2545,6 +2545,11 @@ static void ServoUpdate(float dT)
                                         * pConfig->throttle_values[1] + pConfig->throttle_values[0];
     }
 
+    // set heading to the IMU's heading for throttle stick below -0.55, kind of like Landed mode detection
+    if (hfc.throttle_value < -0.55f) {
+        hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
+    }
+
     //Profiling_Process(&hfc, pConfig);
 
     if (hfc.ctrl_source == CTRL_SOURCE_RCRADIO || hfc.ctrl_source == CTRL_SOURCE_JOYSTICK)
@@ -2582,16 +2587,6 @@ static void ServoUpdate(float dT)
         hfc.ctrl_out[ANGLE][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.PRstick_angle  + hfc.pid_RollSpeed.COofs;
         hfc.ctrl_out[RAW][ROLL]   += hfc.pid_RollRate.COofs;
 
-        // hfc.ctrl_out[SPEED][PITCH] =-hfc.ctrl_out[RAW][PITCH]*hfc.Stick_Hspeed;
-        // hfc.ctrl_out[SPEED][ROLL]  = hfc.ctrl_out[RAW][ROLL]*hfc.Stick_Hspeed;
-    }
-    
-    // set heading to the IMU's heading for throttle stick below -0.55, kind of like Landed mode detection
-    if (hfc.throttle_value < -0.55f) {
-        hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
-    }
-
-    if ( (hfc.ctrl_source == CTRL_SOURCE_RCRADIO) || (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ) {
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
