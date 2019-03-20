@@ -2143,7 +2143,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 //            float CO_thr = 0.7f*hfc->pid_CollVspeed.COofs + 0.3f*hfc->CollZeroAngle;
 //            if (hfc->pid_CollVspeed.COlast < CO_thr)
             /* heli coming down, switch to rate mode once below 0.1m */
-            if (hfc->altitude_lidar < 0.2f)
+            if (hfc->altitude_lidar < LANDING_THRESHOLD_HEIGHT)
             {
                 /* set PRY controls to rate */
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
@@ -2160,7 +2160,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
                 hfc->waypoint_stage = FM_LANDING_TOUCHDOWN;
 
                 if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
-                  hfc->landing_timeout = 0.2f / hfc->ctrl_vspeed_3d; // in seconds
+                  hfc->landing_timeout = LANDING_THRESHOLD_HEIGHT / hfc->ctrl_vspeed_3d; // in seconds
                 }
             }
         }
@@ -2169,9 +2169,32 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         {
             hfc->landing_timeout -= dT;
 
-            if ((pConfig->throttle_ctrl==PROP_FIXED_PITCH) && (hfc->landing_timeout <= 0)) {
+            if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+
+            }
+            if (hfc->landing_timeout <= 0) {
               telem.Disarm();
             }
+            else {
+              //   new speed = current speed - (acceleration*time)
+              //   new speed -= (acceleration*time)
+              //      acceleration = (Vinital - Vfinal)/(time to land)
+              //      acceleration = (Vinital - 0)/(time to land)
+              //      acceleration = Vinital /(time to land)
+              //      acceleration = (initial vertical speed) /(time to land)
+              //          initial vertical speed = -pConfig->landing_vspeed*0.6f
+              //          time to land = (initial_height - final_height) / vertical speed
+              //          time to land = (initial_height - 0) / (initial vertical speed)
+              //          time to land = LANDING_THRESHOLD_HEIGHT / (initial vertical speed)
+              //          time to land = LANDING_THRESHOLD_HEIGHT / (pConfig->landing_vspeed*0.6f)
+              //      acceleration = (-pConfig->landing_vspeed*0.6f) /(LANDING_THRESHOLD_HEIGHT / (pConfig->landing_vspeed*0.6f))
+              //      acceleration = (-pConfig->landing_vspeed*0.6f)*(-pConfig->landing_vspeed*0.6f) / LANDING_THRESHOLD_HEIGHT
+              //      time = dT
+              //   new_speed -= ((-pConfig->landing_vspeed*0.6f*pConfig->landing_vspeed*0.6f) / LANDING_THRESHOLD_HEIGHT)*dT
+              //                              (initial speed     / time to land)  * current time
+              hfc->ctrl_vspeed_3d -= ((-pConfig->landing_vspeed*0.6f*pConfig->landing_vspeed*0.6f) / LANDING_THRESHOLD_HEIGHT)*dT;
+            }
+           }
 
             /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
             if (hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
