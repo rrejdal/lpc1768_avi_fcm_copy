@@ -727,11 +727,11 @@ static void SetRCRadioControl(void)
         hfc.rc_ctrl_request = true;
     }
 
-    // if not rc_ctrl_request, ignore all switches, keep storing stick values
+    // if not rc_ctrl_request, ignore all RC Radio inputs, keep storing stick values
     if (!hfc.rc_ctrl_request) {
 
       // if not already in AUTOPILOT, then switch to AUTOPILOT
-      if ((hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)) {
+      if ((hfc.ctrl_source != CTRL_SOURCE_AUTOPILOT)) {
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
@@ -1936,7 +1936,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 }
 
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
-static void ProcessFlightMode(FlightControlData *hfc)
+static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
     //GpsData gps_data = gps.GetGpsData();
 
@@ -2158,11 +2158,21 @@ static void ProcessFlightMode(FlightControlData *hfc)
 //                if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
                 hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed*0.6f;
                 hfc->waypoint_stage = FM_LANDING_TOUCHDOWN;
+
+                if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+                  hfc->landing_timeout = 0.2f / hfc->ctrl_vspeed_3d; // in seconds
+                }
             }
         }
         else
         if (hfc->waypoint_stage == FM_LANDING_TOUCHDOWN)
         {
+            hfc->landing_timeout -= dT;
+
+            if ((pConfig->throttle_ctrl==PROP_FIXED_PITCH) && (hfc->landing_timeout <= 0)) {
+              telem.Disarm();
+            }
+
             /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
             if (hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
             {
@@ -2175,8 +2185,9 @@ static void ProcessFlightMode(FlightControlData *hfc)
                   hfc->playlist_position++;
                   hfc->playlist_status = PLAYLIST_STOPPED;
                 }
+
                 telem.Disarm();
-                }
+           }
         }
     }
 }
@@ -2621,7 +2632,7 @@ static void ServoUpdate(float dT)
     }
 
     // processes staged waypoints - takeoff, landing, ... etc
-    ProcessFlightMode(&hfc);
+    ProcessFlightMode(&hfc,dT);
 
 #ifdef LCD_ENABLED
     Display_Process(&hfc, xbus_new_values, dT);

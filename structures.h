@@ -1041,12 +1041,12 @@ typedef struct
     float servos_out[8];        // values going to servos (P(A), R(B), Y, C, T)
     float ctrl_yaw_rate;        // stores actual yaw rate for auto banking
     float dyn_yaw_rate;			// yaw rate during playlist turns in heli mode
-    float ctrl_vspeed_3d;		// set vspeed in auto3D mode when collective is in vspeed mode, for auto takeoff/landing
+    float ctrl_vspeed_3d;		// set vspeed in AUTOPILOT mode when collective is in vspeed mode, for auto takeoff/landing
     float collective_raw_curr;  // current raw collective value
-    float ctrl_collective_3d;   // target collective in auto3D mode when mode is raw collective, for takeoff/landing
-    float ctrl_collective_raw;  // current collective value in auto3D mode
-    float ctrl_angle_pitch_3d;	// set angle pitch in auto3D mode when pitch is in angle mode, for auto takeoff
-    float ctrl_angle_roll_3d;	// set angle roll in auto3D mode when roll is in angle mode, for auto takeoff
+    float ctrl_collective_3d;   // target collective in AUTOPILOT mode when mode is raw collective, for takeoff/landing
+    float ctrl_collective_raw;  // current collective value in AUTOPILOT mode
+    float ctrl_angle_pitch_3d;	// set angle pitch in AUTOPILOT mode when pitch is in angle mode, for auto takeoff
+    float ctrl_angle_roll_3d;	// set angle roll in AUTOPILOT mode when roll is in angle mode, for auto takeoff
     float acc_dyn_turns;		// speed adjusted acceleration during turns
     float throttle_value;		// throttle value in manual/auto modes
     float throttle_offset;      // offset for fine tuning of RPM
@@ -1100,6 +1100,7 @@ typedef struct
 
     float takeoff_height;               // height to achieve during takeoff
     float landingWPHeight;              // height to achieve when reaching a landing WP.
+    float landing_timeout;
 
 
     float heading;
