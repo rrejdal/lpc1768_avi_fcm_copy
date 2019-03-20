@@ -973,11 +973,14 @@ void TelemSerial::SetWaypoint(float lat, float lon, float altitude, unsigned cha
     SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
     SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
 
-    /* if altitude specified set it, otherwise use the last waypoint's altitude*/
-    if (altitude>-9999)
-    {
+    /* if altitude specified set it, otherwise use the UAVs current altitude*/
+    if (altitude>-9999) {
       hfc->waypoint_pos[2] = hfc->altitude_base + altitude;
     }
+    else {
+      hfc->waypoint_pos[2] = hfc->altitude;
+    }
+
     hfc->altitude_WPnext = -9999;   // mark as used
     
     hfc->distance2WP_min = 999999;
