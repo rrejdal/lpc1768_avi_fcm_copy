@@ -812,6 +812,7 @@ static void SetRCRadioControl(void)
         if (abort)  {
             hfc.rc_ctrl_request = true;
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            hfc.waypoint_type = WAYPOINT_NONE;
         }
         else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_COMPLETE))
                  || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
