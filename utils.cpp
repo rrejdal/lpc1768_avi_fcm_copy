@@ -300,8 +300,10 @@ case LOG_PARAM_ALTITUDE:            // altitude [CTRL / current IMU / lidar] in 
             value = Float32toFloat16(hfc->ctrl_out[POS][COLL]);
         else if (index==1)
             value = Float32toFloat16(hfc->altitude);
-        else
+        else if (index==2)
             value = Float32toFloat16(hfc->altitude_lidar);
+        else
+            value = Float32toFloat16(hfc->altitude_lidar_raw);
         break;
 case LOG_PARAM_GROUND_SPEED:        // ground speed in m/s [total/E/N/U] (f16)
         if (index==0)
