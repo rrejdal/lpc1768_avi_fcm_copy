@@ -247,7 +247,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                 valuesf[3] = 0;         // XBUS_YAW, 0 heading change
                 valuesf[4] = -0.571f;   // XBUS_THR_SW, altitude hold
                 valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
-                valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
+                valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, set RC Radio ctrl request
                 valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
 
                 sync = true;

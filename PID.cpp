@@ -38,7 +38,10 @@ void PID_P_Acc_Init(T_PID *pid, const float params[5], char clip360, char decel)
   pid->COofs = 0;
 }
 
-/* diff is dPV/dT */
+/* diff is dPV/dT
+ * SP = Set Point
+ * PV = ___ Variable
+ * CO = Correcting Offset*/
 float PID(T_PID *pid, float SP, float PV, float dT)
 {
   float CO;

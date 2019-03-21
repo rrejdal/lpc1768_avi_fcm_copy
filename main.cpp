@@ -727,11 +727,11 @@ static void SetRCRadioControl(void)
         hfc.rc_ctrl_request = true;
     }
 
-    // if not rc_ctrl_request, ignore all switches, keep storing stick values
+    // if not rc_ctrl_request, ignore all RC Radio inputs, keep storing stick values
     if (!hfc.rc_ctrl_request) {
 
       // if not already in AUTOPILOT, then switch to AUTOPILOT
-      if ((hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)) {
+      if ((hfc.ctrl_source != CTRL_SOURCE_AUTOPILOT)) {
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
@@ -812,6 +812,7 @@ static void SetRCRadioControl(void)
         if (abort)  {
             hfc.rc_ctrl_request = true;
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
+            hfc.waypoint_type = WAYPOINT_NONE;
         }
         else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_COMPLETE))
                  || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
@@ -829,7 +830,6 @@ static void SetRCRadioControl(void)
     {
       if(    THROTTLE_LEVER_DOWN()
           && hfc.throttle_armed
-          && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
           && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
         telem.Disarm();
       }
@@ -1936,7 +1936,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 }
 
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
-static void ProcessFlightMode(FlightControlData *hfc)
+static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
     //GpsData gps_data = gps.GetGpsData();
 
@@ -2143,7 +2143,7 @@ static void ProcessFlightMode(FlightControlData *hfc)
 //            float CO_thr = 0.7f*hfc->pid_CollVspeed.COofs + 0.3f*hfc->CollZeroAngle;
 //            if (hfc->pid_CollVspeed.COlast < CO_thr)
             /* heli coming down, switch to rate mode once below 0.1m */
-            if (hfc->altitude_lidar < 0.2f)
+            if (hfc->altitude_lidar < LANDING_THRESHOLD_HEIGHT)
             {
                 /* set PRY controls to rate */
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
@@ -2158,25 +2158,45 @@ static void ProcessFlightMode(FlightControlData *hfc)
 //                if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
                 hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed*0.6f;
                 hfc->waypoint_stage = FM_LANDING_TOUCHDOWN;
+
+                if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+                  hfc->landing_timeout = LANDING_THRESHOLD_HEIGHT / hfc->ctrl_vspeed_3d; // in seconds
+                }
             }
         }
         else
         if (hfc->waypoint_stage == FM_LANDING_TOUCHDOWN)
         {
+          hfc->landing_timeout -= dT;
+
+          if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+            // wait for timeout to expire
+            if (hfc->landing_timeout <= 0) {
+              //Now decay the manual collective as fast as possible based on config
+              SetCtrlMode(hfc, pConfig, COLL, CTRL_MODE_MANUAL);
+              hfc->ctrl_collective_3d -= pConfig->collective_man_speed*dT;
+
+              if (hfc->ctrl_out[RAW][COLL] <= hfc->pid_CollVspeed.COmin) {
+                telem.Disarm();
+              }
+            }
+          }
+          else {
             /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
             if (hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
             {
-                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
-                hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
-                hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
-                hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
+              SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+              hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
+              hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
+              hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
 
-                if (hfc->playlist_status == PLAYLIST_PLAYING) {
-                  hfc->playlist_position++;
-                  hfc->playlist_status = PLAYLIST_STOPPED;
-                }
-                telem.Disarm();
-                }
+              if (hfc->playlist_status == PLAYLIST_PLAYING) {
+                hfc->playlist_position++;
+                hfc->playlist_status = PLAYLIST_STOPPED;
+              }
+              telem.Disarm();
+            }
+          }
         }
     }
 }
@@ -2621,7 +2641,7 @@ static void ServoUpdate(float dT)
     }
 
     // processes staged waypoints - takeoff, landing, ... etc
-    ProcessFlightMode(&hfc);
+    ProcessFlightMode(&hfc,dT);
 
 #ifdef LCD_ENABLED
     Display_Process(&hfc, xbus_new_values, dT);
@@ -5340,7 +5360,6 @@ void InitializeRuntimeData(void)
 
     hfc.dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
     hfc.ctrl_source = pConfig->default_ctrl_source;
-    hfc.prev_ctrl_source = hfc.ctrl_source;
     hfc.acc_dyn_turns = pConfig->default_acc_dyn_turns;
 
     for (int i = 0; i < 3; i++) {

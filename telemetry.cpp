@@ -877,10 +877,10 @@ void TelemSerial::SelectCtrlSource(byte source)
       hfc->telem_ctrl_period = 0;
     }
     
-    // Update prev_ctrl_source if our source has changed.
+    // Update ctrl_source if it's different
     /* stop playlist and clear waypoint when going manual, set vspeed limit to max */
-    if (hfc->prev_ctrl_source != source) {
-      hfc->prev_ctrl_source = source;
+    if (hfc->ctrl_source != source) {
+      hfc->ctrl_source = source;
     	ApplyDefaults();
 
         hfc->ctrl_out[POS][COLL] = hfc->altitude;
@@ -897,8 +897,6 @@ void TelemSerial::SelectCtrlSource(byte source)
     }
     
     hfc->telem_ctrl_period = max(hfc->telem_ctrl_period, pConfig->telem_min_ctrl_period*1000);
-
-    hfc->ctrl_source = source;
 }
 
 void TelemSerial::CalcDynYawRate(void)
