@@ -830,7 +830,6 @@ static void SetRCRadioControl(void)
     {
       if(    THROTTLE_LEVER_DOWN()
           && hfc.throttle_armed
-          && (hfc.prev_ctrl_source == CTRL_SOURCE_RCRADIO)
           && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
         telem.Disarm();
       }
