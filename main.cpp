@@ -136,6 +136,7 @@ const ConfigData *pConfig = NULL;
 
 Lidar_Data lidarData[MAX_NUM_LIDAR];
 #define MAX_LIDAR_PULSE 40000   // 40m max range; 10us/cm PWM
+#define MIN_LIDAR_PULSE     0   // 40m max range; 10us/cm PWM
 
 typedef struct {
     uint8_t major_version;
@@ -3411,7 +3412,7 @@ static void UpdateLidarHeight(int node_id, int lidarCount)
     float alt_avg = 0;
     static int lidar_mask = 0;
 
-    pulse = min(MAX_LIDAR_PULSE, max(0, (lidarCount - pConfig->lidar_offset)));
+    pulse = min(MAX_LIDAR_PULSE, max(0, lidarCount));
 
     lidarData[node_id].alt[0] = pulse * 0.001f;
     lidar_mask |= (1<< node_id);
@@ -3419,15 +3420,16 @@ static void UpdateLidarHeight(int node_id, int lidarCount)
     if (pConfig->num_servo_nodes == 2) {
         if (lidar_mask == 3) {
             alt_avg = (lidarData[0].alt[0] + lidarData[1].alt[0]) / 2.0f;
+            alt_avg = max(MIN_LIDAR_PULSE, alt_avg-(pConfig->lidar_offset/1000.0f));
             hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
             lidar_mask = 0;
         }
     }
     else {
         alt_avg = lidarData[node_id].alt[0];
+        alt_avg = max(MIN_LIDAR_PULSE, alt_avg-(pConfig->lidar_offset/1000.0f));
         hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
     }
-
 }
 
 /* ***************************************************************************
