@@ -2167,50 +2167,36 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         else
         if (hfc->waypoint_stage == FM_LANDING_TOUCHDOWN)
         {
-            hfc->landing_timeout -= dT;
+          hfc->landing_timeout -= dT;
 
-            if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
-
-            }
+          if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+            // wait for timeout to expire
             if (hfc->landing_timeout <= 0) {
-              telem.Disarm();
-            }
-            else {
-              //   new speed = current speed - (acceleration*time)
-              //   new speed -= (acceleration*time)
-              //      acceleration = (Vinital - Vfinal)/(time to land)
-              //      acceleration = (Vinital - 0)/(time to land)
-              //      acceleration = Vinital /(time to land)
-              //      acceleration = (initial vertical speed) /(time to land)
-              //          initial vertical speed = -pConfig->landing_vspeed*0.6f
-              //          time to land = (initial_height - final_height) / vertical speed
-              //          time to land = (initial_height - 0) / (initial vertical speed)
-              //          time to land = LANDING_THRESHOLD_HEIGHT / (initial vertical speed)
-              //          time to land = LANDING_THRESHOLD_HEIGHT / (pConfig->landing_vspeed*0.6f)
-              //      acceleration = (-pConfig->landing_vspeed*0.6f) /(LANDING_THRESHOLD_HEIGHT / (pConfig->landing_vspeed*0.6f))
-              //      acceleration = (-pConfig->landing_vspeed*0.6f)*(-pConfig->landing_vspeed*0.6f) / LANDING_THRESHOLD_HEIGHT
-              //      time = dT
-              //   new_speed -= ((-pConfig->landing_vspeed*0.6f*pConfig->landing_vspeed*0.6f) / LANDING_THRESHOLD_HEIGHT)*dT
-              //                              (initial speed     / time to land)  * current time
-              hfc->ctrl_vspeed_3d -= ((-pConfig->landing_vspeed*0.6f*pConfig->landing_vspeed*0.6f) / LANDING_THRESHOLD_HEIGHT)*dT;
-            }
-           }
+              //Now decay the manual collective as fast as possible based on config
+              SetCtrlMode(hfc, pConfig, COLL, CTRL_MODE_MANUAL);
+              hfc->ctrl_collective_3d -= pConfig->collective_man_speed*dT;
 
+              if (hfc->ctrl_out[RAW][COLL] <= hfc->pid_CollVspeed.COmin) {
+                telem.Disarm();
+              }
+            }
+          }
+          else {
             /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
             if (hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
             {
-                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
-                hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
-                hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
-                hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
+              SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+              hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
+              hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
+              hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
 
-                if (hfc->playlist_status == PLAYLIST_PLAYING) {
-                  hfc->playlist_position++;
-                  hfc->playlist_status = PLAYLIST_STOPPED;
-                }
-
-                telem.Disarm();
-           }
+              if (hfc->playlist_status == PLAYLIST_PLAYING) {
+                hfc->playlist_position++;
+                hfc->playlist_status = PLAYLIST_STOPPED;
+              }
+              telem.Disarm();
+            }
+          }
         }
     }
 }
