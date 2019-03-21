@@ -136,7 +136,7 @@ const ConfigData *pConfig = NULL;
 
 Lidar_Data lidarData[MAX_NUM_LIDAR];
 #define MAX_LIDAR_PULSE 40000   // 40m max range; 10us/cm PWM
-#define MIN_LIDAR_PULSE     0   // 40m max range; 10us/cm PWM
+#define MIN_LIDAR_PULSE     0
 
 typedef struct {
     uint8_t major_version;
