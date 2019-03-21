@@ -968,7 +968,6 @@ typedef struct
 
     unsigned char rc_ctrl_request;			// Responding to changes in RC Radio inputs
     unsigned char ctrl_source;          // selects source of control - rc, joy, auto....
-    unsigned char prev_ctrl_source;     // state of last ctrl source
     unsigned char inhibitRCswitches;    // inhibits RC radio mode switches, needed during takeoff
     unsigned char LidarCtrlMode;        // lidar drives altitude to avoid getting below minimum above ground altitude
     unsigned char cruise_mode;         // enables cruise mode

@@ -5360,7 +5360,6 @@ void InitializeRuntimeData(void)
 
     hfc.dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
     hfc.ctrl_source = pConfig->default_ctrl_source;
-    hfc.prev_ctrl_source = hfc.ctrl_source;
     hfc.acc_dyn_turns = pConfig->default_acc_dyn_turns;
 
     for (int i = 0; i < 3; i++) {
