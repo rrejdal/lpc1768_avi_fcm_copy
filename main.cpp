@@ -2143,8 +2143,16 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             /* heli coming down, watch collective manual value, once below 80% of hover, switch to rate mode */
 //            float CO_thr = 0.7f*hfc->pid_CollVspeed.COofs + 0.3f*hfc->CollZeroAngle;
 //            if (hfc->pid_CollVspeed.COlast < CO_thr)
+            float landing_threshold;
+            if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+              landing_threshold = LANDING_THRESHOLD_HEIGHT_FIXED_PROP;
+            }
+            else {
+              landing_threshold = LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP;
+            }
+
             /* heli coming down, switch to rate mode once below 0.1m */
-            if (hfc->altitude_lidar < LANDING_THRESHOLD_HEIGHT)
+            if (hfc->altitude_lidar < landing_threshold)
             {
                 /* set PRY controls to rate */
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
@@ -2161,23 +2169,22 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
                 hfc->waypoint_stage = FM_LANDING_TOUCHDOWN;
 
                 if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
-                  hfc->landing_timeout = LANDING_THRESHOLD_HEIGHT / hfc->ctrl_vspeed_3d; // in seconds
+                  hfc->landing_timeout = LANDING_THRESHOLD_HEIGHT_FIXED_PROP / hfc->ctrl_vspeed_3d; // in seconds
                 }
             }
         }
         else
         if (hfc->waypoint_stage == FM_LANDING_TOUCHDOWN)
         {
-          hfc->landing_timeout -= dT;
-
           if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+            hfc->landing_timeout -= dT;
+
             // wait for timeout to expire
             if (hfc->landing_timeout <= 0) {
-              //Now decay the manual collective as fast as possible based on config
-              SetCtrlMode(hfc, pConfig, COLL, CTRL_MODE_MANUAL);
-              hfc->ctrl_collective_3d -= pConfig->collective_man_speed*dT;
+              //Now decay the collective speed as fast as possible based on config
+              hfc->ctrl_vspeed_3d -= 2*pConfig->landing_vspeed_acc*dT;
 
-              if (hfc->ctrl_out[RAW][COLL] <= hfc->pid_CollVspeed.COmin) {
+              if (hfc->ctrl_vspeed_3d <= hfc->pid_CollAlt.COmin) {
                 telem.Disarm();
               }
             }

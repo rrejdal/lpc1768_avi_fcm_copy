@@ -103,7 +103,8 @@ extern USBSerial   serial;
 #define TAKEOFF_HEIGHT_DEFAULT  10  // Default Takeoff height
 #define TAKEOFF_HEIGHT_MAX      40  // Max Takeoff Height
 
-#define LANDING_THRESHOLD_HEIGHT 0.2f //in meters, used in landing
+#define LANDING_THRESHOLD_HEIGHT_FIXED_PROP 0.1f //in meters, used in landing
+#define LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP 0.2f //in meters, used in landing
 
 /* display modes defines */
 #define DISPLAY_SPLASH		  0
