@@ -478,7 +478,6 @@ static void WriteToPowerNodeServos()
                 temp = -hfc.servos_out[i];
             }
         }
-
         pwm_values[0][i] = (((SERVOMINMAX(temp) * 32767) * 500) /32768) + 1500;
     }
 
@@ -1035,19 +1034,19 @@ static void MixerQuad(void)
     hfc.servos_out[6] = 0;
     hfc.servos_out[7] = 0;
 
-    hfc.servos_out[0] += hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[1] += hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[2] -= hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[3] -= hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[0] -= hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[1] -= hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[2] += hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[3] += hfc.mixer_in[ROLL]*0.5f;
 
-    hfc.servos_out[0] -= hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[1] += hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[2] += hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[3] -= hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[0] += hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[1] -= hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[2] -= hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[3] += hfc.mixer_in[ROLL]*0.5f;
 
-    hfc.servos_out[0] += hfc.mixer_in[YAW];         //cw
+    hfc.servos_out[0] += hfc.mixer_in[YAW];
     hfc.servos_out[1] -= hfc.mixer_in[YAW];
-    hfc.servos_out[2] += hfc.mixer_in[YAW];         //cw
+    hfc.servos_out[2] += hfc.mixer_in[YAW];
     hfc.servos_out[3] -= hfc.mixer_in[YAW];
 
     PreventMotorsOffInArmed(4);
