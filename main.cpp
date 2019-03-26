@@ -2546,11 +2546,13 @@ static void ServoUpdate(float dT)
         }
         else
         {
-            //for variable prop UAV
             hfc.collective_value = xbus.valuesf[XBUS_THRO];  // RVW not fixed pitch so no self center throttle stick
-            if (THROTTLE_LEVER_UP()) {
-              hfc.fixedThrottleMode = THROTTLE_FLY;
-            }
+
+        }
+
+        //for variable prop UAV
+        if ( (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) && THROTTLE_LEVER_UP()) {
+          hfc.fixedThrottleMode = THROTTLE_FLY;
         }
     }
     else
