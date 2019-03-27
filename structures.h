@@ -23,20 +23,21 @@
 //#define TELEMETRY_CTRL0         0
 //#define TELEMETRY_GPS1          1
 //#define TELEMETRY_SYSTEM2       2
-#define TELEMETRY_DATASTREAM3   3
-#define TELEMETRY_PARAMETERS4   4
-#define TELEMETRY_COMMANDS5     5
-#define TELEMETRY_PLAYLIST      6
-#define TELEMETRY_TCPIP         7
-#define TELEMETRY_PROFILE_CMD   8
-#define TELEMETRY_MSG2GROUND	9
-#define TELEMETRY_LANDINGSITES	10
-#define TELEMETRY_AIRCRAFT_CFG  11
-#define TELEMETRY_CTRL          12
-#define TELEMETRY_GPS           13
-#define TELEMETRY_SYSTEM        14
-#define TELEMETRY_CALIBRATE     15
-#define TELEMETRY_LAST_MSG_TYPE 16
+#define TELEMETRY_DATASTREAM3        3
+#define TELEMETRY_PARAMETERS4        4
+#define TELEMETRY_COMMANDS5          5
+#define TELEMETRY_PLAYLIST           6
+#define TELEMETRY_TCPIP              7
+#define TELEMETRY_PROFILE_CMD        8
+#define TELEMETRY_MSG2GROUND	       9
+#define TELEMETRY_LANDINGSITES	    10
+#define TELEMETRY_AIRCRAFT_CFG      11
+#define TELEMETRY_CTRL              12
+#define TELEMETRY_GPS               13
+#define TELEMETRY_SYSTEM            14
+#define TELEMETRY_CALIBRATE         15
+#define TELEMETRY_GND2AIR_HEARTBEAT 16
+#define TELEMETRY_LAST_MSG_TYPE     17
 
 
 #define TELEM_PARAM_WAYPOINT        1
@@ -1119,6 +1120,8 @@ typedef struct
     int   message_timeout;				// message timeout for execute stage
     int  telem_ctrl_time;
     int  telem_ctrl_period;             // CTRL0 msg period in main loop loops
+    bool telemOnline;
+    bool telemprevOnline;
     char gps_new_data;				    // copy of the flag below synchronized with the main loop
     char message_from_ground;		    // gets set by a message from the ground
     char rpm_pulse;                     // signal from RPM interrupt

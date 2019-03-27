@@ -1957,7 +1957,14 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
-    //GpsData gps_data = gps.GetGpsData();
+    if (!telem.IsOnline()
+          && !xbus.receiving
+          && (hfc->playlist_status != PLAYLIST_PLAYING)
+          && (hfc->ctrl_source != CTRL_SOURCE_AFSI()))
+    {
+      // We no longer have any active control, so we abort the flight!
+      AbortFlight();
+    }
 
     if (hfc->message_timeout>0)
         hfc->message_timeout -= hfc->ticks_curr;
@@ -4524,6 +4531,13 @@ void do_control()
 
     telem.Update();
 
+    hfc.telemOnline = telem.IsOnline();
+    if (hfc.telemOnline != hfc.telemprevOnline)
+    {
+      hfc.telemprevOnline = hfc.telemOnline;
+    }
+
+
     if (pConfig->AfsiEnabled) {
         afsi.ProcessStatusMessages();
     }
@@ -5389,6 +5403,9 @@ void InitializeRuntimeData(void)
 
     hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
     hfc.telem_ctrl_period = Max(hfc.telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
+
+    hfc.telemOnline = false;
+    hfc.telemprevOnline = hfc.telemOnline;
 
     hfc.throttle_value   = -pConfig->Stick100range;
     hfc.collective_value = -pConfig->Stick100range;
