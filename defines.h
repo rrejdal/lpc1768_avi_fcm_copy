@@ -62,16 +62,17 @@ extern USBSerial   serial;
 #define LP_ACC      1
 
 /* xbus channel mappings */
-#define XBUS_THRO     		0
-#define XBUS_ROLL     		1
-#define XBUS_PITCH    		2
-#define XBUS_YAW      		3
-#define XBUS_THR_SW   		4		// selects collective mode
-#define XBUS_THR_LV   		5		// controls throttle
-#define XBUS_CTRLMODE_SW 	6		// selects between full-auto and RC manual modes
-#define XBUS_MODE_SW  		7		// selects cyclic mode
-#define DCPGAIN             12      // Tandem mixer DCP gain channel
-#define ELEVGAIN            13      // Tandem mixer elevator gain channel
+#define XBUS_THRO            0
+#define XBUS_ROLL            1
+#define XBUS_PITCH           2
+#define XBUS_YAW             3
+#define XBUS_THR_SW          4  // selects collective mode
+#define XBUS_THR_LV          5  // controls throttle
+#define XBUS_CTRLMODE_SW     6  // selects between full-auto and RC manual modes
+#define XBUS_MODE_SW         7  // selects cyclic mode
+#define XBUS_ENG_SUPER_USER  8  // selects eng super user mode, gives control to RC radio under any condition
+#define DCPGAIN             12  // Tandem mixer DCP gain channel
+#define ELEVGAIN            13  // Tandem mixer elevator gain channel
 
 /* modes */
 #define CCPM_NONE   0
@@ -167,30 +168,31 @@ extern USBSerial   serial;
 #define LOG_PARAM_NONE              0
 #define LOG_PARAM_XBUS_INPUT0_3     1   // xbus input[0-3] (+/-1 f16)
 #define LOG_PARAM_XBUS_INPUT4_7     2   // xbus input[4-7] (+/-1 f16)
-#define LOG_PARAM_JOY_INPUT         3   // joystick inputs[P/R/Y/C] (based on selected mode, moslt speeds in m/s f16)
-#define LOG_PARAM_GYRO_RAW          4   // gyro [P/R/Y] (in deg/s f16)
-#define LOG_PARAM_GYRO_LP           5   // gyro low passed [P/R/Y] (in deg/s f16)
-#define LOG_PARAM_ACC_RAW           6   // acc [R/F/U] (in Gs f16)
-#define LOG_PARAM_ACC_LP            7   // acc low passed [R/F/U] (in Gs f16)
-#define LOG_PARAM_COMPASS           8   // compass [heading/R/F/U] (heading in deg CW from north) (f16)
-#define LOG_PARAM_ORIENT            9   // IMUorient [P/R/Y] in deg (f16)
-#define LOG_PARAM_BARO              10  // baro [altitude in m / pressure in kPa / temp in deg C] (f16)
-#define LOG_PARAM_PITOT             11  // pitot [pressure in kPA / speed in m/s / temp in deg C] (f16)
-#define LOG_PARAM_SERVOS0_3         12  // servos [0-3] +/-1 (f16)
-#define LOG_PARAM_SERVOS4_7         13  // servos [4-7] +/-1 (f16)
-#define LOG_PARAM_CTRL_MODE         14  // ctrl_mode [P0-2, R3-5, Y6-8, C9-11, T12-14] (int, 3-bits each)
-#define LOG_PARAM_CTRL_RAW0         15  // control output values [P, R, Y, C] +/-1 (f16)
-#define LOG_PARAM_CTRL_RAW1         16  // control output values [T] +/-1 (f16)
-#define LOG_PARAM_CTRL_RATE         17  // ctrl_rate [P/R/Y] in deg/s (f16)
-#define LOG_PARAM_CTRL_ANGLE        18  // ctrl_angle [P/R/Y] in deg (f16)
-#define LOG_PARAM_CTRL_SPEED        19  // ctrl_speed in m/s [F/R/U] (f16)
-#define LOG_PARAM_ALTITUDE          20  // altitude [CTRL / current IMU / lidar] in m (f16)
-#define LOG_PARAM_GROUND_SPEED      21  // ground speed in m/s [total/E/N/U] (f16)
-#define LOG_PARAM_HELI_SPEED        22  // heli speed in m/s [R/F/U] (f16)
-#define LOG_PARAM_CPU               23  // CPU stats [process_period in uS int / utilization in % f16]
-#define LOG_PARAM_TIME              24  // CPU time in ms (int)
-#define LOG_PARAM_POSITION          25  // heli position relative to home [horizontal distance in m / heading in deg / altitude difference in m] (f16)
-#define LOG_PARAM_TANDEM            26
+#define LOG_PARAM_XBUS_INPUT8_11    3   // xbus input[8-11] (+/-1 f16)
+#define LOG_PARAM_JOY_INPUT         4   // joystick inputs[P/R/Y/C] (based on selected mode, moslt speeds in m/s f16)
+#define LOG_PARAM_GYRO_RAW          5   // gyro [P/R/Y] (in deg/s f16)
+#define LOG_PARAM_GYRO_LP           6   // gyro low passed [P/R/Y] (in deg/s f16)
+#define LOG_PARAM_ACC_RAW           7   // acc [R/F/U] (in Gs f16)
+#define LOG_PARAM_ACC_LP            8   // acc low passed [R/F/U] (in Gs f16)
+#define LOG_PARAM_COMPASS           9    // compass [heading/R/F/U] (heading in deg CW from north) (f16)
+#define LOG_PARAM_ORIENT            10  // IMUorient [P/R/Y] in deg (f16)
+#define LOG_PARAM_BARO              11  // baro [altitude in m / pressure in kPa / temp in deg C] (f16)
+#define LOG_PARAM_PITOT             12  // pitot [pressure in kPA / speed in m/s / temp in deg C] (f16)
+#define LOG_PARAM_SERVOS0_3         13  // servos [0-3] +/-1 (f16)
+#define LOG_PARAM_SERVOS4_7         14  // servos [4-7] +/-1 (f16)
+#define LOG_PARAM_CTRL_MODE         15  // ctrl_mode [P0-2, R3-5, Y6-8, C9-11, T12-14] (int, 3-bits each)
+#define LOG_PARAM_CTRL_RAW0         16  // control output values [P, R, Y, C] +/-1 (f16)
+#define LOG_PARAM_CTRL_RAW1         17  // control output values [T] +/-1 (f16)
+#define LOG_PARAM_CTRL_RATE         18  // ctrl_rate [P/R/Y] in deg/s (f16)
+#define LOG_PARAM_CTRL_ANGLE        19  // ctrl_angle [P/R/Y] in deg (f16)
+#define LOG_PARAM_CTRL_SPEED        20  // ctrl_speed in m/s [F/R/U] (f16)
+#define LOG_PARAM_ALTITUDE          21  // altitude [CTRL / current IMU / lidar] in m (f16)
+#define LOG_PARAM_GROUND_SPEED      22  // ground speed in m/s [total/E/N/U] (f16)
+#define LOG_PARAM_HELI_SPEED        23  // heli speed in m/s [R/F/U] (f16)
+#define LOG_PARAM_CPU               24  // CPU stats [process_period in uS int / utilization in % f16]
+#define LOG_PARAM_TIME              25  // CPU time in ms (int)
+#define LOG_PARAM_POSITION          26  // heli position relative to home [horizontal distance in m / heading in deg / altitude difference in m] (f16)
+#define LOG_PARAM_TANDEM            27
 
 
 //#define LOG_PARAM_MOT_BAT_VOLT      7  // motor_bat_voltage (f16 hex)

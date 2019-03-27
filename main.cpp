@@ -750,6 +750,19 @@ static void SetRCRadioControl(void)
       return;
     }
 
+    //    if (!pConfig->eng_super_user_enable) {
+    if (0) {
+      hfc.eng_super_user = false;
+    }
+    else {
+      if (xbus.valuesf[XBUS_ENG_SUPER_USER] > 0.5) {
+        hfc.eng_super_user = true;
+      }
+      else {
+        hfc.eng_super_user = false;
+      }
+    }
+
     /* always ignore RC radio control, cannot switch from AUTOPILOT to RCRADIO */
     if (hfc.inhibitRCswitches) {
         return;
@@ -767,7 +780,7 @@ static void SetRCRadioControl(void)
 
             // When in AUTOPILOT, if the throttle lever is not UP, and we are
             // in the air, then STAY in AUTOPILOT and send message to ground station.
-            if (!THROTTLE_LEVER_UP()) {
+            if (!THROTTLE_LEVER_UP() && !hfc.eng_super_user) {
                telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_LOW);
             }
             // Otherwise, pass control to RC RADIO if sticks move
@@ -796,10 +809,10 @@ static void SetRCRadioControl(void)
         else if (!IN_THE_AIR(hfc.altitude_lidar)) {
             // If the throttle lever is not DOWN, then send message to ground station
             // otherwise, hand over control to RC controller immediately.
-          if (!THROTTLE_LEVER_DOWN()) {
+            if (!THROTTLE_LEVER_DOWN() && !hfc.eng_super_user) {
 
                // if we are doing a take off, then don't send this dialog to AGS
-              // since the user was just asked to throttle up with the RC lever.
+               // since the user was just asked to throttle up with the RC lever.
                if (hfc.waypoint_type != WAYPOINT_TAKEOFF) {
                  telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
                }
@@ -830,6 +843,7 @@ static void SetRCRadioControl(void)
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
     {
       if(    THROTTLE_LEVER_DOWN()
+          && !hfc.eng_super_user
           && hfc.throttle_armed
           && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
         telem.Disarm();
@@ -3053,7 +3067,7 @@ static void ServoUpdate(float dT)
 
         /* select regular or lidar based altitude values */
         CurrAltitude = hfc.rw_cfg.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
-        CtrlAltitude = hfc.LidarCtrlMode ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
+        CtrlAltitude = (hfc.LidarCtrlMode && !hfc.eng_super_user) ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
 
         /* increase vertical down speed limit with an increased horizontal speed */
         vspeedmin = max(pConfig->VspeedDownCurve[1], hfc.rw_cfg.VspeedMin+pConfig->VspeedDownCurve[0]*hfc.gps_speed);
@@ -5464,6 +5478,8 @@ void InitializeRuntimeData(void)
     hfc.box_dropper_ = 0;
 
     hfc.heading_offset = 0; //pConfig->heading_offset;
+
+    hfc.eng_super_user = false;
 }
 
 /**

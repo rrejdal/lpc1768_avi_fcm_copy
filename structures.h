@@ -395,8 +395,8 @@ typedef struct
                               // bit 2   - throttle disarmed (1)
                               // bit 3   - joystick control
                               // bit 4-5 - playlist status (0-stopped, 1-playing, 2-paused)
-                              // bit 6   - full_auto
-                              // bit 7   - auto_throttle
+                              // bit 6   - rc_ctrl_request
+                              // bit 7   - eng_super_user
     //-------------------------------- size 56
     uint16  playlist_items;
     uint16  playlist_position;
@@ -902,6 +902,7 @@ typedef struct ConfigurationData {
     int AfsiEnabled;
 
     float takeoff_height; // default takeoff height.
+//    bool eng_super_user_enable;
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
@@ -966,6 +967,7 @@ typedef struct
     unsigned char throttle_armed;    // enables throttle
     unsigned char waypoint_stage;    // current stage of takeoff/landing WP
 
+    bool eng_super_user;
     unsigned char rc_ctrl_request;			// Responding to changes in RC Radio inputs
     unsigned char ctrl_source;          // selects source of control - rc, joy, auto....
     unsigned char inhibitRCswitches;    // inhibits RC radio mode switches, needed during takeoff
