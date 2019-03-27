@@ -32,6 +32,9 @@ TelemSerial::TelemSerial(RawSerial *m_serial)
     telem_start_code_searches = 0;
     telem_recv_bytes          = 0;
 
+    _ags_offline = true;
+    _last_gnd2air_heatbeat = 0;
+
 }
 
 void TelemSerial::ProcessInputBytes(RawSerial &telemetry)
@@ -54,6 +57,19 @@ bool TelemSerial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_m
     messages++;
 
     return true;
+}
+
+bool TelemSerial::IsOnline(void) {
+
+  // Heartbeat sent from ground every 250ms, x3 to ensure we don't
+  // prematurely make ground as offline.
+  if ((hfc->time_ms - _last_gnd2air_heatbeat) > (3*GND2AIR_HEATBEAT_TIMEOUT_MS))
+  {
+    return false;
+  }
+
+  return true;
+
 }
 
 void TelemSerial::Update()
@@ -150,6 +166,7 @@ unsigned int TelemSerial::RemoveBytes(unsigned char *b, int remove, int size)
 void TelemSerial::AddInputByte(char ch)
 {
     T_TelemUpHdr *hdr;
+    static int idx = 0;
 
 //  debug_print("Telem c=%d\r\n", ch);
     
@@ -424,6 +441,16 @@ void TelemSerial::AddInputByte(char ch)
         telem_good_messages++;
         telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
         return;
+    }
+    else
+    if (TELEMETRY_GND2AIR_HEARTBEAT == hdr->type)
+    {
+      // This is a ping from the AGS to notify FCM that link is connected.
+      // We expect to receive this message at a rate of 250ms when connected to AGS
+      _last_gnd2air_heatbeat = hfc->time_ms;
+      telem_good_messages++;
+      telem_recv_bytes = RemoveBytes(telem_recv_buffer, hdr->len+8+1, telem_recv_bytes);
+      return;
     }
     else
     {
