@@ -2648,7 +2648,7 @@ static void ServoUpdate(float dT)
         float yaw_rate_ctrl = hfc.ctrl_out[RAW][YAW]*hfc.YawStick_rate;
         hfc.ctrl_out[SPEED][COLL]  = hfc.ctrl_out[RAW][COLL]*hfc.Stick_Vspeed;
 
-        if (hfc.rw_cfg.ManualLidarAltitude) {
+        if (hfc.rw_cfg.ManualLidarAltitude && !hfc.eng_super_user) {
             hfc.ctrl_out[POS][COLL] = 2 + 2*hfc.ctrl_out[RAW][COLL];
         }
 
@@ -3072,7 +3072,12 @@ static void ServoUpdate(float dT)
 
         /* select regular or lidar based altitude values */
         CurrAltitude = hfc.rw_cfg.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
-        CtrlAltitude = (hfc.LidarCtrlMode && !hfc.eng_super_user) ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
+        CtrlAltitude = hfc.LidarCtrlMode ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
+
+        if (hfc.eng_super_user) {
+          CurrAltitude = hfc.altitude;
+          CtrlAltitude = hfc.ctrl_out[POS][COLL];
+        }
 
         /* increase vertical down speed limit with an increased horizontal speed */
         vspeedmin = max(pConfig->VspeedDownCurve[1], hfc.rw_cfg.VspeedMin+pConfig->VspeedDownCurve[0]*hfc.gps_speed);
