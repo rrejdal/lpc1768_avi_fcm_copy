@@ -750,17 +750,17 @@ static void SetRCRadioControl(void)
       return;
     }
 
-    //    if (!pConfig->eng_super_user_enable) {
-    if (0) {
-      hfc.eng_super_user = false;
-    }
-    else {
+    //    if (pConfig->eng_super_user_enable) {
+    if (1) {
       if (xbus.valuesf[XBUS_ENG_SUPER_USER] > 0.5) {
         hfc.eng_super_user = true;
       }
       else {
         hfc.eng_super_user = false;
       }
+    }
+    else {
+      hfc.eng_super_user = false;
     }
 
     /* always ignore RC radio control, cannot switch from AUTOPILOT to RCRADIO */
