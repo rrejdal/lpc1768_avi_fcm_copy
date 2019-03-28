@@ -1850,7 +1850,7 @@ void TelemSerial::Arm(void)
     if (hfc->throttle_armed)
         return;
 
-    if( hfc->ctrl_source != CTRL_SOURCE_AFSI ) {
+    if( (hfc->ctrl_source != CTRL_SOURCE_AFSI) && !hfc->eng_super_user) {
         /* throttle level needs to be low */
         if ((hfc->ctrl_source == CTRL_SOURCE_RCRADIO) && !THROTTLE_LEVER_DOWN())
         {
