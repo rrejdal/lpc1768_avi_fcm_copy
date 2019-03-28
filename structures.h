@@ -388,7 +388,7 @@ typedef struct
     byte    gps_fix_curr   : 2;
     byte    gps_fix_other  : 2;
     byte    gps_current    : 2;
-    byte    reserved       : 2;
+    byte    motor_state;
     byte    cpu_utilization;
     byte    control_status;   // bit 0   - 1 means xbus receiving,
                               // bit 1   - 0 means xbus in control, 1 ground station in control,
