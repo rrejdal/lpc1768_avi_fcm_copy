@@ -843,10 +843,15 @@ static void SetRCRadioControl(void)
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO)
     {
       if(    THROTTLE_LEVER_DOWN()
-          && !hfc.eng_super_user
           && hfc.throttle_armed
           && (hfc.fixedThrottleMode != THROTTLE_IDLE)       ) {
         telem.Disarm();
+      }
+
+      if (THROTTLE_LEVER_UP() && !hfc.throttle_armed && hfc.eng_super_user) {
+          telem.Arm();
+          hfc.fixedThrottleMode = THROTTLE_FLY;
+          hfc.throttle_value = pConfig->Stick100range;
       }
 
       if (!pConfig->ctrl_mode_inhibit[COLL])
@@ -2485,17 +2490,6 @@ static void ServoUpdate(float dT)
     if(!hfc.throttle_armed && !hfc.eng_super_user) {
         hfc.fixedThrottleMode = THROTTLE_IDLE;      //  set to follow lever
         hfc.throttle_value = -pConfig->Stick100range; // Throttle off
-    }
-    else if (!hfc.throttle_armed && hfc.eng_super_user) {
-      telem.Arm();
-      if (THROTTLE_LEVER_DOWN()) {
-        hfc.fixedThrottleMode = THROTTLE_IDLE;
-        hfc.throttle_value = -pConfig->Stick100range;
-      }
-      else if (THROTTLE_LEVER_UP()) {
-        hfc.fixedThrottleMode = THROTTLE_FLY;
-        hfc.throttle_value = pConfig->Stick100range;
-      }
     }
     else if (hfc.rc_ctrl_request && hfc.throttle_armed)
     {
