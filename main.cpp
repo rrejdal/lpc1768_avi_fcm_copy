@@ -750,8 +750,7 @@ static void SetRCRadioControl(void)
       return;
     }
 
-    //    if (pConfig->eng_super_user_enable) {
-    if (1) {
+    if (pConfig->eng_super_user_enable) {
       if (xbus.valuesf[XBUS_ENG_SUPER_USER] > 0.5) {
         hfc.eng_super_user = true;
       }
