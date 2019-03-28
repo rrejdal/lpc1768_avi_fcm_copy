@@ -2486,7 +2486,7 @@ static void ServoUpdate(float dT)
     }
 
     // RVW throttle stick to collective logic section
-    if(!hfc.throttle_armed && !hfc.eng_super_user) {
+    if(!hfc.throttle_armed) {
         hfc.fixedThrottleMode = THROTTLE_IDLE;      //  set to follow lever
         hfc.throttle_value = -pConfig->Stick100range; // Throttle off
     }
