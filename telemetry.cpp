@@ -32,7 +32,6 @@ TelemSerial::TelemSerial(RawSerial *m_serial)
     telem_start_code_searches = 0;
     telem_recv_bytes          = 0;
 
-    _ags_offline = true;
     _last_gnd2air_heatbeat = 0;
 
 }
@@ -2005,6 +2004,11 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_GOTO_HOME)
     {
+        if (hfc->playlist_status == PLAYLIST_PLAYING) {
+          PlaylistSaveState();
+          hfc->playlist_status = PLAYLIST_PAUSED;
+        }
+
         ApplyDefaults();
         SetWaypoint(hfc->home_pos[0], hfc->home_pos[1], -9999, WAYPOINT_GOTO, 0); // do not change altitude or perhaps use a preset value for this
     }
@@ -2070,9 +2074,11 @@ void TelemSerial::ProcessCommands(void)
     else
     if (cmd==TELEM_CMD_LAND)
     {
-      // For a landing request, we Stop any active mission. ?? maybe pause?
-      PlaylistSaveState();
-      hfc->playlist_status = PLAYLIST_STOPPED;
+      // For a landing request, we Pause active mission
+      if (hfc->playlist_status == PLAYLIST_PLAYING) {
+        PlaylistSaveState();
+        hfc->playlist_status = PLAYLIST_PAUSED;
+      }
 
       // AGS only ever requests a LANDING_SITE landing,
       if (sub_cmd == LANDING_SITE)
@@ -2226,6 +2232,7 @@ void TelemSerial::SetZeroSpeed(void)
     SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
 
     hfc->setZeroSpeed = true;
+    hfc->waypoint_type = WAYPOINT_NONE;
 }
 
 void TelemSerial::SetPositionHold(void)

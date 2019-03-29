@@ -1120,8 +1120,6 @@ typedef struct
     int   message_timeout;				// message timeout for execute stage
     int  telem_ctrl_time;
     int  telem_ctrl_period;             // CTRL0 msg period in main loop loops
-    bool telemOnline;
-    bool telemprevOnline;
     char gps_new_data;				    // copy of the flag below synchronized with the main loop
     char message_from_ground;		    // gets set by a message from the ground
     char rpm_pulse;                     // signal from RPM interrupt
