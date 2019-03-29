@@ -1973,28 +1973,33 @@ static void AbortFlight(void)
   SetRCRadioControl();  // This will set Autopilot on loss of RcLink
 
   if (hfc.waypoint_type != WAYPOINT_LANDING) {
-    float lat;
-    float lon;
-    float altitude;
+    if (IN_THE_AIR(hfc.altitude_lidar)) {
+      float lat;
+      float lon;
+      float altitude;
 
-    int site = telem.FindNearestLandingSite();
-    if (site >= 0)
-    {
-      // Goto nearest landing site and land
-      lat = hfc.landing_sites[site].lat;
-      lon = hfc.landing_sites[site].lon;
-      altitude = hfc.landing_sites[site].altitude - hfc.altitude_base + hfc.landing_sites[site].above_ground;
-    }
-    else
-    {
-      // go home, and then land
-      lat = hfc.home_pos[0];
-      lon = hfc.home_pos[1];
-      altitude = -9999;
-    }
+      int site = telem.FindNearestLandingSite();
+      if (site >= 0)
+      {
+        // Goto nearest landing site and land
+        lat = hfc.landing_sites[site].lat;
+        lon = hfc.landing_sites[site].lon;
+        altitude = hfc.landing_sites[site].altitude - hfc.altitude_base + hfc.landing_sites[site].above_ground;
+      }
+      else
+      {
+        // go home, and then land
+        lat = hfc.home_pos[0];
+        lon = hfc.home_pos[1];
+        altitude = -9999;
+      }
 
-    telem.CommandLandingWP(lat, lon, altitude);
-    hfc.pid_Dist2T.COmax = pConfig->landing_appr_speed;
+      telem.CommandLandingWP(lat, lon, altitude);
+      hfc.pid_Dist2T.COmax = pConfig->landing_appr_speed;
+    }
+    else {
+      telem.Disarm();
+    }
   }
 }
 
@@ -2005,16 +2010,9 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
           && !telem.IsOnline()
           && !xbus.receiving
           && (hfc->playlist_status != PLAYLIST_PLAYING)
-          && (hfc->ctrl_source != CTRL_SOURCE_AFSI))
-    {
-      if (IN_THE_AIR()) {
-        // We no longer have any active control, so we abort the flight!
-        AbortFlight();
-      }
-      else {
-        // Since we are on the ground and everything is disconnected, force a disarm.
-        telem.Disarm();
-      }
+          && (hfc->ctrl_source != CTRL_SOURCE_AFSI)) {
+
+      AbortFlight();
     }
 
     if (hfc->message_timeout>0)
