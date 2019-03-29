@@ -815,7 +815,7 @@ static void SetRCRadioControl(void)
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
             hfc.waypoint_type = WAYPOINT_NONE;
         }
-        else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_COMPLETE))
+        else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_ARM))
                  || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
           // In the case of take off with the RC radio in the loop,
           // hfc.rc_ctrl_request = true even though hfc.ctrl_source = AUTOPILOT.
