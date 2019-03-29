@@ -549,6 +549,7 @@ void TelemSerial::Generate_System2(int time_ms)
     float WspeedN = WinSpeedEst(WangleN);
     float Wspeed = sqrtf(WspeedN*WspeedN + WspeedE*WspeedE);
     float Wcour = 0;
+    byte motor_state = 0;
 //    debug_print("%f %f\r\n", WangleE, WangleN);
 
     fixC = gps_data.fix;
@@ -572,6 +573,13 @@ void TelemSerial::Generate_System2(int time_ms)
     byte waypoint_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT ? 1 : 0;
     byte joystick_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_JOYSTICK ? 1 : 0;
     
+    if (hfc->throttle_value == -pConfig->Stick100range) {
+      motor_state = 0;
+    }
+    else if (hfc->throttle_value == pConfig->Stick100range) {
+      motor_state = 1;
+    }
+
     /* payload */
     msg->time        = time_ms;
     
@@ -600,7 +608,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->gps_fix_curr   = fixC;
     msg->gps_fix_other  = fix2;
     msg->gps_current    = gps.selected_channel_;
-    msg->reserved       = 0;
+    msg->motor_state    = motor_state;
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 
     msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
