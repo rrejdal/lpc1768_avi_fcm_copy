@@ -2259,6 +2259,10 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
               hfc->ctrl_vspeed_3d -= 2*pConfig->landing_vspeed_acc*dT;
 
               if (hfc->ctrl_vspeed_3d <= hfc->pid_CollAlt.COmin) {
+                if (hfc->playlist_status == PLAYLIST_PLAYING) {
+                  hfc->playlist_position++;
+                  hfc->playlist_status = PLAYLIST_STOPPED;
+                }
                 telem.Disarm();
               }
             }
