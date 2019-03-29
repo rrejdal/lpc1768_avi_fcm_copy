@@ -232,6 +232,9 @@ case LOG_PARAM_XBUS_INPUT0_3:
 case LOG_PARAM_XBUS_INPUT4_7:
         value = Float32toFloat16(xbus.valuesf[index+4]);
         break;
+case LOG_PARAM_XBUS_INPUT8_11:
+        value = Float32toFloat16(xbus.valuesf[index+8]);
+        break;
 case LOG_PARAM_JOY_INPUT:
         value = Float32toFloat16(hfc->joy_values[index]);
         break;

@@ -612,7 +612,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 
     msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
-                            | ((hfc->playlist_status&0x3)<<4) | ((hfc->rc_ctrl_request&1)<<6) | ((0)<<7);
+                            | ((hfc->playlist_status&0x3)<<4) | ((hfc->rc_ctrl_request&1)<<6) | ((hfc->eng_super_user&1)<<7);
 
     msg->playlist_items    = hfc->playlist_items;
     msg->playlist_position = hfc->playlist_position;
@@ -1858,7 +1858,7 @@ void TelemSerial::Arm(void)
     if (hfc->throttle_armed)
         return;
 
-    if( hfc->ctrl_source != CTRL_SOURCE_AFSI ) {
+    if( (hfc->ctrl_source != CTRL_SOURCE_AFSI) && !hfc->eng_super_user) {
         /* throttle level needs to be low */
         if ((hfc->ctrl_source == CTRL_SOURCE_RCRADIO) && !THROTTLE_LEVER_DOWN())
         {

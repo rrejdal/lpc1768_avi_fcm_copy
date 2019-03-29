@@ -275,6 +275,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                     valuesf[5] = 0.571f;    // XBUS_THR_LV, full throttle
                     valuesf[6] = 0.571f;    // XBUS_CTRLMODE_SW, full auto mode
                     valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
+                    valuesf[8] = -0.571f;   // XBUS_ENG_SUPER_USER, ignore safety
                     ret = XBUS_TIMEOUT;
                 }
             }
@@ -291,6 +292,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                 valuesf[5] =  (float(sbusFrame.frame.chan5) * sbusScale + sbusBias) * 0.571f;
                 valuesf[6] =  (float(sbusFrame.frame.chan6) * sbusScale + sbusBias) * 0.571f;
                 valuesf[7] =  (float(sbusFrame.frame.chan7) * sbusScale + sbusBias) * 0.571f;
+                valuesf[8] =  (float(sbusFrame.frame.chan8) * sbusScale + sbusBias) * 0.571f;
 
                 if (no_prev_signal) {
                     ret = XBUS_NEW_VALUES_1ST;
