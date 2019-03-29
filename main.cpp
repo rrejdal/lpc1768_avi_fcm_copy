@@ -2007,8 +2007,14 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
           && (hfc->playlist_status != PLAYLIST_PLAYING)
           && (hfc->ctrl_source != CTRL_SOURCE_AFSI))
     {
-      // We no longer have any active control, so we abort the flight!
-      AbortFlight();
+      if (IN_THE_AIR()) {
+        // We no longer have any active control, so we abort the flight!
+        AbortFlight();
+      }
+      else {
+        // Since we are on the ground and everything is disconnected, force a disarm.
+        telem.Disarm();
+      }
     }
 
     if (hfc->message_timeout>0)
