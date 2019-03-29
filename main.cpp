@@ -2160,7 +2160,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             {
                 hfc->waypoint_pos[0] = hfc->home_pos[0];
                 hfc->waypoint_pos[1] = hfc->home_pos[1];
-                hfc->waypoint_retire    = 0;
+                hfc->waypoint_retire    = 1;
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
                 SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
                 hfc->waypoint_stage = FM_TAKEOFF_HOLD;
