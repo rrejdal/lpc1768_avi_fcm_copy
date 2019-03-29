@@ -4580,8 +4580,6 @@ void do_control()
 
     telem.Update();
 
-    hfc.telemOnline = telem.IsOnline();
-
     if (pConfig->AfsiEnabled) {
         afsi.ProcessStatusMessages();
     }
@@ -5447,8 +5445,6 @@ void InitializeRuntimeData(void)
 
     hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
     hfc.telem_ctrl_period = Max(hfc.telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
-
-    hfc.telemOnline = false;
 
     hfc.throttle_value   = -pConfig->Stick100range;
     hfc.collective_value = -pConfig->Stick100range;
