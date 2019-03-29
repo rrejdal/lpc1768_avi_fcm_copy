@@ -7,6 +7,8 @@
 #define MAX_TELEM_MESSAGES  10
 #define TELEM_BUFFER_SIZE   (256+8+16)  // 16 for some slack
 
+#define GND2AIR_HEATBEAT_TIMEOUT_MS  250
+
 class TelemSerial
 {
 public:
@@ -17,6 +19,8 @@ public:
     TelemSerial(RawSerial *m_serial);
 
     void Initialize(FlightControlData *p_hfc, const ConfigData *p_config) { hfc = p_hfc, pConfig = p_config; }
+
+    bool IsOnline(void);
 
     /* receiving stuff */
     void ProcessCommands(void);
@@ -62,6 +66,7 @@ public:
     void PlaylistRestoreState(void);
 
     void ResetIMU(bool print);
+    int FindNearestLandingSite(void);
 
 private:
     typedef struct {
@@ -81,6 +86,8 @@ private:
     unsigned int telem_recv_bytes;
     byte telem_recv_buffer[TELEM_BUFFER_SIZE];
     
+    int _last_gnd2air_heatbeat;
+
     bool ProcessParameters(T_Telem_Params4 *msg);
     bool CopyCommand(T_Telem_Commands5 *msg);
 
@@ -95,7 +102,6 @@ private:
     bool CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax);
 
     char PreFlightChecks(void);
-    int FindNearestLandingSite(void);
 };
 
 static const unsigned int crc32_table[256] =
