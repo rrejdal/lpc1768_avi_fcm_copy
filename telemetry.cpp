@@ -2005,6 +2005,7 @@ void TelemSerial::ProcessCommands(void)
     if (cmd==TELEM_CMD_GOTO_HOME)
     {
         if (hfc->playlist_status == PLAYLIST_PLAYING) {
+          PlaylistSaveState();
           hfc->playlist_status = PLAYLIST_PAUSED;
         }
 
@@ -2074,9 +2075,8 @@ void TelemSerial::ProcessCommands(void)
     if (cmd==TELEM_CMD_LAND)
     {
       // For a landing request, we Pause active mission
-      PlaylistSaveState();
-
       if (hfc->playlist_status == PLAYLIST_PLAYING) {
+        PlaylistSaveState();
         hfc->playlist_status = PLAYLIST_PAUSED;
       }
 

@@ -358,7 +358,11 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case  AFSI_CTRL_ID_LAND:
-            hfc.playlist_status = PLAYLIST_STOP;
+            if (hfc.playlist_status == PLAYLIST_PLAYING) {
+              telem->PlaylistSaveState();
+              hfc.playlist_status = PLAYLIST_PAUSED;
+            }
+
             telem->SetZeroSpeed();
             hfc.waypoint_type = WAYPOINT_LANDING;
             hfc.waypoint_stage = FM_LANDING_STOP;

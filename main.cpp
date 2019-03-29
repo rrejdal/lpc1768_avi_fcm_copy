@@ -682,8 +682,7 @@ static void SetAgsControls(void)
       hfc.controlStatus = CONTROL_STATUS_LAND;
     }
   }
-  else if ((hfc.waypoint_type == WAYPOINT_LANDING)
-            && ((hfc.waypoint_stage >= FM_LANDING_WAYPOINT) || hfc.waypoint_stage >= FM_LANDING_HOLD)) {
+  else if ((hfc.waypoint_type == WAYPOINT_LANDING) && (hfc.waypoint_stage >= FM_LANDING_WAYPOINT)) {
 
       hfc.controlStatus = CONTROL_STATUS_HOME | CONTROL_STATUS_LAND;
 
@@ -2002,7 +2001,8 @@ static void AbortFlight(void)
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
-    if (!telem.IsOnline()
+    if (hfc->throttle_armed
+          && !telem.IsOnline()
           && !xbus.receiving
           && (hfc->playlist_status != PLAYLIST_PLAYING)
           && (hfc->ctrl_source != CTRL_SOURCE_AFSI))
@@ -4577,11 +4577,6 @@ void do_control()
     telem.Update();
 
     hfc.telemOnline = telem.IsOnline();
-    if (hfc.telemOnline != hfc.telemprevOnline)
-    {
-      hfc.telemprevOnline = hfc.telemOnline;
-    }
-
 
     if (pConfig->AfsiEnabled) {
         afsi.ProcessStatusMessages();
@@ -5450,7 +5445,6 @@ void InitializeRuntimeData(void)
     hfc.telem_ctrl_period = Max(hfc.telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
 
     hfc.telemOnline = false;
-    hfc.telemprevOnline = hfc.telemOnline;
 
     hfc.throttle_value   = -pConfig->Stick100range;
     hfc.collective_value = -pConfig->Stick100range;
