@@ -66,6 +66,7 @@ public:
     void PlaylistRestoreState(void);
 
     void ResetIMU(bool print);
+    int FindNearestLandingSite(void);
 
 private:
     typedef struct {
@@ -101,7 +102,6 @@ private:
     bool CheckRangeAndSetB(byte *pvalue, byte *pivalue, int vmin, int vmax);
 
     char PreFlightChecks(void);
-    int FindNearestLandingSite(void);
 };
 
 static const unsigned int crc32_table[256] =

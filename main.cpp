@@ -682,11 +682,23 @@ static void SetAgsControls(void)
       hfc.controlStatus = CONTROL_STATUS_LAND;
     }
   }
-  else if ((hfc.waypoint_type == WAYPOINT_LANDING) && (hfc.waypoint_stage >= FM_LANDING_HIGH_ALT)) {
-      hfc.controlStatus = CONTROL_STATUS_NONE;
+  else if ((hfc.waypoint_type == WAYPOINT_LANDING)
+            && ((hfc.waypoint_stage >= FM_LANDING_WAYPOINT) || hfc.waypoint_stage >= FM_LANDING_HOLD)) {
+
+      hfc.controlStatus = CONTROL_STATUS_HOME | CONTROL_STATUS_LAND;
+
+      if (hfc.playlist_status == PLAYLIST_PLAYING) {
+        hfc.controlStatus |= CONTROL_STATUS_PAUSE;
+      }
+      else if (hfc.playlist_status == PLAYLIST_PAUSED) {
+        hfc.controlStatus |= CONTROL_STATUS_PLAY | CONTROL_STATUS_POINTFLY | CONTROL_STATUS_ABORT;
+      }
+      else {
+        hfc.controlStatus |= CONTROL_STATUS_ABORT;
+      }
   }
   else if ((hfc.waypoint_type == WAYPOINT_GOTO) && (hfc.playlist_status != PLAYLIST_PLAYING)) {
-    hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY;
+    hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY | CONTROL_STATUS_ABORT;
 
     if (hfc.playlist_status == PLAYLIST_PAUSED) {
       hfc.controlStatus |= CONTROL_STATUS_PLAY;
@@ -1883,10 +1895,12 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     T_PlaylistItem *item;
     
     /* single waypoint mode handling - waypoint retire logic */
-    if ( (hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT) && (hfc->playlist_status==PLAYLIST_STOPPED) )
+    if ((hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT) && (hfc->playlist_status!=PLAYLIST_PLAYING))
     {
-        if (retire_waypoint)
+        if (retire_waypoint) {
             telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
+            hfc->waypoint_type = WAYPOINT_NONE;
+        }
         return;
     }
     
@@ -1954,13 +1968,44 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     }
 }
 
+static void AbortFlight(void)
+{
+  // Ensure we are in AutoPilot
+  SetRCRadioControl();  // This will set Autopilot on loss of RcLink
+
+  if (hfc.waypoint_type != WAYPOINT_LANDING) {
+    float lat;
+    float lon;
+    float altitude;
+
+    int site = telem.FindNearestLandingSite();
+    if (site >= 0)
+    {
+      // Goto nearest landing site and land
+      lat = hfc.landing_sites[site].lat;
+      lon = hfc.landing_sites[site].lon;
+      altitude = hfc.landing_sites[site].altitude - hfc.altitude_base + hfc.landing_sites[site].above_ground;
+    }
+    else
+    {
+      // go home, and then land
+      lat = hfc.home_pos[0];
+      lon = hfc.home_pos[1];
+      altitude = -9999;
+    }
+
+    telem.CommandLandingWP(lat, lon, altitude);
+    hfc.pid_Dist2T.COmax = pConfig->landing_appr_speed;
+  }
+}
+
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
     if (!telem.IsOnline()
           && !xbus.receiving
           && (hfc->playlist_status != PLAYLIST_PLAYING)
-          && (hfc->ctrl_source != CTRL_SOURCE_AFSI()))
+          && (hfc->ctrl_source != CTRL_SOURCE_AFSI))
     {
       // We no longer have any active control, so we abort the flight!
       AbortFlight();
