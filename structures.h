@@ -1102,7 +1102,7 @@ typedef struct
 
     float takeoff_height;               // height to achieve during takeoff
     float landingWPHeight;              // height to achieve when reaching a landing WP.
-    float landing_timeout;
+    float landing_timeout;              // time to wait to completely spool down motors at end of landing
 
 
     float heading;
