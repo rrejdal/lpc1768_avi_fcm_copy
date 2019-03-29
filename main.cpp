@@ -731,8 +731,8 @@ static void SetRCRadioControl(void)
     // if not rc_ctrl_request, ignore all RC Radio inputs, keep storing stick values
     if (!hfc.rc_ctrl_request) {
 
-      // if not already in AUTOPILOT, then switch to AUTOPILOT
-      if ((hfc.ctrl_source != CTRL_SOURCE_AUTOPILOT)) {
+      // Only switch to autopilot of control source is currently RCRADIO, otherwise do nothing
+      if (hfc.ctrl_source == CTRL_SOURCE_RCRADIO) {
 
           telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
