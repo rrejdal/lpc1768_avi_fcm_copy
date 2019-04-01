@@ -863,6 +863,18 @@ static void SetRCRadioControl(void)
           hfc.throttle_value = pConfig->Stick100range;
       }
 
+      if (   !hfc.eng_super_user
+          && hfc.throttle_armed
+          && (hfc.fixedThrottleMode < THROTTLE_FLY)
+          && !IN_THE_AIR(hfc.altitude_lidar)
+          && (  (hfc.control_mode[COLL] > CTRL_MODE_MANUAL)
+             || (hfc.control_mode[PITCH] > CTRL_MODE_ANGLE)
+             || (hfc.control_mode[ROLL] > CTRL_MODE_ANGLE)
+             || (hfc.control_mode[YAW] > CTRL_MODE_ANGLE)  ) ) {
+        telem.Disarm();
+        telem.SendMsgToGround(MSG2GROUND_ARMING_MODE);
+      }
+
       if (!pConfig->ctrl_mode_inhibit[COLL])
       {
           if (xbus.valuesf[XBUS_THR_SW]>0.5f)

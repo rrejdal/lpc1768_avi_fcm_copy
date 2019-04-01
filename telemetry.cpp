@@ -1884,10 +1884,20 @@ void TelemSerial::Arm(void)
 
     if( (hfc->ctrl_source != CTRL_SOURCE_AFSI) && !hfc->eng_super_user) {
         /* throttle level needs to be low */
-        if ((hfc->ctrl_source == CTRL_SOURCE_RCRADIO) && !THROTTLE_LEVER_DOWN())
+        if (hfc->ctrl_source == CTRL_SOURCE_RCRADIO)
         {
+          if (!THROTTLE_LEVER_DOWN()) {
             SendMsgToGround(MSG2GROUND_ARMING_THROTTLE);
             return;
+          }
+
+          if (   (hfc->control_mode[COLL] > CTRL_MODE_MANUAL)
+              || (hfc->control_mode[PITCH] > CTRL_MODE_ANGLE)
+              || (hfc->control_mode[ROLL] > CTRL_MODE_ANGLE)
+              || (hfc->control_mode[YAW] > CTRL_MODE_ANGLE) ) {
+            SendMsgToGround(MSG2GROUND_ARMING_MODE);
+            return;
+          }
         }
     }
 
