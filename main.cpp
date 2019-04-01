@@ -2160,7 +2160,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             {
                 hfc->waypoint_pos[0] = hfc->home_pos[0];
                 hfc->waypoint_pos[1] = hfc->home_pos[1];
-                hfc->waypoint_retire    = 0;
+                hfc->waypoint_retire    = 1;
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
                 SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
                 hfc->waypoint_stage = FM_TAKEOFF_HOLD;
@@ -2169,8 +2169,10 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_HOLD)
         {
-          // Once our altitude reaches the requested waypoint altitude, Takeoff is complete
-          if (hfc->altitude >= hfc->waypoint_pos[2]) {
+          int retire_takeoff_height = max(hfc->home_pos[2]+TAKEOFF_HEIGHT_MIN, hfc->waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
+
+          // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
+          if (hfc->altitude >= retire_takeoff_height) {
             hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
           }
         }

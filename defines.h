@@ -100,9 +100,10 @@ extern USBSerial   serial;
 #define WAYPOINT_TAKEOFF        2
 #define WAYPOINT_LANDING        3
 
-#define TAKEOFF_HEIGHT_MIN      2   // Takeoff minimum height
+#define TAKEOFF_HEIGHT_MIN      3   // Takeoff minimum height, to keep away from 2m lidar bumper
 #define TAKEOFF_HEIGHT_DEFAULT  10  // Default Takeoff height
 #define TAKEOFF_HEIGHT_MAX      40  // Max Takeoff Height
+#define TAKEOFF_HEIGHT_RETIRE_OFFSET    5 // an arbitrarily good number, according to Scott Gray
 
 #define LANDING_THRESHOLD_HEIGHT_FIXED_PROP 0.1f //in meters, used in landing
 #define LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP 0.2f //in meters, used in landing
