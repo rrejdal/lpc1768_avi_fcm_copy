@@ -60,9 +60,7 @@ bool TelemSerial::AddMessage(unsigned char *m_msg, int m_size, unsigned char m_m
 
 bool TelemSerial::IsOnline(void) {
 
-  // Heartbeat sent from ground every 250ms, x3 to ensure we don't
-  // prematurely make ground as offline.
-  if ((hfc->time_ms - _last_gnd2air_heatbeat) > (3*GND2AIR_HEATBEAT_TIMEOUT_MS))
+  if ((hfc->time_ms - _last_gnd2air_heatbeat) > GND2AIR_HEATBEAT_TIMEOUT_MS)
   {
     return false;
   }

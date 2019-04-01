@@ -16,7 +16,7 @@ extern USBSerial   serial;
 #define usb_print(fmt, ...) \
             do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
 
-#define CONFIG_VERSION   10
+#define CONFIG_VERSION   11
 #define COMPASS_CAL_VERSION 1
 
 #define PC_BAUDRATE          115200

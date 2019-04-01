@@ -7,7 +7,7 @@
 #define MAX_TELEM_MESSAGES  10
 #define TELEM_BUFFER_SIZE   (256+8+16)  // 16 for some slack
 
-#define GND2AIR_HEATBEAT_TIMEOUT_MS  250
+#define GND2AIR_HEATBEAT_TIMEOUT_MS  1000 // Heartbeat sent from AGS every 250ms. Give 1s timeout to ensure connection is actually offline
 
 class TelemSerial
 {
