@@ -2550,6 +2550,10 @@ static void ServoUpdate(float dT)
     if(!hfc.throttle_armed) {
         hfc.fixedThrottleMode = THROTTLE_IDLE;      //  set to follow lever
         hfc.throttle_value = -pConfig->Stick100range; // Throttle off
+
+        if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+          hfc.collective_value = xbus.valuesf[XBUS_THRO];
+        }
     }
     else if (hfc.rc_ctrl_request && hfc.throttle_armed)
     {
