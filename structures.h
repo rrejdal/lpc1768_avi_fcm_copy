@@ -219,14 +219,15 @@
 
 /* take off states */
 #define FM_TAKEOFF_NONE         0
-#define FM_TAKEOFF_AUTO_SPOOL	1
-#define FM_TAKEOFF_ARM          2   // angle mode, spool up
-#define FM_TAKEOFF_START        3   // collective to vspeed
-#define FM_TAKEOFF_LEVEL        4   // collective to vspeed
-#define FM_TAKEOFF_SPEED        5   // speed ground, 25% vspeed threshold
-#define FM_TAKEOFF_ALTITUDE     6   // set target altitude once above 4m
-#define FM_TAKEOFF_HOLD         7   // position+alt hold at +5m, 50% vspeed threshold or +1m altitude
-#define FM_TAKEOFF_COMPLETE     8   // within 0.2m
+#define FM_TAKEOFF_WAIT         1   // wait for user input
+#define FM_TAKEOFF_AUTO_SPOOL   2
+#define FM_TAKEOFF_ARM          3   // angle mode, spool up
+#define FM_TAKEOFF_START        4   // collective to vspeed
+#define FM_TAKEOFF_LEVEL        5   // collective to vspeed
+#define FM_TAKEOFF_SPEED        6   // speed ground, 25% vspeed threshold
+#define FM_TAKEOFF_ALTITUDE     7   // set target altitude once above 4m
+#define FM_TAKEOFF_HOLD         8   // position+alt hold at +5m, 50% vspeed threshold or +1m altitude
+#define FM_TAKEOFF_COMPLETE     9   // within 0.2m
 
 /* landing states */
 #define FM_LANDING_NONE         0
@@ -240,13 +241,14 @@
 #define FM_LANDING_TIMEOUT      8
 #define FM_LANDING_LANDED       9
 
-#define MSG2GROUND_RESEND_COUNT			10	// how many times the same message is send, no TCPIP yet
-#define MSG2GROUND_ARMED_FOR_TAKEOFF	1	// system has to be armed before takeoff
-#define MSG2GROUND_XBUS_FOR_TAKEOFF		2	// xbus has to be active before takeoff
-#define MSG2GROUND_SPOOLUP				3	// prepare RC radio and spool up
-#define MSG2GROUND_TAKEOFF_TIMEOUT		4	// takeoff has timed out
-#define MSG2GROUND_ALLOW_SPOOLUP		5	// asking to allow a spool up
-#define MSG2GROUND_ALLOW_TAKEOFF		6	// asking to allow takeoff
+#define MSG2GROUND_RESEND_COUNT			    10  // how many times the same message is send, no TCPIP yet
+#define MSG2GROUND_ARMED_FOR_TAKEOFF    1   // system has to be armed before takeoff
+#define MSG2GROUND_XBUS_FOR_TAKEOFF     2   // xbus has to be active before takeoff
+#define MSG2GROUND_SPOOLUP              3   // prepare RC radio and spool up
+#define MSG2GROUND_TAKEOFF_TIMEOUT      4   // takeoff has timed out
+#define MSG2GROUND_ALLOW_SPOOLUP        5   // asking to allow a spool up
+#define MSG2GROUND_ALLOW_TAKEOFF        6   // asking to allow takeoff
+#define MSG2GROUND_TAKEOFF              41  // tell AGS that takeoff has begun
 #define MSG2GROUND_ALLOW_LANDING        7   // asking to allow landing/extent hold time
 #define MSG2GROUND_ARMING_THROTTLE      8   // throttle level needs to be low for arming
 #define MSG2GROUND_ARMING_MODE          9   // cannot armed in manual mode
