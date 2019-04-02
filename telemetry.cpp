@@ -15,6 +15,7 @@ extern void GenerateSpeed2AngleLUT(void);
 extern void AltitudeUpdate(float alt_rate, float dT);
 extern void HeadingUpdate(float heading_rate, float dT);
 extern void CompassCalDone(void);
+extern int TakeoffControlModes(void);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -1891,10 +1892,7 @@ void TelemSerial::Arm(void)
             return;
           }
 
-          if (   (hfc->control_mode[COLL] > CTRL_MODE_MANUAL)
-              || (hfc->control_mode[PITCH] > CTRL_MODE_ANGLE)
-              || (hfc->control_mode[ROLL] > CTRL_MODE_ANGLE)
-              || (hfc->control_mode[YAW] > CTRL_MODE_ANGLE) ) {
+          if (!TakeoffControlModes()) {
             SendMsgToGround(MSG2GROUND_ARMING_MODE);
             return;
           }
