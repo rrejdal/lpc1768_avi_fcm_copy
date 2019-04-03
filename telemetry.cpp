@@ -16,7 +16,7 @@ extern void AltitudeUpdate(float alt_rate, float dT);
 extern void HeadingUpdate(float heading_rate, float dT);
 extern void CompassCalDone(void);
 extern int TakeoffControlModes(void);
-extern int GetMotorsState(void);
+extern byte GetMotorsState(void);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -626,7 +626,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->gps_fix_curr   = fixC;
     msg->gps_fix_other  = fix2;
     msg->gps_current    = gps.selected_channel_;
-    msg->motor_state    = (byte)GetMotorsState();
+    msg->motor_state    = GetMotorsState();
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 
     msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)

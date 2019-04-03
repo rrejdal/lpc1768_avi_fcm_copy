@@ -741,13 +741,15 @@ int TakeoffControlModes(void) {
   }
 }
 
-int GetMotorsState(void) {
+byte GetMotorsState(void) {
   if (hfc.throttle_value == -pConfig->Stick100range) {
-    return 0;
+    return 0; // Motors off
   }
   else if (hfc.throttle_value == pConfig->Stick100range) {
-    return 1;
+    return 1; // Motors On
   }
+
+  return 2; // Unknown state
 }
 
 static void SetRCRadioControl(void)
@@ -2049,10 +2051,10 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 
     if (hfc->waypoint_type == WAYPOINT_TAKEOFF)
     {
-        if (   (hfc->waypoint_stage == FM_TAKEOFF_WAIT)
-                  && (    (hfc->message_from_ground>0)
-                       || (hfc->message_timeout<=0)
-                       ||  hfc->afsi_takeoff_enable      )              )
+        if (    (hfc->waypoint_stage == FM_TAKEOFF_WAIT)
+             && (    (hfc->message_from_ground>0)
+                  || (hfc->message_timeout<=0)
+                  ||  hfc->afsi_takeoff_enable         ) )
         {
 
           /* cancel and disarmed */
@@ -2071,9 +2073,9 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 
         }
         else if (   (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
-            && (    (hfc->message_from_ground>0)
-                 || (hfc->message_timeout<=0)
-                 ||  hfc->afsi_takeoff_enable            )              )
+                 && (   (hfc->message_from_ground>0)
+                     || (hfc->message_timeout<=0)
+                     ||  hfc->afsi_takeoff_enable                ) )
         {
             if (hfc->afsi_takeoff_enable) {
                 hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
@@ -2102,11 +2104,11 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             hfc->waypoint_stage  = FM_TAKEOFF_ARM;
             hfc->message_timeout = 60000000;    // 60 seconds
         }
-        else if (     (hfc->waypoint_stage == FM_TAKEOFF_ARM)
-                   && (    (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
-                        || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
-                        || (hfc->message_timeout<=0)
-                        || hfc->afsi_takeoff_enable  )                                   )
+        else if (   (hfc->waypoint_stage == FM_TAKEOFF_ARM)
+                 && (   (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
+                      || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
+                      || (hfc->message_timeout<=0)
+                      || hfc->afsi_takeoff_enable          ) )
         {
             if (hfc->afsi_takeoff_enable) {
                 hfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;

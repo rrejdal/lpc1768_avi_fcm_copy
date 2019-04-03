@@ -248,7 +248,6 @@
 #define MSG2GROUND_TAKEOFF_TIMEOUT      4   // takeoff has timed out
 #define MSG2GROUND_ALLOW_SPOOLUP        5   // asking to allow a spool up
 #define MSG2GROUND_ALLOW_TAKEOFF        6   // asking to allow takeoff
-#define MSG2GROUND_TAKEOFF              41  // tell AGS that takeoff has begun
 #define MSG2GROUND_ALLOW_LANDING        7   // asking to allow landing/extent hold time
 #define MSG2GROUND_ARMING_THROTTLE      8   // throttle level needs to be low for arming
 #define MSG2GROUND_ARMING_MODE          9   // cannot armed in manual mode
@@ -274,6 +273,7 @@
 #define MSG2GROUND_THROTTLE_LEVER_LOW   34  // Throttle Level needs is LOW
 #define MSG2GROUND_THROTTLE_LEVER_HIGH  35  // Throttle Level needs is High
 #define MSG2GROUND_LIDAR_NOGROUND       40  // lidar does not see ground before landing
+#define MSG2GROUND_TAKEOFF              41  // tell AGS that takeoff has begun
 
 
 #define CMD_MSG_TAKEOFF_OK        1
