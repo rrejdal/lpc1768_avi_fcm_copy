@@ -16,6 +16,7 @@ extern void AltitudeUpdate(float alt_rate, float dT);
 extern void HeadingUpdate(float heading_rate, float dT);
 extern void CompassCalDone(void);
 extern int TakeoffControlModes(void);
+extern byte GetMotorsState(void);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -574,7 +575,6 @@ void TelemSerial::Generate_System2(int time_ms)
     float WspeedN = WinSpeedEst(WangleN);
     float Wspeed = sqrtf(WspeedN*WspeedN + WspeedE*WspeedE);
     float Wcour = 0;
-    byte motor_state = 0;
 //    debug_print("%f %f\r\n", WangleE, WangleN);
 
     fixC = gps_data.fix;
@@ -597,13 +597,6 @@ void TelemSerial::Generate_System2(int time_ms)
     
     byte waypoint_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT ? 1 : 0;
     byte joystick_ctrl_mode = hfc->ctrl_source==CTRL_SOURCE_JOYSTICK ? 1 : 0;
-    
-    if (hfc->throttle_value == -pConfig->Stick100range) {
-      motor_state = 0;
-    }
-    else if (hfc->throttle_value == pConfig->Stick100range) {
-      motor_state = 1;
-    }
 
     /* payload */
     msg->time        = time_ms;
@@ -633,7 +626,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->gps_fix_curr   = fixC;
     msg->gps_fix_other  = fix2;
     msg->gps_current    = gps.selected_channel_;
-    msg->motor_state    = motor_state;
+    msg->motor_state    = GetMotorsState();
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 
     msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
@@ -1699,7 +1692,7 @@ void TelemSerial::CommandTakeoffArm(void)
     }
     else {
       if (!hfc->rc_ctrl_request) {
-        hfc->waypoint_stage  = FM_TAKEOFF_NONE;
+        hfc->waypoint_stage  = FM_TAKEOFF_WAIT;
       }
       else {
         hfc->waypoint_stage  = FM_TAKEOFF_ARM;
@@ -2133,9 +2126,8 @@ void TelemSerial::ProcessCommands(void)
         }
         else if (sub_cmd == CMD_MSG_TAKEOFF_OK) {
           if (!hfc->rc_ctrl_request) {
-                  hfc->waypoint_stage = FM_TAKEOFF_AUTO_SPOOL;
-                  hfc->message_timeout =60000000;    // 60 seconds
-                  hfc->message_from_ground = sub_cmd;
+             hfc->message_timeout =60000000;    // 60 seconds
+             hfc->message_from_ground = sub_cmd;
           }
         }
         else {

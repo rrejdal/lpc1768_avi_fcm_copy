@@ -741,6 +741,17 @@ int TakeoffControlModes(void) {
   }
 }
 
+byte GetMotorsState(void) {
+  if (hfc.throttle_value == -pConfig->Stick100range) {
+    return 0; // Motors off
+  }
+  else if (hfc.throttle_value == pConfig->Stick100range) {
+    return 1; // Motors On
+  }
+
+  return 2; // Unknown state
+}
+
 static void SetRCRadioControl(void)
 {
     if (xbus.valuesf[XBUS_CTRLMODE_SW] > 0.5f) {
@@ -2040,11 +2051,31 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 
     if (hfc->waypoint_type == WAYPOINT_TAKEOFF)
     {
+        if (    (hfc->waypoint_stage == FM_TAKEOFF_WAIT)
+             && (    (hfc->message_from_ground>0)
+                  || (hfc->message_timeout<=0)
+                  ||  hfc->afsi_takeoff_enable         ) )
+        {
 
-        if (   (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
-            && (    (hfc->message_from_ground>0)
-                 || (hfc->message_timeout<=0)
-                 ||  hfc->afsi_takeoff_enable            )              )
+          /* cancel and disarmed */
+          if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_OK || hfc->message_timeout<=0)
+          {
+              hfc->inhibitRCswitches = false;
+              /* send message that takeoff has timed out */
+              if (hfc->message_timeout<=0)
+                  telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+
+              telem.Disarm();
+              return;
+          }
+
+          hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
+
+        }
+        else if (   (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
+                 && (   (hfc->message_from_ground>0)
+                     || (hfc->message_timeout<=0)
+                     ||  hfc->afsi_takeoff_enable                ) )
         {
             if (hfc->afsi_takeoff_enable) {
                 hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
@@ -2059,7 +2090,6 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
                     telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
 
                 telem.Disarm();
-                hfc->waypoint_type  = WAYPOINT_NONE;
                 return;
             }
 
@@ -2074,11 +2104,11 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             hfc->waypoint_stage  = FM_TAKEOFF_ARM;
             hfc->message_timeout = 60000000;    // 60 seconds
         }
-        else if (     (hfc->waypoint_stage == FM_TAKEOFF_ARM)
-                   && (    (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
-                        || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
-                        || (hfc->message_timeout<=0)
-                        || hfc->afsi_takeoff_enable  )                                   )
+        else if (   (hfc->waypoint_stage == FM_TAKEOFF_ARM)
+                 && (   (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
+                      || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
+                      || (hfc->message_timeout<=0)
+                      || hfc->afsi_takeoff_enable          ) )
         {
             if (hfc->afsi_takeoff_enable) {
                 hfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
@@ -2087,25 +2117,19 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 
             hfc->inhibitRCswitches = false;
             /* cancel and disarmed */
-            if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_ALLOWED || hfc->message_timeout<=0)
+            if (   (hfc->message_from_ground!=CMD_MSG_TAKEOFF_ALLOWED)
+                || (GetMotorsState() == 0)
+                || (hfc->message_timeout<=0))
             {
                 /* send message that takeoff has timed out */
                 if (hfc->message_timeout <= 0) {
                     telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
                 }
-
-//                telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
                 telem.Disarm();
-                /* on takeoff abort, keep in AUTOPILOT ctrl source with manual coll at the last value,
-                 * use final landing timeout to prevent RC radio from instantly changing collective */
-                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
-                hfc->ctrl_out[RAW][COLL] = pConfig->CollZeroAngle;
-                hfc->waypoint_type  = WAYPOINT_LANDING;
-                hfc->waypoint_stage = FM_LANDING_TIMEOUT;
-                hfc->touchdown_time = hfc->time_ms;
                 return;
             }
 
+            telem.SendMsgToGround(MSG2GROUND_TAKEOFF);
             telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
             telem.SaveValuesForAbort();
             hfc->waypoint_type = WAYPOINT_TAKEOFF;
@@ -2193,6 +2217,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 
           // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
           if (hfc->altitude >= retire_takeoff_height) {
+            hfc->altitude_WPnext = hfc->waypoint_pos[2];  // make sure the next waypoint uses the intended takeoff height
             hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
           }
         }
