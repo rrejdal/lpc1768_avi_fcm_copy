@@ -211,6 +211,8 @@
 #define CALIBRATE_IMU           1
 #define CALIBRATE_COMPASS       2
 
+#define ARMED_TIMEOUT           60 //seconds, 1 minute to arm and get to flying
+
 /* control source, transition from RCradio to anything saves stick values */
 #define CTRL_SOURCE_RCRADIO     0
 #define CTRL_SOURCE_JOYSTICK    1   // 2 is skipped to keep compatibility with Release v.4.01 AGS
@@ -1104,7 +1106,7 @@ typedef struct
 
     float takeoff_height;               // height to achieve during takeoff
     float landingWPHeight;              // height to achieve when reaching a landing WP.
-    float landing_timeout;              // time to wait to completely spool down motors at end of landing
+    float landing_timeout;              // time (seconds) to wait to completely spool down motors at end of landing
 
 
     float heading;

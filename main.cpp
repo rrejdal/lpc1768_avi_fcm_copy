@@ -2503,6 +2503,7 @@ static void ServoUpdateRAW(float dT)
     }
 }
 
+// dT is the time since this function was last called (in seconds)
 static void ServoUpdate(float dT)
 {
     char control_mode_prev[4] = {0,0,0,0};
@@ -4237,6 +4238,29 @@ void CompassCalDone(void)
     SaveCompassCalibration(&hfc.compass_cal);
 }
 
+
+
+// dT is the elapsed time since this fucntion was run, in seconds
+void ArmedTimeout(float dT) {
+  static float armed_timer = ARMED_TIMEOUT;
+
+  if (!hfc.throttle_armed) {
+    armed_timer = ARMED_TIMEOUT;
+  }
+  else if (   hfc.throttle_armed
+           && ( (GetMotorsState()==0) || (hfc.fixedThrottleMode <= THROTTLE_DEAD) )) {
+    armed_timer -= dT;
+  }
+  else {
+    armed_timer = ARMED_TIMEOUT;
+  }
+
+  if (armed_timer <= 0.0f) {
+    telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+    telem.Disarm();
+  }
+}
+
 void do_control()
 {
     float accRaw[3];
@@ -4244,7 +4268,7 @@ void do_control()
     int i;
     int ticks;
     int time_ms;
-    float dT;
+    float dT;  // runtime of do_control() loop, in seconds
     float baro_altitude_raw_prev;
     int utilization = 0;
     //GpsData gps_data;
@@ -4278,6 +4302,8 @@ void do_control()
     if (!(hfc.print_counter&0x3f)) {
          // debug_print("util %4.1f%\r\n", hfc.cpu_utilization_lp);
     }
+
+    ArmedTimeout(dT);
 
     /* copy and clear the new data flag set by GPS to a new variable to avoid a race */
     //gps_data = gps.GpsUpdate(ticks, &hfc.gps_new_data);
