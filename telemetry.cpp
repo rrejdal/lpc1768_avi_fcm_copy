@@ -1782,8 +1782,6 @@ void TelemSerial::Disarm(void)
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
 
-	//xbus.InitXbusValues();
-
 	// TODO::SP: Error handling on Flash write error??
     UpdateFlashConfig(hfc);
 }

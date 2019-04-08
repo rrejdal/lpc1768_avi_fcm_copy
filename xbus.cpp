@@ -82,8 +82,13 @@ void XBus::ProcessSbyte()
     	/* All bytes of frame accumulated */
         if( bytes == SBUS_FRAME_SIZE)
         {
+          // Ensure we have a valid End Byte.
+          if ((sbusFrame.bytes[bytes-1] & 0xF) == 0x4) {
+            new_values = true;
+          }
+
         	bytes = 0;
-        	new_values = true;
+
         }
     }
 }
@@ -302,22 +307,10 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                     ret = XBUS_NEW_VALUES;
                 }
             }
+
+            new_values = false;
         }
     }
 
     return ret;
-}
-
-void XBus::InitXbusValues()
-{
-    if(sbus_enabled == 0) {
-        for (int i=0; i < servos; i++)
-        {
-            valuesf[i] = -0.571f;
-
-            if (revert[i]) {
-                valuesf[i] = -valuesf[i];
-            }
-        }
-    }
 }
