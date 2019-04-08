@@ -3979,32 +3979,6 @@ static void Lidar_Process(FlightControlData *hfc)
     hfc->lidar_pulse = false;
 
     return;
-//
-////    debug_print("fall %d %d\r\n", time, d);
-//    if (pConfig->ground_sensor==GROUND_SENSOR_LIDAR)
-//    {
-//        if (d>100000)
-//            hfc->lidar_counter=0;
-//        else
-//            hfc->lidar_counter++;
-//
-//        if (d<=100000 && hfc->lidar_counter>=10)
-//        {
-//            float alt;
-//            d = min(40000, max(0, d-pConfig->lidar_offset));
-//            alt = d*0.001f;
-//            hfc->altitude_lidar_raw = (alt + 3*hfc->altitude_lidar_raw)*0.25f;
-//    //        debug_print("%5d %6.3f\r\n", d, hfc.altitude_lidar_raw);
-//        }
-//        else
-//            hfc->altitude_lidar_raw = 40;
-//    }
-//    else if (pConfig->ground_sensor==GROUND_SENSOR_SONAR)
-//    {
-//        hfc->altitude_lidar_raw = d * 0.0001724137931f - pConfig->lidar_offset*0.001f; // 5.8us/mm
-////        debug_print("%5d %6.3f\r\n", d, hfc->altitude_lidar_raw);
-//    }
-//    hfc->lidar_pulse = false;
 }
 
 static void RPM_Process(void)
