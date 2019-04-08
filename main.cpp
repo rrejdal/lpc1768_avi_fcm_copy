@@ -3605,11 +3605,11 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
     //lidarData.i_current is the index of the current location in
     //the lidarData.alt[] circular buffer.
     //This code updates the location of the circular buffer.
-    lidarData[node_id].i_current++;
-    if (lidarData[node_id].i_current >= LIDAR_HISTORY_SIZE) {
-        lidarData[node_id].i_current -= LIDAR_HISTORY_SIZE;
+    lidarData[node_id].data_indx++;
+    if (lidarData[node_id].data_indx >= LIDAR_HISTORY_SIZE) {
+        lidarData[node_id].data_indx -= LIDAR_HISTORY_SIZE;
     }
-    lidarData[node_id].alt[lidarData[node_id].i_current] = pulse * 0.001f;
+    lidarData[node_id].alt[lidarData[node_id].data_indx] = pulse * 0.001f;
 
     //Flag to indicate that we got a lidar reading from the associated node.
     lidarData[node_id].new_data_rdy++;
@@ -3636,7 +3636,7 @@ static void UpdateLidar(int node_id, int lidarCount)// unsigned char *pdata)
     if (check_data == 1) {
         // loop through each lidar
         for (int i = 0; i < MAX_NUM_LIDAR; i++) {
-            int current = lidarData[i].i_current;
+            int current = lidarData[i].data_indx;
             int history_pass = 1;
             index = current - 1;
 

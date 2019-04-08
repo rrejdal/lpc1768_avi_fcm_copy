@@ -1254,8 +1254,8 @@ typedef struct
 } T_Servos;
 
 typedef struct {
-    float alt[LIDAR_HISTORY_SIZE];
-    int   i_current;
+  float      alt[LIDAR_HISTORY_SIZE]; // circular buffer of altitude data (in meters) used for filtering, necessary only for FCM lidar
+  int        data_indx;
     int   new_data_rdy;
 } Lidar_Data;
 
