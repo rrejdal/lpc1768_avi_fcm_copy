@@ -520,6 +520,7 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     msg->longitude = (int)(hfc->positionLatLon[1]*10000000);
     msg->lidar_alt = Float32toFloat16(hfc->altitude_lidar);
     msg->controlStatus = hfc->controlStatus;
+    msg->lidar_online_mask = hfc->lidar_online_mask;
     
     InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
 }

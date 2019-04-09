@@ -298,9 +298,14 @@
 #define COMP_CALIBRATING        1
 #define COMP_CALIBRATE_DONE     2
 
-#define LIDAR_HISTORY_SIZE      10
+#define MAX_NUM_LIDARS           10
+#define LIDAR_TIMEOUT         0.100f  //0.100 seconds = 100 milli-seconds
+#define LIDAR_HISTORY_SIZE       10
+#define INVALID_LIDAR_DATA     9999
+#define MAX_LIDAR_PULSE       40000   /* 40000 us @ 1us/1mm = 40m max range */
+#define MIN_LIDAR_PULSE           0   /* 40000 us @ 1us/1mm = 40m max range */
 
-typedef struct /* size 10bytes */
+typedef struct /* size 28bytes */
 {
     uint32 Vmain  : 12;     // 0-64V    *64
     uint32 Vaux   : 10;     // 0-16V    *64
@@ -350,6 +355,7 @@ typedef struct
     int     longitude;       // longitude from IMU * 10M
     f16     lidar_alt;
     int     controlStatus;  // bit mask denoting the last control command made.
+    int     lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
 } T_Telem_Ctrl0;
 
 /* Telemetry - GPS 1       sent the GPS update rate, typically 5-10Hz, 42bytes */
@@ -1066,8 +1072,12 @@ typedef struct
     float altitude_baro;        // altitude in m, mix of baro and acc
     float altitude_gps;         // altitude in m, raw GPS value
     float altitude_ofs;         // offset in between GPS and baro based altitude
+
     float altitude_lidar;       // altitude above ground from LIDAR, angle compensated
     float altitude_lidar_raw;   // altitude above ground from LIDAR, raw value
+    float lidar_timeouts[MAX_NUM_LIDARS];
+    int   lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
+
     float altitude_WPnext;      // next waypoint altitude, relative to takeoff site
     unsigned int lidar_rise;	// system time at the rising edge of lidar pwm;
     unsigned int lidar_fall;    // system time at the falling edge
@@ -1256,7 +1266,8 @@ typedef struct
 typedef struct {
   float      alt[LIDAR_HISTORY_SIZE]; // circular buffer of altitude data (in meters) used for filtering, necessary only for FCM lidar
   int        data_indx;
-    int   new_data_rdy;
+  int        new_data_rdy;
+  float      current_alt;
 } Lidar_Data;
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
