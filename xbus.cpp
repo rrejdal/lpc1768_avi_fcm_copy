@@ -26,6 +26,7 @@ XBus::XBus(PinName rx) : serial(NC, rx)
     for (i=1; i<MAX_XBUS_SERVOS; i++) valuesf[i] = 0;
     for (i=0; i<MAX_XBUS_SERVOS; i++) revert[i]  = 0;
     revert[1] = 1; revert[2] = 1; revert[3] = 1;
+    _offline = true;
 
 #if 0
     //valuesf[0] = 0;         // XBUS_THRO, collective, 0 vertical speed
@@ -43,6 +44,15 @@ XBus::XBus(PinName rx) : serial(NC, rx)
 XBus::~XBus(void)
 {
 //    serial.attach(this, 0, RawSerial::RxIrq);
+}
+
+bool XBus::RcLinkOnline(void)
+{
+  if (_offline) {
+    return false;
+  }
+
+  return true;
 }
 
 void XBus::ConfigRx()
@@ -242,6 +252,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                     ret = XBUS_NEW_VALUES;
                 }
                 time_since_last_good = 0;
+                _offline = false;
             }
         }
         else {
@@ -259,6 +270,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                 time_since_last_good = 0;
                 no_prev_signal = true;
                 ret =  XBUS_TIMEOUT;
+                _offline = true;
             }
         }
     }
@@ -282,6 +294,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                     valuesf[7] = -0.571f;   // XBUS_MODE_SW, speed mode
                     valuesf[8] = -0.571f;   // XBUS_ENG_SUPER_USER, ignore safety
                     ret = XBUS_TIMEOUT;
+                    _offline = true;
                 }
             }
             else {
@@ -306,6 +319,7 @@ char XBus::NewValues(float dT, unsigned char throttle_armed, unsigned char fixed
                 else {
                     ret = XBUS_NEW_VALUES;
                 }
+                _offline = false;
             }
 
             new_values = false;
