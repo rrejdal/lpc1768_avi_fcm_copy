@@ -298,8 +298,8 @@
 #define COMP_CALIBRATING        1
 #define COMP_CALIBRATE_DONE     2
 
-#define MAX_NUM_LIDARS           10
-#define LIDAR_TIMEOUT         0.100f  //0.100 seconds = 100 milli-seconds
+#define MAX_NUM_LIDARS            5
+#define LIDAR_TIMEOUT        0.100f  //0.100 seconds = 100 milli-seconds
 #define LIDAR_HISTORY_SIZE       10
 #define INVALID_LIDAR_DATA     9999
 #define MAX_LIDAR_PULSE       40000   /* 40000 us @ 1us/1mm = 40m max range */

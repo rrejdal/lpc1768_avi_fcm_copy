@@ -133,9 +133,8 @@ const ConfigData *pConfig = NULL;
 #define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
 #define COMPASS_SEL_MASK(x)     ((x) << 2)
 
-Lidar_Data lidarData[MAX_NUM_LIDARS];
-Lidar_Data *lidar_data = NULL;
-int NUM_LIDARS = 0;
+Lidar_Data lidar_data[MAX_NUM_LIDARS] = {0};
+int num_lidars = 0;
 
 typedef struct {
     uint8_t major_version;
@@ -3567,14 +3566,14 @@ static void UpdateLidarAltitude(int node_id, int lidarCount)
 
     float alt_avg = 0;
 
-    for (int i = 0; i < NUM_LIDARS; i++) {
+    for (int i = 0; i < num_lidars; i++) {
       if ( ((hfc.lidar_online_mask >> i) & 1) == 1 ) {
         alt_avg += lidar_data[i].current_alt;
         num_lidars_reported++;
       }
     }
     alt_avg = alt_avg / num_lidars_reported;
-    //alt_avg = ClipMinMax(alt_avg-(pConfig->lidar_offset/1000.0f), MIN_LIDAR_PULSE/1000.0f, MAX_LIDAR_PULSE/1000.0f);
+    alt_avg = alt_avg-(pConfig->lidar_offset/1000.0f);
     alt_avg = ClipMinMax(alt_avg, MIN_LIDAR_PULSE/1000.0f, MAX_LIDAR_PULSE/1000.0f);
     hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
 }
@@ -3611,7 +3610,7 @@ static int LidarFilterFCM(int node_id, int lidarCount)
 
       /* Lidar data comes in on average 200Hz, every 0.005s, a change in altitude of
        * 0.05m in 0.005s = 10 m/s, the drone should not be ascending that fast.
-       * Every entry in lidarData[i].alt[] is approx. 0.005s apart.*/
+       * Every entry in lidar_data[i].alt[] is approx. 0.005s apart.*/
       if ( ABS(lidar_data[node_id].alt[current] - lidar_data[node_id].alt[previous]) >= (0.05f*(i+1)) ) {
 
         /* When the Lidar goes out of range, that is, greater than 35m or so, then
@@ -3834,8 +3833,6 @@ static void can_handler(void)
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
                 UpdateLidarAltitude(node_id, *(uint32_t *)pdata);
-                //UpdateLidarHeight(node_id, *(uint32_t *)pdata);
-                //UpdateLidarHeight(node_id+1, *(uint32_t *)pdata); // NOTE::SP added to testing only
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -3926,7 +3923,7 @@ static void ProcessStats(void)
 
 static void Lidar_Process(FlightControlData *hfc)
 {
-    int node_id = NUM_LIDARS - 1;
+    int node_id = num_lidars - 1;
     if (!hfc->lidar_pulse)
         return;
 
@@ -4179,7 +4176,7 @@ void CompassCalDone(void)
 
 void LidarTimeout(float dT)
 {
-  for(int i = 0; i<NUM_LIDARS; i++) {
+  for(int i = 0; i<num_lidars; i++) {
     hfc.lidar_timeouts[i] -= dT;
 
     if (   (hfc.lidar_timeouts[i] <= 0)
@@ -5579,19 +5576,16 @@ void InitializeRuntimeData(void)
     hfc.eng_super_user = false;
 
     if (pConfig->LidarFromServo > 0) {
-      NUM_LIDARS = NUM_LIDARS + pConfig->num_servo_nodes;
+      num_lidars = num_lidars + pConfig->num_servo_nodes;
     }
 
     if (pConfig->LidarFromPowerNode > 0) {
-      NUM_LIDARS = NUM_LIDARS + pConfig->num_power_nodes;
+      num_lidars = num_lidars + pConfig->num_power_nodes;
     }
 
     if ((pConfig->LidarFromPowerNode == 0) && (pConfig->LidarFromServo == 0)) {
-      NUM_LIDARS = 1; // assume lidar is in FCM
+      num_lidars = 1; // assume lidar is connected to FCM only
     }
-
-    lidar_data = new Lidar_Data[NUM_LIDARS];
-
 }
 
 /**
