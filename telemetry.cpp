@@ -629,7 +629,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->motor_state    = GetMotorsState();
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 
-    msg->control_status = (xbus.receiving & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
+    msg->control_status = (xbus.RcLinkOnline() & 1) | (waypoint_ctrl_mode<<1) | (((!hfc->throttle_armed)&1)<<2) | ((joystick_ctrl_mode&1)<<3)
                             | ((hfc->playlist_status&0x3)<<4) | ((hfc->rc_ctrl_request&1)<<6) | ((hfc->eng_super_user&1)<<7);
 
     msg->playlist_items    = hfc->playlist_items;
@@ -1624,17 +1624,6 @@ void TelemSerial::CommandTakeoffArm(void)
         SendMsgToGround(MSG2GROUND_ARMED_FOR_TAKEOFF);
         return;
     }
-
-#if 0
-    /* check for xbus being active */
-    if (!xbus.receiving)
-    {
-        Disarm();
-        /* send message that xbus radio has to be on */
-        SendMsgToGround(MSG2GROUND_XBUS_FOR_TAKEOFF);
-        return;
-    }
-#endif
 
     /* check sensors */
     if (!PreFlightChecks())

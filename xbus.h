@@ -69,31 +69,36 @@ class XBus
        void SetSbusEnabled(int sbus) { sbus_enabled = sbus; }
 
         public:
-        int             servos;                     // number of servos
-        float           valuesf[MAX_XBUS_SERVOS];   // servo values, +/- 1.0;
+        int servos;                       // number of servos
+        float valuesf[MAX_XBUS_SERVOS];   // servo values, +/- 1.0;
         unsigned short int valuesu[MAX_XBUS_SERVOS]; // raw values
-        unsigned char   revert[MAX_XBUS_SERVOS];    // true will revert channel polarity
-        int             good_packets;               // number of received good packets
-        int             bad_packets;                // number of received bad packets
-        int             timeouts;                // number of timeout conditions
-        int             sbus_flag_errors;       // number of error conditions reported from sbus flags
-//        char            NewValues(char sBus_enable, float dT);        // returns 0- no new, 1-new, 2-timeout
-        char            NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode);        // returns 0- no new, 1-new, 2-timeout
-        void			ConfigRx();
+        unsigned char revert[MAX_XBUS_SERVOS];    // true will revert channel polarity
 
-        bool            receiving;                  // true if data being received
-    
+        int good_packets;               // number of received good packets
+        int bad_packets;                // number of received bad packets
+        int timeouts;                   // number of timeout conditions
+        int sbus_flag_errors;           // number of error conditions reported from sbus flags
+        char NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode); // returns 0- no new, 1-new, 2-timeout
+
+        void ConfigRx();
+        bool RcLinkOnline(void);
+
     private:
-        RawSerial       serial;
-        int             sbus_enabled;
-        unsigned char   buffer[MAX_XBUS_PAKT_SIZE];
-        char            sync;           // true if searching for a sync byte, false accumulating packet data
-        unsigned char   bytes;          // bytes accumulated in buffer
-        float           time_since_last_good;   // tracks time since last good packet
-        char            new_values;                 // set everytime a good packet is processed
-        char			no_prev_signal;
-        uint32_t 		sbusFrameStartAt;
-        uint32_t		sbusFrameTime;
+        RawSerial serial;
+        int sbus_enabled;
+        bool _offline;
+
+        unsigned char buffer[MAX_XBUS_PAKT_SIZE];
+        char sync;                    // true if searching for a sync byte, false accumulating packet data
+        unsigned char bytes;          // bytes accumulated in buffer
+        float time_since_last_good;   // tracks time since last good packet
+        char new_values;              // set everytime a good packet is processed
+        char no_prev_signal;
+
+        bool receiving;               // true if data being received
+
+        uint32_t sbusFrameStartAt;
+        uint32_t sbusFrameTime;
 
         void ProcessByte();
         void ProcessSbyte();

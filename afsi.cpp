@@ -637,7 +637,7 @@ void AFSI_Serial::GenerateFcmStatus(void)
     msg_stat_fcm.ctrl_mode_collective = hfc.control_mode[COLL];
     msg_stat_fcm.ctrl_mode_throttle   = hfc.control_mode[THRO];
 
-    msg_stat_fcm.ctrl_status   =   (          xbus.receiving & 1          ) |
+    msg_stat_fcm.ctrl_status   =   (          xbus.RcLinkOnline() & 1 ) |
                                    (          (waypoint_ctrl_mode)   << 1 ) |
                                    ( ( (!hfc.throttle_armed) & 1   ) << 2 ) |
                                    (     (joystick_ctrl_mode & 1   ) << 3 ) |
