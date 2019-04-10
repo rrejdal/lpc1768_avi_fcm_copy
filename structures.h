@@ -1249,6 +1249,7 @@ typedef struct
     int debug_flags[10]; // Temp debug flags to be used however
 
     bool setZeroSpeed;
+
 } FlightControlData;
 
 

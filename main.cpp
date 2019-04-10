@@ -158,6 +158,12 @@ static int init_ok = 1;
 static int init_warning = 0;
 
 #define CAN_TIMEOUT 500
+#define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
+
+// Macros for controlling 'special' reserved FCM outputs
+#define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6->pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
+#define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
+
 static int can_node_found = 0;
 static int canbus_ack = 0;
 static int write_canbus_error = 0;
@@ -1403,7 +1409,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             // Xbus
             if(pConfig->SbusEnable == 0)
             {
-            if (!xbus.receiving)
+            if (!xbus.RcLinkOnline())
                 PRINTs(str, (char*)"Xbus ----");
             else if (hfc->full_auto)
                 PRINTs(str, (char*)"Xbus FullAuto");
@@ -1412,7 +1418,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             }
             if(pConfig->SbusEnable == 1)
             {
-            if (!xbus.receiving)
+            if (!xbus.RcLinkOnline())
                 PRINTs(str, (char*)"Sbus ----");
             else if (hfc->full_auto)
                 PRINTs(str, (char*)"Sbus FullAuto");
@@ -2035,17 +2041,50 @@ static void AbortFlight(void)
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
+  static float abortTimer = ABORT_TIMEOUT_SEC;
+  static float led_timer = 1.0; // toggle time for Armed LED
+  static int led_state = 1;
+
+    // If all these conditions are true for Abort_timeout time,
+    // then we decide we no longer have any way to receive instructions and we
+    // make the decision to return nearest safe landing point
     if (hfc->throttle_armed
           && !telem.IsOnline()
-          && !xbus.receiving
+          && !xbus.RcLinkOnline()
           && (hfc->playlist_status != PLAYLIST_PLAYING)
           && (hfc->ctrl_source != CTRL_SOURCE_AFSI)) {
 
-      AbortFlight();
+      if (abortTimer <= 0) {
+
+        // Toggle Arm LED to show we are aborting the flight
+        led_timer -= dT;
+        if (led_timer <= 0) {
+
+          FCM_SET_ARM_LED(led_state);
+
+          led_state ^= 1;
+          led_timer = 1.0;
+        }
+
+        AbortFlight();
+      }
+      else {
+        abortTimer -= dT;
+      }
+    }
+    else {
+      abortTimer = ABORT_TIMEOUT_SEC;
+
+      // Process FCM reserved LEDS.
+      // PWM_5 reserved for FCM box dropper
+      // PWM_6 reserved for ARM led
+      FCM_SET_ARM_LED(hfc->throttle_armed);
+      FCM_DROP_BOX_CTRL(hfc->box_dropper_);
     }
 
-    if (hfc->message_timeout>0)
+    if (hfc->message_timeout>0) {
         hfc->message_timeout -= hfc->ticks_curr;
+    }
 
     if (hfc->waypoint_type == WAYPOINT_TAKEOFF)
     {
@@ -2521,7 +2560,7 @@ static void ServoUpdate(float dT)
         // full_auto, auto_throttle, ctrl_source, fixedThrottleMode, throttle_value, collective_value
         debug_print("FA[%d] AT[%d] CS[%d] FTM[%d] TV[%f] CV[%f] XBRX[%d]\r\n",
                         hfc.full_auto, hfc.auto_throttle, hfc.ctrl_source,
-                        hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value, xbus.receiving);
+                        hfc.fixedThrottleMode, hfc.throttle_value, hfc.collective_value, xbus.RcLinkOnline());
 
         debug_print("Mixer in [P,R,Y,C,T]: ");
         for (int i=0; i < 5; i++) {
@@ -3318,18 +3357,6 @@ static void ServoUpdate(float dT)
             WriteToFcmServos();
         }
     }
-
-    if (pConfig->power_node || pConfig->can_servo) {
-        // NOTE::SP: HACK OF THE DAY 18-10-2018
-        // WHEN USING A POWER NODE (HEX/OCTO AIRFRAMES) STILL NEED TO
-        // DRIVE ARMED LED, BUT THIS IS ON THE FCM. HARDCODING OUTPUT
-        // 6 ON FCM FOR THIS LED.
-        float led_pwm = hfc.throttle_armed ? 1 : -1;
-        FCM_SERVO_CH6->pulsewidth_us((int)(1500.5f + led_pwm * 500));
-    }
-
-    float box_dropper_pwm = hfc.box_dropper_ ? 1 : -1;
-    FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + box_dropper_pwm * 500));
 
     if (FCMLinkLive) {
         ProcessFcmLinkLive();
