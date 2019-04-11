@@ -1993,7 +1993,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     {
         /* stop playlist and waypoint mode */
         hfc->playlist_status = PLAYLIST_STOPPED;
-        hfc->playlist_position++;
+        hfc->playlist_position = hfc->playlist_items;
 
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc->throttle_armed) {
@@ -2241,7 +2241,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             {
                 hfc->waypoint_pos[0] = hfc->home_pos[0];
                 hfc->waypoint_pos[1] = hfc->home_pos[1];
-                hfc->waypoint_retire    = 1;
+                hfc->waypoint_retire = 0;
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
                 SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
                 hfc->waypoint_stage = FM_TAKEOFF_HOLD;
@@ -2250,7 +2250,13 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_HOLD)
         {
-          int retire_takeoff_height = max(hfc->home_pos[2]+TAKEOFF_HEIGHT_MIN, hfc->waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
+          int retire_takeoff_height = hfc->waypoint_pos[2];
+
+          // if we are playing a playlist and the takeoff is not the last item in the playlist, then
+          // retire the takeoff TAKEOFF_HEIGHT_RETIRE_OFFSET meters earlier.
+          if ( (hfc->playlist_status > PLAYLIST_STOPPED) && (hfc->playlist_position < (hfc->playlist_items - 1)) ){
+            retire_takeoff_height = max(hfc->home_pos[2]+TAKEOFF_HEIGHT_MIN, hfc->waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
+          }
 
           // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
           if (hfc->altitude >= retire_takeoff_height) {
