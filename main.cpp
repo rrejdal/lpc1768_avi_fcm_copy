@@ -3588,12 +3588,14 @@ bool IsLidarOperational(void) {
     // Check to ensure lidars are reporting to FCM
     if ( ((hfc.lidar_online_mask >> i) & 1) == 0 ) {
       status = false;
+      break;
     }
 
     // if the raw lidar is reading less than half the set lidar offset
     // then check lidars.
     if (lidar_data[i].current_alt < ((pConfig->lidar_offset/1000.0f)/2) ) {
       status = false;
+      break;
     }
   }
 
