@@ -1993,7 +1993,7 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     {
         /* stop playlist and waypoint mode */
         hfc->playlist_status = PLAYLIST_STOPPED;
-        hfc->playlist_position++;
+        hfc->playlist_position = hfc->playlist_items;
 
         /* if in flight, put a waypoint at the current position, else do nothing */
         if (hfc->throttle_armed) {
@@ -2241,7 +2241,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             {
                 hfc->waypoint_pos[0] = hfc->home_pos[0];
                 hfc->waypoint_pos[1] = hfc->home_pos[1];
-                hfc->waypoint_retire    = 1;
+                hfc->waypoint_retire = 0;
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
                 SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
                 hfc->waypoint_stage = FM_TAKEOFF_HOLD;
@@ -2250,7 +2250,13 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         else
         if (hfc->waypoint_stage == FM_TAKEOFF_HOLD)
         {
-          int retire_takeoff_height = max(hfc->home_pos[2]+TAKEOFF_HEIGHT_MIN, hfc->waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
+          int retire_takeoff_height = hfc->waypoint_pos[2];
+
+          // if we are playing a playlist and the takeoff is not the last item in the playlist, then
+          // retire the takeoff TAKEOFF_HEIGHT_RETIRE_OFFSET meters earlier.
+          if ( (hfc->playlist_status > PLAYLIST_STOPPED) && (hfc->playlist_position < (hfc->playlist_items - 1)) ){
+            retire_takeoff_height = max(hfc->home_pos[2]+TAKEOFF_HEIGHT_MIN, hfc->waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
+          }
 
           // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
           if (hfc->altitude >= retire_takeoff_height) {
@@ -3483,6 +3489,7 @@ static void UpdateBatteryStatus(float dT)
     float I = p->Iesc + p->Iaux;
     float power = I * p->Vmain;
     float dE = power * dT;
+    static int num_voltage_measurements = 0;
 
     /* do not process if duration is not right */
     if (dT>1 || dT<=0) {
@@ -3499,10 +3506,13 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    // TODO::SP: This needs to be tested and made a configurable value
-    /* when current is below 20A (0.2A normally), battery is considered unloaded */
-    //if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
-    if (I < (0.02f * hfc.rw_cfg.battery_capacity)) {
+    /* Consider batter unloaded when current is below 300% the configured offset current of the UAV
+     * in which case, use the voltage to initialize the battery level
+     * AND set "energy_curr" based on voltage for the first 100 measurements after the
+     * FCM is booted up, after that, "energy_curr" is only calculated via the current measured*/
+    if ( (I < (3.0f * pConfig->current_offset)) && (num_voltage_measurements < 100) ) {
+
+        num_voltage_measurements++;
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
@@ -3521,7 +3531,7 @@ static void UpdateBatteryStatus(float dT)
 
         power = pConfig->power_typical;  // use typical power consumed to est flight time
     }
-    else {
+    else { // Once energy_curr is initialized by voltage, use current draw to keep track for as long as FCM is on
         p->energy_curr -= dE;
 
         if (p->energy_curr < 0) {
@@ -3577,6 +3587,33 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
         board_info[board_type][node_id].serial_number0 |= (pdata[6] << 8);
         board_info[board_type][node_id].serial_number0 |= (pdata[7]);
     }
+}
+
+
+bool IsLidarOperational(void) {
+  bool status = true;
+
+  for (int i = 0; i < num_lidars; i++) {
+
+    // Check to ensure lidars are reporting to FCM
+    if ( ((hfc.lidar_online_mask >> i) & 1) == 0 ) {
+      status = false;
+      break;
+    }
+
+    // if the raw lidar is reading less than half the set lidar offset
+    // then check lidars.
+    if (lidar_data[i].current_alt < ((pConfig->lidar_offset/1000.0f)/2) ) {
+      status = false;
+      break;
+    }
+  }
+
+  if (hfc.altitude_lidar_raw > 0.2) {
+    status = false;
+  }
+
+  return status;
 }
 
 static void UpdateLidarAltitude(int node_id, int lidarCount)
