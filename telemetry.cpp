@@ -1606,7 +1606,7 @@ char TelemSerial::PreFlightChecks(void)
     }
 
     /* LIDAR, if reading more than 0.2 meters then we have an issue */
-    if ( (hfc->altitude_lidar_raw > 0.2) || !IsLidarOperational() )
+    if (!IsLidarOperational())
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_LIDAR);
         return false;

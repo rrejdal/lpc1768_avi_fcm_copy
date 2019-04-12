@@ -3599,6 +3599,10 @@ bool IsLidarOperational(void) {
     }
   }
 
+  if (hfc.altitude_lidar_raw > 0.2) {
+    status = false;
+  }
+
   return status;
 }
 
