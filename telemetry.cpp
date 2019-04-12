@@ -1093,6 +1093,8 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
     int waypoint_type  = WAYPOINT_GOTO;
     int wp_retire = false;
     float lat=0, lon=0, altitude=-9999;
+    static int last_airframe_param = 0;
+    bool revert = false;
 
 //    debug_print("ProcessParameters %d\r\n", params);
 
@@ -1447,14 +1449,28 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
 //                CheckRangeAndSetF(&hfc->pid_IMU[2].Kd, p->data, -100, 100);
             }
         }
-        else if (param == TELEM_PARAM_AIRFRAME)
+        else if ((param == TELEM_PARAM_AIRFRAME) || (param == TELEM_PARAM_AIRFRAME_RESET_LAST))
         {
           int lp_freq;
+
+          if (param == TELEM_PARAM_AIRFRAME_RESET_LAST) {
+            sub_param = last_airframe_param;
+            revert = true;
+          }
+
+          last_airframe_param = -1;
 
           switch(sub_param) {
             case TELEM_PARAM_AIRFRAME_ACCEL_LPF:
             {
-              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              if (!revert) {
+                CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_ACCEL_LPF;
+              }
+              else {
+                lp_freq = pConfig->acc_lp_freq;
+              }
+
               for (int i=0; i < 3; i++) {
                 LP4_Init(&hfc->lp_acc4[i], lp_freq);
               }
@@ -1462,79 +1478,230 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             break;
             case TELEM_PARAM_AIRFRAME_GYRO_P_LPF:
             {
-              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              if (!revert) {
+                CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_GYRO_P_LPF;
+              }
+              else {
+                lp_freq = pConfig->gyro_lp_freq[PITCH];
+              }
+
               LP4_Init(&hfc->lp_gyro4[PITCH], lp_freq);
             }
             break;
             case TELEM_PARAM_AIRFRAME_GYRO_R_LPF:
             {
-              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              if (!revert) {
+                CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_GYRO_R_LPF;
+              }
+              else {
+                lp_freq = pConfig->gyro_lp_freq[ROLL];
+              }
+
               LP4_Init(&hfc->lp_gyro4[ROLL], lp_freq);
             }
             break;
             case TELEM_PARAM_AIRFRAME_GYRO_Y_LPF:
             {
-              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              if (!revert) {
+                CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_GYRO_Y_LPF;
+              }
+              else {
+                lp_freq = pConfig->gyro_lp_freq[YAW];
+              }
+
               LP4_Init(&hfc->lp_gyro4[YAW], lp_freq);
             }
             break;
             case TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_X_GAINS:
-              CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[0], p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[0], p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_X_GAINS;
+              }
+              else {
+                hfc->rw_cfg.AccIntegGains[0] = pConfig->AccIntegGains[0];
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_Y_GAINS:
-              CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[1], p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[1], p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_Y_GAINS;
+              }
+              else {
+                hfc->rw_cfg.AccIntegGains[1] = pConfig->AccIntegGains[1];
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_Z_GAINS:
-              CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[2], p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[2], p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_Z_GAINS;
+              }
+              else {
+                hfc->rw_cfg.AccIntegGains[2] = pConfig->AccIntegGains[2];
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_ALTITUDE_BARO_GPS_BLEND:
-              CheckRangeAndSetF(&hfc->rw_cfg.AltitudeBaroGPSblend_final, p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.AltitudeBaroGPSblend_final, p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_ALTITUDE_BARO_GPS_BLEND;
+              }
+              else {
+                hfc->rw_cfg.AltitudeBaroGPSblend_final = pConfig->AltitudeBaroGPSblend_final;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_POS_GPS_IMU_BLEND_GLITCH:
-              CheckRangeAndSetF(&hfc->rw_cfg.Pos_GPS_IMU_BlendGlitch, p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.Pos_GPS_IMU_BlendGlitch, p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_POS_GPS_IMU_BLEND_GLITCH;
+              }
+              else {
+                hfc->rw_cfg.Pos_GPS_IMU_BlendGlitch = pConfig->Pos_GPS_IMU_BlendGlitch;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_POS_GPS_IMU_BLEND_REG:
-              CheckRangeAndSetF(&hfc->rw_cfg.Pos_GPS_IMU_BlendReg, p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.Pos_GPS_IMU_BlendReg, p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_POS_GPS_IMU_BLEND_REG;
+              }
+              else {
+                hfc->rw_cfg.Pos_GPS_IMU_BlendReg = pConfig->Pos_GPS_IMU_BlendReg;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_BARO_LPF:
             {
-              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              if (!revert) {
+                CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_BARO_LPF;
+              }
+              else {
+                lp_freq = pConfig->baro_lp_freq;
+              }
+
               LP4_Init(&hfc->lp_baro4, lp_freq);
             }
             break;
             case TELEM_PARAM_AIRFRAME_BARO_VSPEED_LPF:
             {
-              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              if (!revert) {
+                CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_BARO_VSPEED_LPF;
+              }
+              else {
+                lp_freq = pConfig->BaroVspeedWeight;
+              }
+
               LP4_Init(&hfc->lp_baro_vspeed4, lp_freq);
             }
             break;
             case TELEM_PARAM_AIRFRAME_BARO_VSPEED_WEIGHT:
-              CheckRangeAndSetF(&hfc->rw_cfg.BaroVspeedWeight, p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.BaroVspeedWeight, p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_BARO_VSPEED_WEIGHT;
+              }
+              else {
+                hfc->rw_cfg.BaroVspeedWeight = pConfig->BaroVspeedWeight;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_BARO_ALTITUDE_WEIGHT:
-              CheckRangeAndSetF(&hfc->rw_cfg.BaroAltitudeWeight, p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.BaroAltitudeWeight, p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_BARO_ALTITUDE_WEIGHT;
+              }
+              else {
+                hfc->rw_cfg.BaroAltitudeWeight = pConfig->BaroAltitudeWeight;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_GPS_VSPEED_WEIGHT:
-              CheckRangeAndSetF(&hfc->rw_cfg.GPSVspeedWeight, p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.GPSVspeedWeight, p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_GPS_VSPEED_WEIGHT;
+              }
+              else {
+                hfc->rw_cfg.GPSVspeedWeight = pConfig->GPSVspeedWeight;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_VSPEED_MODE:
-              CheckRangeAndSetI(&hfc->rw_cfg.gps_vspeed, p->data, 1, 6);
+            {
+              if (!revert) {
+                CheckRangeAndSetI(&hfc->rw_cfg.gps_vspeed, p->data, 1, 6);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_VSPEED_MODE;
+              }
+              else {
+                hfc->rw_cfg.gps_vspeed = pConfig->gps_vspeed;
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_MAX_SIDE:
-              CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[0], p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[0], p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_MAX_SIDE;
+              }
+              else {
+                hfc->rw_cfg.TurnAccParams[0] = pConfig->TurnAccParams[0];
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_MAX_SPEED:
-              CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[1], p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[1], p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_MAX_SPEED;
+              }
+              else {
+                hfc->rw_cfg.TurnAccParams[1] = pConfig->TurnAccParams[1];
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_LOW_SPEED:
-              CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[2], p->data, 0, 100);
+            {
+              if (!revert) {
+                CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[2], p->data, 0, 100);
+                last_airframe_param = TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_LOW_SPEED;
+              }
+              else {
+                hfc->rw_cfg.TurnAccParams[2] = pConfig->TurnAccParams[2];
+              }
+            }
             break;
             case TELEM_PARAM_AIRFRAME_JOYSTICK_MAX_SPEED:
-             CheckRangeAndSetF(&hfc->rw_cfg.joystick_max_speed, p->data, 0, 15);
+            {
+             if (!revert) {
+               CheckRangeAndSetF(&hfc->rw_cfg.joystick_max_speed, p->data, 0, 15);
+               last_airframe_param = TELEM_PARAM_AIRFRAME_JOYSTICK_MAX_SPEED;
+             }
+             else {
+               hfc->rw_cfg.joystick_max_speed = pConfig->joystick_max_speed;
+             }
+            }
             break;
           default:
             break;
           }
+        }
+        else if (param == TELEM_PARAM_AIRFRAME_RESET_LAST)
+        {
+
         }
     }
     

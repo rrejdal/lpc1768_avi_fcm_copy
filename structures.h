@@ -138,6 +138,7 @@
 
 ///////////////////////////////////////
 #define TELEM_PARAM_AIRFRAME 5
+#define TELEM_PARAM_AIRFRAME_RESET_LAST 8
 
 enum TELEM_PARAMS_AIRFRAME {
   TELEM_PARAM_AIRFRAME_ACCEL_LPF = 0,
