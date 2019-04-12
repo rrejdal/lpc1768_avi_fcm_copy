@@ -17,6 +17,7 @@ extern void HeadingUpdate(float heading_rate, float dT);
 extern void CompassCalDone(void);
 extern int TakeoffControlModes(void);
 extern byte GetMotorsState(void);
+extern bool IsLidarOperational(void);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -1605,7 +1606,7 @@ char TelemSerial::PreFlightChecks(void)
     }
 
     /* LIDAR, if reading more than 0.2 meters then we have an issue */
-    if (hfc->altitude_lidar_raw > 0.2)
+    if (!IsLidarOperational())
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_LIDAR);
         return false;

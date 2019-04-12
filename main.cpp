@@ -3589,6 +3589,33 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
     }
 }
 
+
+bool IsLidarOperational(void) {
+  bool status = true;
+
+  for (int i = 0; i < num_lidars; i++) {
+
+    // Check to ensure lidars are reporting to FCM
+    if ( ((hfc.lidar_online_mask >> i) & 1) == 0 ) {
+      status = false;
+      break;
+    }
+
+    // if the raw lidar is reading less than half the set lidar offset
+    // then check lidars.
+    if (lidar_data[i].current_alt < ((pConfig->lidar_offset/1000.0f)/2) ) {
+      status = false;
+      break;
+    }
+  }
+
+  if (hfc.altitude_lidar_raw > 0.2) {
+    status = false;
+  }
+
+  return status;
+}
+
 static void UpdateLidarAltitude(int node_id, int lidarCount)
 {
     unsigned int pulse = 0;
