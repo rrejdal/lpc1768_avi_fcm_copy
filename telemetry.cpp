@@ -928,9 +928,9 @@ void TelemSerial::SelectCtrlSource(byte source)
 
 void TelemSerial::CalcDynYawRate(void)
 {
-   float AImax    = pConfig->TurnAccParams[0];  // m/s2 max side acceleration during turns
-   float MaxSpeed = pConfig->TurnAccParams[1];  // m/s speed at which the max acc is reached
-   float MinBlend = pConfig->TurnAccParams[2];  // low speed knee after which yaw rate starts to slow down
+   float AImax    = hfc->rw_cfg.TurnAccParams[0];  // m/s2 max side acceleration during turns
+   float MaxSpeed = hfc->rw_cfg.TurnAccParams[1];  // m/s speed at which the max acc is reached
+   float MinBlend = hfc->rw_cfg.TurnAccParams[2];  // low speed knee after which yaw rate starts to slow down
    float MYR = pConfig->dyn_yaw_rate_max;
    float Smax = AImax*360/2/PI/MYR;
    float AI = min(AImax, AImax/Smax*hfc->gps_speed);
@@ -1446,6 +1446,95 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->pid_IMU[1].Kd, p->data, -100, 100);
 //                CheckRangeAndSetF(&hfc->pid_IMU[2].Kd, p->data, -100, 100);
             }
+        }
+        else if (param == TELEM_PARAM_AIRFRAME)
+        {
+          int lp_freq;
+
+          switch(sub_param) {
+            case TELEM_PARAM_AIRFRAME_ACCEL_LPF:
+            {
+              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              for (int i=0; i < 3; i++) {
+                LP4_Init(&hfc->lp_acc4[i], lp_freq);
+              }
+            }
+            break;
+            case TELEM_PARAM_AIRFRAME_GYRO_P_LPF:
+            {
+              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              LP4_Init(&hfc->lp_gyro4[PITCH], lp_freq);
+            }
+            break;
+            case TELEM_PARAM_AIRFRAME_GYRO_R_LPF:
+            {
+              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              LP4_Init(&hfc->lp_gyro4[ROLL], lp_freq);
+            }
+            break;
+            case TELEM_PARAM_AIRFRAME_GYRO_Y_LPF:
+            {
+              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              LP4_Init(&hfc->lp_gyro4[YAW], lp_freq);
+            }
+            break;
+            case TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_X_GAINS:
+              CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[0], p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_Y_GAINS:
+              CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[1], p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_ACC_INTEGRAL_Z_GAINS:
+              CheckRangeAndSetF(&hfc->rw_cfg.AccIntegGains[2], p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_ALTITUDE_BARO_GPS_BLEND:
+              CheckRangeAndSetF(&hfc->rw_cfg.AltitudeBaroGPSblend_final, p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_POS_GPS_IMU_BLEND_GLITCH:
+              CheckRangeAndSetF(&hfc->rw_cfg.Pos_GPS_IMU_BlendGlitch, p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_POS_GPS_IMU_BLEND_REG:
+              CheckRangeAndSetF(&hfc->rw_cfg.Pos_GPS_IMU_BlendReg, p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_BARO_LPF:
+            {
+              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              LP4_Init(&hfc->lp_baro4, lp_freq);
+            }
+            break;
+            case TELEM_PARAM_AIRFRAME_BARO_VSPEED_LPF:
+            {
+              CheckRangeAndSetI(&lp_freq, p->data, 6, 50);
+              LP4_Init(&hfc->lp_baro_vspeed4, lp_freq);
+            }
+            break;
+            case TELEM_PARAM_AIRFRAME_BARO_VSPEED_WEIGHT:
+              CheckRangeAndSetF(&hfc->rw_cfg.BaroVspeedWeight, p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_BARO_ALTITUDE_WEIGHT:
+              CheckRangeAndSetF(&hfc->rw_cfg.BaroAltitudeWeight, p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_GPS_VSPEED_WEIGHT:
+              CheckRangeAndSetF(&hfc->rw_cfg.GPSVspeedWeight, p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_VSPEED_MODE:
+              CheckRangeAndSetI(&hfc->rw_cfg.gps_vspeed, p->data, 1, 6);
+            break;
+            case TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_MAX_SIDE:
+              CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[0], p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_MAX_SPEED:
+              CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[1], p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_TURN_ACCELERATIONS_LOW_SPEED:
+              CheckRangeAndSetF(&hfc->rw_cfg.TurnAccParams[2], p->data, 0, 100);
+            break;
+            case TELEM_PARAM_AIRFRAME_JOYSTICK_MAX_SPEED:
+             CheckRangeAndSetF(&hfc->rw_cfg.joystick_max_speed, p->data, 0, 15);
+            break;
+          default:
+            break;
+          }
         }
     }
     

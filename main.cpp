@@ -2771,8 +2771,8 @@ static void ServoUpdate(float dT)
           {
             hfc.ctrl_out[SPEED][PITCH] += hfc.joy_values[THRO]*hfc.rw_cfg.StickHaccel*dT;
 
-            if (hfc.ctrl_out[SPEED][PITCH] > pConfig->joystick_max_speed)
-              hfc.ctrl_out[SPEED][PITCH] = pConfig->joystick_max_speed;
+            if (hfc.ctrl_out[SPEED][PITCH] > hfc.rw_cfg.joystick_max_speed)
+              hfc.ctrl_out[SPEED][PITCH] = hfc.rw_cfg.joystick_max_speed;
 
             if (hfc.joy_values[THRO]<0 && hfc.ctrl_out[SPEED][PITCH]<0)
               hfc.ctrl_out[SPEED][PITCH] = 0;
@@ -4419,36 +4419,36 @@ void do_control()
     for (i=0; i<3; i++) {
         hfc.accGroundENUhp[i] = 0.99993896484375f*(accGroundENU[i]-hfc.accGroundENU_prev[i]+hfc.accGroundENUhp[i]);   // T=16384 ~ 14sec 0.99993896484375 T=4096 ~3.4s
         hfc.accGroundENU_prev[i] = accGroundENU[i];
-        hfc.IMUspeedGroundENU[i] += pConfig->AccIntegGains[i] * hfc.accGroundENUhp[i]*9.81f*dT;
+        hfc.IMUspeedGroundENU[i] += hfc.rw_cfg.AccIntegGains[i] * hfc.accGroundENUhp[i]*9.81f*dT;
 
         // always mix in GPS for X and Y speed
         if (i<2) {
             hfc.IMUspeedGroundENU[i] += 1.0f*dT*(hfc.GPSspeedGroundENU[i] - hfc.IMUspeedGroundENU[i]);    // blend in GPS speed, it drifts if 0.25
         }
         // blend in GPS vertical speed with IMU vertical speed
-        else if (pConfig->gps_vspeed == 1 ) {
-            hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
+        else if (hfc.rw_cfg.gps_vspeed == 1 ) {
+            hfc.IMUspeedGroundENU[2] += hfc.rw_cfg.GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
         }
         // blend in Baro vertical speed with IMU vertical speed
-        else if ((pConfig->gps_vspeed) == 2 && (pConfig->baro_enable)) {
-            hfc.IMUspeedGroundENU[2] += pConfig->BaroVspeedWeight*dT*(hfc.baro_vspeed_lp - hfc.IMUspeedGroundENU[2]);    // blend in baro vspeed
+        else if ((hfc.rw_cfg.gps_vspeed) == 2 && (pConfig->baro_enable)) {
+            hfc.IMUspeedGroundENU[2] += hfc.rw_cfg.BaroVspeedWeight*dT*(hfc.baro_vspeed_lp - hfc.IMUspeedGroundENU[2]);    // blend in baro vspeed
         }
         // blend in GPS and Baro vertical speed with IMU vertical speed
-        else if ((pConfig->gps_vspeed == 3) && (pConfig->baro_enable)) {
-            hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight *dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2])
-                            + pConfig->BaroVspeedWeight*dT*(hfc.baro_vspeed_lp       - hfc.IMUspeedGroundENU[2]);    // blend in GPS and baro vspeed
+        else if ((hfc.rw_cfg.gps_vspeed == 3) && (pConfig->baro_enable)) {
+            hfc.IMUspeedGroundENU[2] += hfc.rw_cfg.GPSVspeedWeight *dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2])
+                            + hfc.rw_cfg.BaroVspeedWeight*dT*(hfc.baro_vspeed_lp       - hfc.IMUspeedGroundENU[2]);    // blend in GPS and baro vspeed
         }
         // use only GPS for vertical speed
-        else if (pConfig->gps_vspeed == 4 ) {
+        else if (hfc.rw_cfg.gps_vspeed == 4 ) {
             hfc.IMUspeedGroundENU[2] = hfc.GPSspeedGroundENU[2];
         }
         // use only Baro for vertical speed
-        else if ((pConfig->gps_vspeed == 5) && (pConfig->baro_enable)) {
+        else if ((hfc.rw_cfg.gps_vspeed == 5) && (pConfig->baro_enable)) {
             hfc.IMUspeedGroundENU[2] = hfc.baro_vspeed_lp;
         }
         else {
             // blend in GPS vertical speed with IMU vertical speed (hfc.config.gps_vspeed == 1 )
-            hfc.IMUspeedGroundENU[2] += pConfig->GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
+            hfc.IMUspeedGroundENU[2] += hfc.rw_cfg.GPSVspeedWeight*dT*(hfc.GPSspeedGroundENU[2] - hfc.IMUspeedGroundENU[2]);    // blend in GPS speed
         }
     }
 
@@ -4467,7 +4467,7 @@ void do_control()
     /* help baro-altitude using vertical speed */
     if (pConfig->baro_enable == 1) {
         hfc.altitude_baro += hfc.IMUspeedGroundENU[2] * dT;
-        hfc.altitude_baro += pConfig->BaroAltitudeWeight*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
+        hfc.altitude_baro += hfc.rw_cfg.BaroAltitudeWeight*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
         //hfc.altitude_baro += 0.25f*dT*(hfc.baro_altitude_raw_lp - hfc.altitude_baro);    // blend in baro vspeed
     }
 
@@ -4493,9 +4493,9 @@ void do_control()
     
     /* if GPS detects a glitch, set the blending factor to the long value, otherwise decay towards the regular blanding value */
     if (gps.glitch_) {
-        hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendGlitch;
+        hfc.Pos_GPS_IMU_Blend = hfc.rw_cfg.Pos_GPS_IMU_BlendGlitch;
     }
-    else if (hfc.Pos_GPS_IMU_Blend>pConfig->Pos_GPS_IMU_BlendReg) {
+    else if (hfc.Pos_GPS_IMU_Blend>hfc.rw_cfg.Pos_GPS_IMU_BlendReg) {
         hfc.Pos_GPS_IMU_Blend -= dT;
     }
 
@@ -4546,7 +4546,7 @@ void do_control()
             else if (dTGPS < 1 && dTGPS>0) {
                 hfc.altitude_ofs +=  dTGPS * (hfc.altitude_gps - hfc.altitude) / hfc.AltitudeBaroGPSblend;
                 /* decay the initial blending factor into the final value */
-                hfc.AltitudeBaroGPSblend = min(hfc.AltitudeBaroGPSblend+dTGPS, pConfig->AltitudeBaroGPSblend_final);
+                hfc.AltitudeBaroGPSblend = min(hfc.AltitudeBaroGPSblend+dTGPS, hfc.rw_cfg.AltitudeBaroGPSblend_final);
                 //debug_print("%8d\t%5.3f\t%f\t%f\t%f\t%f\t%f\r\n", time_ms, dTGPS, hfc.AltitudeBaroGPSblend, hfc.altitude_ofs, hfc.altitude_baro, hfc.altitude_gps, hfc.altitude);
             }
         }
@@ -5499,7 +5499,7 @@ void InitializeRuntimeData(void)
     LP4_Init(&hfc.lp_baro4, pConfig->baro_lp_freq);
     LP4_Init(&hfc.lp_baro_vspeed4, pConfig->baro_vspeed_lp_freq);
 
-    hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
+    //hfc.Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
     hfc.telem_ctrl_period = Max(hfc.telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
 
     hfc.throttle_value   = -pConfig->Stick100range;
@@ -5547,6 +5547,20 @@ void InitializeRuntimeData(void)
     hfc.rw_cfg.elevator_gain = pConfig->elevator_gain;
     hfc.rw_cfg.dcp_gain = pConfig->dcp_gain;
     hfc.rw_cfg.throttle_offset = pConfig->throttle_offset;
+    for (int i=0; i < 3; i++) {
+      hfc.rw_cfg.AccIntegGains[i] = pConfig->AccIntegGains[i];
+    }
+    hfc.rw_cfg.AltitudeBaroGPSblend_final = pConfig->AltitudeBaroGPSblend_final;
+    hfc.rw_cfg.Pos_GPS_IMU_BlendGlitch = pConfig->Pos_GPS_IMU_BlendGlitch;
+    hfc.rw_cfg.Pos_GPS_IMU_BlendReg = pConfig->Pos_GPS_IMU_BlendReg;
+    hfc.rw_cfg.BaroVspeedWeight = pConfig->BaroVspeedWeight;
+    hfc.rw_cfg.BaroAltitudeWeight = pConfig->BaroAltitudeWeight;
+    hfc.rw_cfg.GPSVspeedWeight = pConfig->GPSVspeedWeight;
+    hfc.rw_cfg.gps_vspeed = pConfig->gps_vspeed;
+    for (int i=0; i < 3; i++) {
+      hfc.rw_cfg.TurnAccParams[i] = pConfig->TurnAccParams[i];
+    }
+    hfc.rw_cfg.joystick_max_speed = pConfig->joystick_max_speed;
 
     hfc.command.command = TELEM_CMD_NONE;
     hfc.rc_ctrl_request = false;
