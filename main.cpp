@@ -3483,6 +3483,7 @@ static void UpdateBatteryStatus(float dT)
     float I = p->Iesc + p->Iaux;
     float power = I * p->Vmain;
     float dE = power * dT;
+    static int num_voltage_measurements = 0;
 
     /* do not process if duration is not right */
     if (dT>1 || dT<=0) {
@@ -3503,9 +3504,9 @@ static void UpdateBatteryStatus(float dT)
      * in which case, use the voltage to initialize the battery level
      * AND set "energy_curr" based on voltage for the first 100 measurements after the
      * FCM is booted up, after that, "energy_curr" is only calculated via the current measured*/
-    if ( (I < (3.0f * pConfig->current_offset)) && (p->num_voltage_measurements < 100) ) {
+    if ( (I < (3.0f * pConfig->current_offset)) && (num_voltage_measurements < 100) ) {
 
-        p->num_voltage_measurements++;
+        num_voltage_measurements++;
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
