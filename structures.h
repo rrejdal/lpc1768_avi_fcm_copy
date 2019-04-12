@@ -692,6 +692,7 @@ typedef struct
 	float   power_lp;
 	int     flight_time_left;   // in seconds
 	char    initialized;    // skips low-pass filters for the first time
+	int num_voltage_measurements;
     /* power control variables */
     char	power_esc;
     char	power_servo;

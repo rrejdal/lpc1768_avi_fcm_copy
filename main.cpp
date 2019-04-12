@@ -3499,10 +3499,13 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    // TODO::SP: This needs to be tested and made a configurable value
-    /* when current is below 20A (0.2A normally), battery is considered unloaded */
-    //if (I < (0.0002f * hfc.rw_cfg.battery_capacity)) {
-    if (I < (0.02f * hfc.rw_cfg.battery_capacity)) {
+    /* Consider batter unloaded when current is below 300% the configured offset current of the UAV
+     * in which case, use the voltage to initialize the battery level
+     * AND set "energy_curr" based on voltage for the first 100 measurements after the
+     * FCM is booted up, after that, "energy_curr" is only calculated via the current measured*/
+    if ( (I < (3.0f * pConfig->current_offset)) && (p->num_voltage_measurements < 100) ) {
+
+        p->num_voltage_measurements++;
 
         float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
         float Ecurr = p->energy_total * level;
@@ -3521,7 +3524,7 @@ static void UpdateBatteryStatus(float dT)
 
         power = pConfig->power_typical;  // use typical power consumed to est flight time
     }
-    else {
+    else { // Once energy_curr is initialized by voltage, use current draw to keep track for as long as FCM is on
         p->energy_curr -= dE;
 
         if (p->energy_curr < 0) {
