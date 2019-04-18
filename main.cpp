@@ -2401,6 +2401,19 @@ static float CalcMinAboveGroundAlt(float speed)
 // Use to test Servo Update without processing sensor data
 static void ServoUpdateRAW(float dT)
 {
+    static float led_timer = 2.0;  // toggle time for Armed LED
+    static int led_state = 1;
+
+    // Blink the ARM LED to inform user that we are in SERO-RAW MODE.
+    led_timer -= dT;
+    if (led_timer <= 0) {
+
+      FCM_SET_ARM_LED(led_state);
+
+      led_state ^= 1;
+      led_timer = 1.0;
+    }
+
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
 #if 0
@@ -2433,27 +2446,32 @@ static void ServoUpdateRAW(float dT)
     }
 #endif
 
-    if (hfc.rc_ctrl_request && hfc.throttle_armed) {
+    hfc.fixedThrottleMode = THROTTLE_IDLE;
+    hfc.throttle_value = -pConfig->Stick100range; // Throttle off
+
+    if( hfc.rc_ctrl_request) {
+
+      if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
         hfc.collective_value = xbus.valuesf[XBUS_THRO];
+      }
+      else {
+        hfc.collective_value = -pConfig->Stick100range;
+      }
+
+      hfc.ctrl_out[RAW][THRO]  = hfc.throttle_value;
+      hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
+      hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
+      hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
+      hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
     }
-    else {
-        hfc.collective_value = 0;
+    else if (!hfc.rc_ctrl_request) {
+      telem.Disarm();
+      hfc.collective_value = -pConfig->Stick100range;
     }
 
-    if (hfc.rc_ctrl_request) {
-        hfc.throttle_value = xbus.valuesf[XBUS_THR_LV];
+    if (hfc.throttle_armed || (GetMotorsState()==1) ) {
+      telem.Disarm();
     }
-    else if (!hfc.throttle_armed) {
-        hfc.throttle_value = -pConfig->Stick100range;
-        hfc.fixedThrottleMode = THROTTLE_IDLE;
-    }
-
-    hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
-    hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
-    hfc.ctrl_out[RAW][ROLL]  = xbus.valuesf[XBUS_ROLL];
-    hfc.ctrl_out[RAW][YAW]   = xbus.valuesf[XBUS_YAW];
-    hfc.ctrl_out[RAW][COLL]  = hfc.collective_value;
-
 
     if (xbus_new_values) {
         if (xbus_new_values == XBUS_NEW_VALUES_1ST) {
@@ -2466,10 +2484,6 @@ static void ServoUpdateRAW(float dT)
 
     ProcessStickInputs(&hfc, dT);
 
-    if (pConfig->throttle_ctrl == PROP_VARIABLE_PITCH) {
-        hfc.ctrl_out[RAW][THRO] = (hfc.throttle_value+pConfig->Stick100range)
-                                                * pConfig->throttle_values[1] + pConfig->throttle_values[0];
-    }
 
 #ifdef LCD_ENABLED
     Display_Process(&hfc, xbus_new_values, dT);
