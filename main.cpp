@@ -3500,7 +3500,7 @@ static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_S
 static void UpdateBatteryStatus(float dT)
 {
     T_Power *p = &hfc.power;
-    float I = p->Iesc + p->Iaux;
+    float I = p->Iesc + p->Iaux  + pConfig->current_offset;
     float power = I * p->Vmain;
     float dE = power * dT;
     static int num_voltage_measurements = 0;
@@ -3520,11 +3520,10 @@ static void UpdateBatteryStatus(float dT)
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    /* Consider batter unloaded when current is below 300% the configured offset current of the UAV
-     * in which case, use the voltage to initialize the battery level
-     * AND set "energy_curr" based on voltage for the first 100 measurements after the
-     * FCM is booted up, after that, "energy_curr" is only calculated via the current measured*/
-    if ( (I < (3.0f * pConfig->current_offset)) && (num_voltage_measurements < 100) ) {
+    /* Once the FCM boots up, use the voltage to initialize the battery level
+     * AND set "energy_curr" based on voltage for the first 1000 measurements after the
+     * after that, "energy_curr" is only calculated via the current measured*/
+    if (num_voltage_measurements < 1000 ) {
 
         num_voltage_measurements++;
 
@@ -3869,7 +3868,7 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
     hfc.power.Vesc  = hfc.power.Vmain;
 
     i_slope_mod = (pConfig->current_slope_percent_mod / 100.0f) + 1.0f;
-    hfc.power.Iesc =  i*i_slope_mod + pConfig->current_offset;
+    hfc.power.Iesc =  i*i_slope_mod;
 
     power_update_avail = 1;
 }
