@@ -42,6 +42,7 @@
 #include "IAP.h"
 #include "version.h"
 #include "afsi.h"
+#include "main.h"
 
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
 static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
@@ -745,7 +746,7 @@ int TakeoffControlModes(void) {
   }
 }
 
-byte GetMotorsState(void) {
+int GetMotorsState(void) {
   if (hfc.throttle_value == -pConfig->Stick100range) {
     return 0; // Motors off
   }

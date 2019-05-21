@@ -4,7 +4,6 @@
 #include <stdlib.h>
 
 #define MAX_GPS_CHANNELS		2	// defines the maximum number of GPS channels supported
-#define byte unsigned char
 
 #define GPS_FIX_NONE        0
 #define GPS_FIX_OK          1
