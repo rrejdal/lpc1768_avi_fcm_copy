@@ -5061,6 +5061,7 @@ static void ProcessUserCmnds(char c)
         }
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
+        mpu.eeprom->print_data();
     }
     else if (c == 'D') {
         serial.scanf("%19s", request);
