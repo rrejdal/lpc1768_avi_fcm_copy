@@ -4264,8 +4264,17 @@ void LidarTimeout(float dT)
   }
 }
 
-// dT is the elapsed time since this fucntion was run, in seconds
+/* Function used to DISARM the UAV if it has been armed for longer than
+ * but motors have not come on.
+ * Ignore timeout if Preflight checsk are disabled in config
+ * dT is the elapsed time since this fucntion was run, in seconds
+ */
 void ArmedTimeout(float dT) {
+
+  if (pConfig->disable_pre_flight) {
+      return;
+  }
+
   static float armed_timer = ARMED_TIMEOUT;
 
   if (!hfc.throttle_armed) {
