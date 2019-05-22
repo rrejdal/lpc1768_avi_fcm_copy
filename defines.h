@@ -27,8 +27,6 @@ extern USBSerial   serial;
 #define LOOP_PERIOD     1000    // 1000Hz   830 // in mS
 
 
-#define byte unsigned char
-
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
 
 /* indices and coordinates */
