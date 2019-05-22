@@ -8,16 +8,9 @@
 #include "IMU.h"
 #include "defines.h"
 #include "version.h"
+#include "main.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
-extern void ResetIterms(void);
-extern void GenerateSpeed2AngleLUT(void);
-extern void AltitudeUpdate(float alt_rate, float dT);
-extern void HeadingUpdate(float heading_rate, float dT);
-extern void CompassCalDone(void);
-extern int TakeoffControlModes(void);
-extern byte GetMotorsState(void);
-extern bool IsLidarOperational(void);
 
 extern HMC5883L compass;
 extern GPS gps;
