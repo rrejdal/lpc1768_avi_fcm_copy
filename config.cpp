@@ -49,6 +49,12 @@ int SetJtag(int state);
 #define FLASH_COMPASS_CAL_SECTORS   (1 - 1)
 #define FLASH_COMAPSS_CAL_SIZE      FLASH_SECTOR_SIZE_16_TO_29
 
+// Odometer - Wasteful in resources, but cleaner to keep in own area of flash
+#define FLASH_ODOMETER_ADDR      FLASH_SECTOR_27
+#define FLASH_ODOMETER_SECTOR    27
+#define FLASH_ODOMETER_SECTORS   (1 - 1)
+#define FLASH_ODOMETER_SIZE      (4 * 1024) // Only using 4KB of the 32K FLASH_SECTOR_SIZE_16_TO_29
+
 IAP iap;    // Provides In Application Programming of the Flash.
 
 int __attribute__((__section__(".ramconfig"))) ram_config; // this is defined by the linker. DO NOT CHANGE!
@@ -447,6 +453,69 @@ int SetJtag(int state)
     __enable_irq();
 
     return 0;
+}
+
+void InitializeOdometer(FlightControlData *hfc)
+{
+  uint32 *pOdometerReading = (uint32 *)&ram_config;
+
+  memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
+  memcpy(pOdometerReading, (void *)sector_start_adress[FLASH_ODOMETER_SECTOR], sizeof(int));
+
+  if (*pOdometerReading == 0xffffffff) {
+    // If flash value is default (erased) then initialize flight time odometer to 0
+    hfc->OdometerReading = 0;
+  }
+  else {
+    hfc->OdometerReading = *pOdometerReading * 1000;
+  }
+
+}
+
+// Update value of Odometer, which indicates total flight time of unit.
+// Odometer value is stored in Flash as the number of seconds.
+// Max flight time recording is 1,193,046 hours
+int UpdateOdometerReading(uint32 Odometer)
+{
+  uint32 *pOdometerReading = (uint32 *)&ram_config;
+  if (pOdometerReading == NULL) {
+      return -1;
+  }
+
+  memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
+  memcpy(pOdometerReading, (void *)sector_start_adress[FLASH_ODOMETER_SECTOR], sizeof(int));
+
+  if (*pOdometerReading == (Odometer / 1000)) {
+    // If no change to flight time odometer - do nothing.
+    return 0;
+  }
+
+  // Update the odometer reading (in seconds) back to flash.
+  *pOdometerReading = Odometer / 1000;
+
+  __disable_irq();
+
+  // Erase...
+  if (iap.prepare(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
+      return -1;
+  }
+
+  if (iap.erase(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
+      return -1;
+  }
+
+  // Write...
+  if (iap.prepare(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
+      return -1;
+  }
+
+  if (iap.write((char *)pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], FLASH_ODOMETER_SIZE) != CMD_SUCCESS) {
+      return -1;
+  }
+
+  __enable_irq();
+
+  return 0;
 }
 
 /************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/

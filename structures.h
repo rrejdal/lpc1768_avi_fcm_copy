@@ -667,6 +667,8 @@ typedef struct
 
     uint32      imu_serial_num;    // Version is Major:Minor:Build, each item is 8bits
 
+    uint32      odometerReading;
+
 } T_AircraftConfig;
 
 typedef struct
@@ -1286,6 +1288,8 @@ typedef struct
     int debug_flags[10]; // Temp debug flags to be used however
 
     bool setZeroSpeed;
+
+    uint32 OdometerReading;
 
 } FlightControlData;
 

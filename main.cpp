@@ -57,6 +57,8 @@ extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
 extern int SaveNewConfig(void);
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+extern void InitializeOdometer(FlightControlData *hfc);
+extern int UpdateOdometerReading(uint32 OdometerCounter);
 
 extern int EraseFlash(void);
 extern int SetJtag(int state);
@@ -4267,7 +4269,7 @@ void LidarTimeout(float dT)
 /* Function used to DISARM the UAV if it has been armed for longer than
  * but motors have not come on.
  * Ignore timeout if Preflight checsk are disabled in config
- * dT is the elapsed time since this fucntion was run, in seconds
+ * dT is the elapsed time since this function was run, in seconds
  */
 void ArmedTimeout(float dT) {
 
@@ -4291,6 +4293,16 @@ void ArmedTimeout(float dT) {
   if (armed_timer <= 0.0f) {
     telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
     telem.Disarm();
+  }
+}
+
+// Called every ms and increments the flight time counter,
+//   Counter is only started and incremented when we are
+//   armed and motors are ON or Throttle is in RAMP or FLY mode
+void FlightOdometer(void)
+{
+  if (hfc.throttle_armed && (GetMotorsState() || (hfc.fixedThrottleMode > THROTTLE_DEAD))) {
+    hfc.OdometerReading++;
   }
 }
 
@@ -4339,6 +4351,8 @@ void do_control()
     ArmedTimeout(dT);
 
     LidarTimeout(dT);
+
+    FlightOdometer();
 
     /* copy and clear the new data flag set by GPS to a new variable to avoid a race */
     //gps_data = gps.GpsUpdate(ticks, &hfc.gps_new_data);
@@ -4682,6 +4696,7 @@ void do_control()
 
     /* generate aircraft config message every 8s or so, only if is not still in the output Q */
     if ((hfc.print_counter&0x1fff)==9 && !telem.IsTypeInQ(TELEMETRY_AIRCRAFT_CFG)) {
+        telem.Generate_AircraftCfg();
         telem.AddMessage((unsigned char*)&hfc.aircraftConfig, sizeof(T_AircraftConfig), TELEMETRY_AIRCRAFT_CFG, 1);
     }
 
@@ -5070,7 +5085,11 @@ static void ProcessUserCmnds(char c)
         }
 
         usb_print("TYPE[IMU], ID[%d], YEAR[%d], VARIANT[%d]\r\n", mpu.eeprom->id_num, mpu.eeprom->board_year, mpu.eeprom->board_type);
+
         mpu.eeprom->print_data();
+
+        usb_print("Recorded Flight Time(s) [%d]\r\n", hfc.OdometerReading/1000);
+
     }
     else if (c == 'D') {
         serial.scanf("%19s", request);
@@ -5097,6 +5116,11 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+        }
+        else if (strcmp(request, "odoreset") == 0) {
+          hfc.OdometerReading = 0;
+          UpdateOdometerReading(hfc.OdometerReading);
+          usb_print("ACK");
         }
         else {
             usb_print("INVALID");
@@ -5688,6 +5712,9 @@ void InitializeRuntimeData(void)
     if ((pConfig->LidarFromPowerNode == 0) && (pConfig->LidarFromServo == 0)) {
       num_lidars = 1; // assume lidar is connected to FCM only
     }
+
+    InitializeOdometer(&hfc);
+
 }
 
 /**

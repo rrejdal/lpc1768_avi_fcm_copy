@@ -11,6 +11,7 @@
 #include "main.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
+extern int UpdateOdometerReading(uint32 OdometerCounter);
 
 extern HMC5883L compass;
 extern GPS gps;
@@ -725,6 +726,8 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->pwr_serialnum_2 = serialNum[2];
 
     msg->imu_serial_num = hfc->imu_serial_num;
+
+    msg->odometerReading = (hfc->OdometerReading /1000);
 
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
@@ -2023,7 +2026,10 @@ void TelemSerial::Disarm(void)
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
 
 	// TODO::SP: Error handling on Flash write error??
-    UpdateFlashConfig(hfc);
+  UpdateFlashConfig(hfc);
+
+  UpdateOdometerReading(hfc->OdometerReading);
+
 }
 
 void TelemSerial::PlaylistSaveState(void)
