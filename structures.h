@@ -332,18 +332,16 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MAX_LIDAR_PULSE       40000   /* 40000 us @ 1us/1mm = 40m max range */
 #define MIN_LIDAR_PULSE           0   /* 40000 us @ 1us/1mm = 40m max range */
 
-typedef struct /* size 28bytes */
+typedef struct /* size 24bytes */
 {
-    uint32 Vmain  : 12;     // 0-64V    *64
-    uint32 Vaux   : 10;     // 0-16V    *64
-    uint32 Vservo : 10;     // 0-16V    *64
+    float Vmain;   // equal to Vesc
+    float Vservo;  // equal to Vaux equal to Vbec on castle link
 
-    uint32 Vesc : 12;       // 0-64V    *64
-    uint32 Iesc : 13;       // 0-256A   *32
-    uint32 Iaux : 7;        // 0-8A *16
+    float Iesc;
+    float Iaux;    // equal to Ibec
 
-    uint16 battery_level : 7;   // in %, 120=100%   *120
-    uint16 capacity_used : 9;   // 0-128Ah      *4
+    float battery_level;
+    float capacity_used;
 } T_PowerMsg;
 
 typedef struct
@@ -401,10 +399,10 @@ typedef struct
     f16     gps_speed_ENU[3];       // east/north/up speeds m/s
 } T_Telem_GPS1;
 
-/* Telemetry - System 2   sent every second with background priority (82 bytes) */
+/* Telemetry - System 2   sent every second with background priority (96 bytes - 2019-05-23) */
 typedef struct
 {
-    T_TelemUpHdr    hdr;
+    T_TelemUpHdr    hdr;      // 8 bytes
 
     /* payload */
     uint32  time;
@@ -416,8 +414,8 @@ typedef struct
     uint16  telem_good_messages;
     uint16  telem_crc_errors;
     uint16  telem_start_code_searches;
-	uint16	flight_time_left;	// in sec
-    T_PowerMsg power;
+	  uint16  flight_time_left;  // in sec
+    T_PowerMsg power;          // 24 bytes
     f16     gyro_temperature;
     f16     baro_temperature;
     f16     gps_hdop;
@@ -426,6 +424,8 @@ typedef struct
     byte    gps_fix_curr   : 2;
     byte    gps_fix_other  : 2;
     byte    gps_current    : 2;
+    byte    unused_bits    : 2;
+    byte    unused_byte1;
     byte    motor_state;
     byte    cpu_utilization;
     byte    control_status;   // bit 0   - 1 means xbus receiving,
@@ -435,22 +435,17 @@ typedef struct
                               // bit 4-5 - playlist status (0-stopped, 1-playing, 2-paused)
                               // bit 6   - rc_ctrl_request
                               // bit 7   - eng_super_user
-    //-------------------------------- size 56
     uint16  playlist_items;
     uint16  playlist_position;
-    //-------------------------------- size 60
     uint16  gps_errors;         // number of detected GPS errors
     f16     wind_speed;         // wind speed in m/s
     f16     wind_course;        // wind course in deg, cw from north
-    //-------------------------------- size 64
     f16     RPM;
     f16     power_lp;
-    //-------------------------------- size 68
     f16     gyro_offsets[3];    // P/R/Y, deg/s
     f16     esc_temp;           // ESC temperature in degC
     byte    num_landing_sites;
     byte    ctrl_source;
-    //-------------------------------- size 77
 } T_Telem_System2;
 
 /* Telemetry - DataStream 3       sent at the full rate (1200Hz) divided by the number of elements,
@@ -666,6 +661,8 @@ typedef struct
     uint32      pwr_serialnum_2;
 
     uint32      imu_serial_num;    // Version is Major:Minor:Build, each item is 8bits
+
+    uint32      odometerReading;
 
 } T_AircraftConfig;
 
@@ -1286,6 +1283,8 @@ typedef struct
     int debug_flags[10]; // Temp debug flags to be used however
 
     bool setZeroSpeed;
+
+    uint32 OdometerReading;
 
 } FlightControlData;
 
