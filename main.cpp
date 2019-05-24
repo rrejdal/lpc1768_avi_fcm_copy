@@ -3511,7 +3511,7 @@ static void UpdateBatteryStatus(float dT)
     float energy_voltage_estimate = 0;
 
     static int estimate_using_voltage = 1;
-    static int estimate_using_voltage_timeout = 0;
+    static float estimate_using_voltage_timeout = 0;
 
     /* do not process if duration is not right */
     if (dT>1 || dT<=0) {
@@ -3555,7 +3555,7 @@ static void UpdateBatteryStatus(float dT)
 
             // From captured data, it seems that it takes approximately 10 seconds
             // for the battery voltage to stablize after it's been loaded by the UAV motors.
-            if (estimate_using_voltage_timeout >= 10) {
+            if (estimate_using_voltage_timeout >= 10.0f) {
                 estimate_using_voltage = 0;
             }
         }
