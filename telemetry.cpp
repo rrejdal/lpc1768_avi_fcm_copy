@@ -608,7 +608,7 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->flight_time_left	= ClipMinMax(hfc->power.flight_time_left, 0, 65535);
 
     msg->power.Iaux     = hfc->power.Iaux;
-    msg->power.Iesc     = hfc->power.Iesc;
+    msg->power.Iesc     = hfc->power.Itotal;//hfc->power.Iesc;
     msg->power.Vmain    = hfc->power.Vmain;
     msg->power.Vservo   = hfc->power.Vservo;
     msg->power.battery_level = hfc->power.battery_level;

@@ -3503,8 +3503,8 @@ static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_S
 static void UpdateBatteryStatus(float dT)
 {
     T_Power *p = &hfc.power;
-    float I = p->Iesc + p->Iaux  + pConfig->current_offset;
-    float power = I * p->Vmain;
+    p->Itotal = p->Iesc + p->Iaux  + pConfig->current_offset;
+    float power = p->Itotal * p->Vmain;
     float dE = power * dT;
 
     float energy_level_votlage_estimate = 0;
@@ -3524,7 +3524,7 @@ static void UpdateBatteryStatus(float dT)
     }
 
     /* integrate current to obtain used up capacity */
-    p->capacity_used += I * dT;
+    p->capacity_used += p->Itotal * dT;
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
@@ -3550,7 +3550,7 @@ static void UpdateBatteryStatus(float dT)
 
         power = pConfig->power_typical;  // use typical power consumed to est flight time
 
-        if( (I > (5*pConfig->current_offset)) && IN_THE_AIR(hfc.altitude_lidar) ) {
+        if( (p->Itotal > (5*pConfig->current_offset)) && IN_THE_AIR(hfc.altitude_lidar) ) {
             estimate_using_voltage_timeout += dT;
 
             // From captured data, it seems that it takes approximately 10 seconds
@@ -3569,10 +3569,9 @@ static void UpdateBatteryStatus(float dT)
             p->energy_curr = 0;
         }
 
-        // If the
-        if( energy_voltage_estimate == 0 ) {
-            p->energy_curr -= 5*dE;
-        }
+//        if( p->energy_curr > energy_voltage_estimate   ) {
+//            p->energy_curr -= (p->energy_curr - energy_voltage_estimate)/p->energy_curr * dE;
+//        }
     }
 
     /* low-pass power used */
