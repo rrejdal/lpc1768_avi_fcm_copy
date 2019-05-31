@@ -2263,7 +2263,8 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
 
           // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
           if (hfc->altitude >= retire_takeoff_height) {
-            hfc->altitude_WPnext = hfc->waypoint_pos[2];  // make sure the next waypoint uses the intended takeoff height
+            // make sure the next waypoint uses the intended takeoff height
+            hfc->altitude_WPnext = hfc->waypoint_pos[2] - hfc->altitude_base;
             hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
           }
         }
@@ -5609,7 +5610,8 @@ void InitializeRuntimeData(void)
     hfc.throttle_value   = -pConfig->Stick100range;
     hfc.collective_value = -pConfig->Stick100range;
 
-    hfc.power.capacity_total = (pConfig->battery_capacity / 1000.0f * 3600); // As
+    //Give a 10 percent (up to 1000mAh) buffer on the battery capacity
+    hfc.power.capacity_total = ((pConfig->battery_capacity-min(pConfig->battery_capacity*0.1,1000)) / 1000.0f * 3600); // As
     hfc.power.energy_total   = (hfc.power.capacity_total * pConfig->battery_cells * 3.7f);  // Ws
 
     hfc.dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
