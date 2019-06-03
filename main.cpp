@@ -3504,10 +3504,15 @@ static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_S
 static void UpdateBatteryStatus(float dT)
 {
     T_Power *p = &hfc.power;
-    float I = p->Iesc + p->Iaux  + pConfig->current_offset;
-    float power = I * p->Vmain;
+    p->Itotal = p->Iesc + p->Iaux  + pConfig->current_offset;
+    float power = p->Itotal * p->Vmain;
     float dE = power * dT;
-    static int num_voltage_measurements = 0;
+
+    float energy_level_votlage_estimate = 0;
+    float energy_voltage_estimate = 0;
+
+    static int estimate_using_voltage = 1;
+    static float estimate_using_voltage_timeout = 0;
 
     /* do not process if duration is not right */
     if (dT>1 || dT<=0) {
@@ -3520,40 +3525,54 @@ static void UpdateBatteryStatus(float dT)
     }
 
     /* integrate current to obtain used up capacity */
-    p->capacity_used += I * dT;
+    p->capacity_used += p->Itotal * dT;
 
     p->power_lp = LP_RC(power, p->power_lp, 0.5f, dT);
 
-    /* Once the FCM boots up, use the voltage to initialize the battery level
-     * AND set "energy_curr" based on voltage for the first 1000 measurements after the
-     * after that, "energy_curr" is only calculated via the current measured*/
-    if (num_voltage_measurements < 1000 ) {
+    // Estimate of the energy level of a single battery cell using the voltage reading
+    energy_level_votlage_estimate = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
+    // Estimate of the energy level of the whole battery
+    energy_voltage_estimate = p->energy_total * energy_level_votlage_estimate;
 
-        num_voltage_measurements++;
+    if (!p->initialized) {
+        p->energy_curr = energy_voltage_estimate;
+    }
 
-        float level = UnloadedBatteryLevel(p->Vmain / Max(1, pConfig->battery_cells), pConfig->V2Energy);
-        float Ecurr = p->energy_total * level;
-
-        if (!p->initialized) {
-            p->energy_curr = Ecurr;
-        }
-
+    /* Use the Voltage estimate for the battery level until the voltage stabilizes under
+     * high load (high current, or flying) conditions */
+    if (estimate_using_voltage) {
         /* low pass small changes in voltage, big changes go unfiltered to speed up the initial estimate */
-        if (ABS(Ecurr-p->energy_curr) > (0.3f*p->energy_total)) {
-            p->energy_curr = Ecurr;
+        if (ABS(energy_voltage_estimate-p->energy_curr) > (0.3f*p->energy_total)) {
+            p->energy_curr = energy_voltage_estimate;
         }
         else {
-            p->energy_curr = LP_RC(Ecurr, p->energy_curr, 0.05f, dT);
+            p->energy_curr = LP_RC(energy_voltage_estimate, p->energy_curr, 0.05f, dT);
         }
 
         power = pConfig->power_typical;  // use typical power consumed to est flight time
+
+        if( (p->Itotal > (5*pConfig->current_offset)) && IN_THE_AIR(hfc.altitude_lidar) ) {
+            estimate_using_voltage_timeout += dT;
+
+            // From captured data, it seems that it takes approximately 10 seconds
+            // for the battery voltage to stablize after it's been loaded by the UAV motors.
+            if (estimate_using_voltage_timeout >= 10.0f) {
+                estimate_using_voltage = 0;
+            }
+        }
+
     }
     else { // Once energy_curr is initialized by voltage, use current draw to keep track for as long as FCM is on
+
         p->energy_curr -= dE;
 
         if (p->energy_curr < 0) {
             p->energy_curr = 0;
         }
+
+//        if( p->energy_curr > energy_voltage_estimate   ) {
+//            p->energy_curr -= (p->energy_curr - energy_voltage_estimate)/p->energy_curr * dE;
+//        }
     }
 
     /* low-pass power used */

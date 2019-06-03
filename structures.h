@@ -703,6 +703,7 @@ typedef struct
 	float	Vesc;
 	float	Iesc;
 	float	Iaux;
+  float Itotal;
 	float   Vslope;
     float   Voffset;
     float   Islope;
