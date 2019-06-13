@@ -325,7 +325,7 @@ enum TELEM_PARAMS_AIRFRAME {
 #define COMP_CALIBRATING        1
 #define COMP_CALIBRATE_DONE     2
 
-#define MAX_NUM_LIDARS            5
+#define MAX_NUM_LIDARS            2
 #define LIDAR_TIMEOUT        0.100f  //0.100 seconds = 100 milli-seconds
 #define LIDAR_HISTORY_SIZE       10
 #define INVALID_LIDAR_DATA     9999
@@ -378,7 +378,9 @@ typedef struct
     f16     ctrl_speed[3];   // RFU
     int     latitude;        // latitude  from IMU * 10M
     int     longitude;       // longitude from IMU * 10M
-    f16     lidar_alt;
+    f16     lidar_alt_compensated;  // Angle compensated Lidar alt (m)
+    f16     lidar_raw_front;
+    f16     lidar_raw_rear;
     int     controlStatus;  // bit mask denoting the last control command made.
     int     lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
 } T_Telem_Ctrl0;
@@ -1031,6 +1033,7 @@ typedef struct
     unsigned char ctrl_source;          // selects source of control - rc, joy, auto....
     unsigned char inhibitRCswitches;    // inhibits RC radio mode switches, needed during takeoff
     unsigned char LidarCtrlMode;        // lidar drives altitude to avoid getting below minimum above ground altitude
+    unsigned char enable_lidar_ctrl_mode;
     unsigned char cruise_mode;         // enables cruise mode
     unsigned char fixedThrottleMode;	// fixed pitch throttle mode idle, dead band, ramp, fly
     float fixedThrottleCap;				// Capture throttle position for Ramp detection
@@ -1122,7 +1125,7 @@ typedef struct
     float altitude_ofs;         // offset in between GPS and baro based altitude
 
     float altitude_lidar;       // altitude above ground from LIDAR, angle compensated
-    float altitude_lidar_raw;   // altitude above ground from LIDAR, raw value
+    float altitude_lidar_raw[MAX_NUM_LIDARS];   // altitude above ground from LIDAR, raw value
     float lidar_timeouts[MAX_NUM_LIDARS];
     int   lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
 

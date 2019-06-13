@@ -200,6 +200,132 @@ static void PrintOrient();
 static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
 
+typedef uint16_t Item;
+typedef struct Mediator_t
+{
+   Item* data;  //circular queue of values
+   int*  pos;   //index into `heap` for each value
+   int*  heap;  //max/median/min heap holding indexes into `data`.
+   int   N;     //allocated size.
+   int   idx;   //position in circular queue
+   int   minCt; //count of items in min heap
+   int   maxCt; //count of items in max heap
+} Mediator;
+
+Mediator* lidar_median[MAX_NUM_LIDARS];
+
+inline int mmless(Mediator* m, int i, int j)
+{
+   return (m->data[m->heap[i]] < m->data[m->heap[j]]);
+}
+
+//swaps items i&j in heap, maintains indexes
+int mmexchange(Mediator* m, int i, int j)
+{
+   int t = m->heap[i];
+   m->heap[i]=m->heap[j];
+   m->heap[j]=t;
+   m->pos[m->heap[i]]=i;
+   m->pos[m->heap[j]]=j;
+   return 1;
+}
+
+//swaps items i&j if i<j;  returns true if swapped
+inline int mmCmpExch(Mediator* m, int i, int j)
+{
+   return (mmless(m,i,j) && mmexchange(m,i,j));
+}
+
+//maintains minheap property for all items below i.
+void minSortDown(Mediator* m, int i)
+{
+   for (i*=2; i <= m->minCt; i*=2)
+   {  if (i < m->minCt && mmless(m, i+1, i)) { ++i; }
+      if (!mmCmpExch(m,i,i/2)) { break; }
+   }
+}
+
+//maintains maxheap property for all items below i. (negative indexes)
+void maxSortDown(Mediator* m, int i)
+{
+   for (i*=2; i >= -m->maxCt; i*=2)
+   {  if (i > -m->maxCt && mmless(m, i, i-1)) { --i; }
+      if (!mmCmpExch(m,i/2,i)) { break; }
+   }
+}
+
+//maintains minheap property for all items above i, including median
+//returns true if median changed
+inline int minSortUp(Mediator* m, int i)
+{
+   while (i>0 && mmCmpExch(m,i,i/2)) i/=2;
+   return (i==0);
+}
+
+//maintains maxheap property for all items above i, including median
+//returns true if median changed
+inline int maxSortUp(Mediator* m, int i)
+{
+   while (i<0 && mmCmpExch(m,i/2,i))  i/=2;
+   return (i==0);
+}
+
+/*--- Public Interface ---*/
+
+
+//creates new Mediator: to calculate `nItems` running median.
+//mallocs single block of memory, caller must free.
+Mediator* MediatorNew(int nItems)
+{
+   int size = sizeof(Mediator)+nItems*(sizeof(Item)+sizeof(int)*2);
+   Mediator* m =  ( Mediator*)malloc(size);
+   m->data= (Item*)(m+1);
+   m->pos = (int*) (m->data+nItems);
+   m->heap = m->pos+nItems + (nItems/2); //points to middle of storage.
+   m->N=nItems;
+   m->minCt = m->maxCt = m->idx = 0;
+   while (nItems--)  //set up initial heap fill pattern: median,max,min,max,...
+   {  m->pos[nItems]= ((nItems+1)/2) * ((nItems&1)?-1:1);
+      m->heap[m->pos[nItems]]=nItems;
+   }
+   return m;
+}
+
+
+//Inserts item, maintains median in O(lg nItems)
+void MediatorInsert(Mediator* m, Item v)
+{
+   int p = m->pos[m->idx];
+
+   Item old = m->data[m->idx];
+
+   m->data[m->idx]=v;
+   m->idx = (m->idx+1) % m->N;
+
+   if (p>0)         //new item is in minHeap
+   {  if (m->minCt < (m->N-1)/2)  { m->minCt++; }
+      else if (v>old) { minSortDown(m,p); return; }
+      if (minSortUp(m,p) && mmCmpExch(m,0,-1)) { maxSortDown(m,-1); }
+   }
+   else if (p<0)   //new item is in maxheap
+   {  if (m->maxCt < m->N/2) { m->maxCt++; }
+      else if (v<old) { maxSortDown(m,p); return; }
+      if (maxSortUp(m,p) && m->minCt && mmCmpExch(m,1,0)) { minSortDown(m,1); }
+   }
+   else //new item is at median
+   {  if (m->maxCt && maxSortUp(m,-1)) { maxSortDown(m,-1); }
+      if (m->minCt && minSortUp(m, 1)) { minSortDown(m, 1); }
+   }
+}
+
+//returns median item (or average of 2 when item count is even)
+Item MediatorMedian(Mediator* m)
+{
+   Item v= m->data[m->heap[0]];
+   if (m->minCt<m->maxCt) { v=(v+m->data[m->heap[-1]])/2; }
+   return v;
+}
+
 int getNodeVersionNum(int type, int nodeId)
 {
   int vers_num;
@@ -2327,8 +2453,8 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
               landing_threshold = LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP;
             }
 
-            /* heli coming down, switch to rate mode once below 0.1m */
-            if (hfc->altitude_lidar < landing_threshold)
+            /* touching down, switch to rate mode once below threshold */
+            if (hfc->altitude_lidar <= landing_threshold)
             {
                 /* set PRY controls to rate */
                 SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
@@ -2403,8 +2529,14 @@ static float CalcMinAboveGroundAlt(float speed)
                                pConfig->LidarHVcurve[2], pConfig->LidarHVcurve[3]);
 
     /* clip not to exceed the sensor operating range otherwise it would keep pushing the heli up */
-    if (pConfig->ground_sensor == GROUND_SENSOR_SONAR) {
-        alt = min(alt, 7);
+    //if (pConfig->ground_sensor == GROUND_SENSOR_SONAR) {
+    //    alt = min(alt, 7);
+    //}
+
+    // TODO::SP: Useful Lidar Max reading is 40m, but we use threshold of 35m
+    // ensure lidar altitude control is within that range.
+    if (pConfig->ground_sensor == GROUND_SENSOR_LIDAR) {
+        alt = min(alt, 35);
     }
 
     return alt;
@@ -2616,6 +2748,7 @@ static inline void ResetPidScaling(T_PID *pid_layer, const float params[6])
 // dT is the time since this function was last called (in seconds)
 static void ServoUpdate(float dT)
 {
+    int lidar_node;
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, hfc.throttle_armed, hfc.fixedThrottleMode);
 
@@ -2674,13 +2807,26 @@ static void ServoUpdate(float dT)
 
 //    float throttle_prev = hfc.ctrl_out[RAW][THRO];
 
-    hfc.altitude_lidar = hfc.altitude_lidar_raw * AngleCompensation;
+    // Always default to using lidar node 0.
+    // This is either a single or the front lidar for tandems.
+    if (hfc.lidar_online_mask & 0x1) {
+      hfc.altitude_lidar = hfc.altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX] * AngleCompensation;
+    }
+    else if (hfc.lidar_online_mask & 0x2) {
+      // Rear Lidar (for Tandems)
+      hfc.altitude_lidar = hfc.altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX] * AngleCompensation;
+    }
+    else {
+      // since we have lost all available lidar data, replace with imu fusion altitude
+      // This at least will give a fighting chance ;-)
+      // TODO::SP: Validate this.....
+      hfc.altitude_lidar = hfc.gps_to_home[2]; //hfc.altitude;
+    }
+
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[RAW][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 //    debug_print("%+3d %4d %+4d %d\r\n", (int)(hfc.ctrl_out[SPEED][COLL]*1000), (int)(hfc.altitude_lidar*1000), (int)(hfc.lidar_vspeed*1000), lidar_last_time/1000);
 
-
     hfc.ctrl_out[RAW][THRO]  = hfc.collective_value;
-
 
     if (hfc.ctrl_source==CTRL_SOURCE_RCRADIO) {
         hfc.ctrl_out[RAW][PITCH] = xbus.valuesf[XBUS_PITCH];
@@ -3283,38 +3429,39 @@ static void ServoUpdate(float dT)
         float e_alt;
         bool double_acc = (hfc.ctrl_source==CTRL_SOURCE_RCRADIO || hfc.ctrl_source==CTRL_SOURCE_JOYSTICK) ? true : false;
 
-        /* set minimum above ground altitude as a function of speed */
-        LidarMinAlt = CalcMinAboveGroundAlt(hfc.gps_speed);
+        // TODO::SP: hfc.enable_lidar_ctrl_mode, will ultimately come from a configuration
+        // setting enabling the use of this feature. For now, feature is permanently disabled.
+        if (hfc.enable_lidar_ctrl_mode && !hfc.eng_super_user) {
+          /* set minimum above ground altitude as a function of speed */
+          LidarMinAlt = CalcMinAboveGroundAlt(hfc.gps_speed);
         
-        /* switch between regular (IMU) and lidar based altitude control mode */
-        if (!hfc.LidarCtrlMode)
-        {
+          /* switch between regular (IMU) and lidar based altitude control mode */
+          if (!hfc.LidarCtrlMode)
+          {
             /* if lidar alt dips below the min limit, switch to lidat ctrl mode.
              * Never do this for takeoff since it needs to get above LidarMinAlt first */
-            if (hfc.altitude_lidar < LidarMinAlt && hfc.waypoint_type!=WAYPOINT_TAKEOFF)
+            if ((hfc.altitude_lidar < LidarMinAlt) && (hfc.waypoint_type != WAYPOINT_TAKEOFF)) {
                 hfc.LidarCtrlMode = true;
-        }
-        else
-        {
+            }
+          }
+          else
+          {
             /* if IMU altitude dips below the set altitude, switch back to regular altitude ctrl mode */
             /* or once lidar altitude increases sufficiently above the min lidar altitude */
-            if ((hfc.altitude < hfc.ctrl_out[POS][COLL]) || (hfc.altitude_lidar > 1.2f*LidarMinAlt))
+            if ((hfc.altitude < hfc.ctrl_out[POS][COLL]) || (hfc.altitude_lidar > 1.2f*LidarMinAlt)) {
                 hfc.LidarCtrlMode = false;            
-        }
+            }
+          }
 
-        /* never use lidar ctrl mode in manual lidar ctrl mode */
-        if (hfc.rw_cfg.ManualLidarAltitude) {
+          /* never use lidar ctrl mode in manual lidar ctrl mode */
+          if (hfc.rw_cfg.ManualLidarAltitude) {
             hfc.LidarCtrlMode = false;
+          }
         }
 
         /* select regular or lidar based altitude values */
-        CurrAltitude = hfc.rw_cfg.ManualLidarAltitude || hfc.LidarCtrlMode ? hfc.altitude_lidar : hfc.altitude;
+        CurrAltitude = (hfc.rw_cfg.ManualLidarAltitude || hfc.LidarCtrlMode) ? hfc.altitude_lidar : hfc.altitude;
         CtrlAltitude = hfc.LidarCtrlMode ? LidarMinAlt : hfc.ctrl_out[POS][COLL];
-
-        if (hfc.eng_super_user) {
-          CurrAltitude = hfc.altitude;
-          CtrlAltitude = hfc.ctrl_out[POS][COLL];
-        }
 
         /* increase vertical down speed limit with an increased horizontal speed */
         vspeedmin = max(pConfig->VspeedDownCurve[1], hfc.rw_cfg.VspeedMin+pConfig->VspeedDownCurve[0]*hfc.gps_speed);
@@ -3690,7 +3837,17 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
     }
 }
 
+bool LidarOnline(void)
+{
+  for (int i = 0; i < num_lidars; i++) {
+      if (((hfc.lidar_online_mask >> i) & 1) == 0 ) {
+        return false;
+      }
+  }
+  return true;
+}
 
+// Deprecated.
 bool IsLidarOperational(void) {
   bool status = true;
 
@@ -3710,13 +3867,34 @@ bool IsLidarOperational(void) {
     }
   }
 
-  if (hfc.altitude_lidar_raw > 0.2) {
+  if (hfc.altitude_lidar_raw[0] > 0.2) {
     status = false;
   }
 
   return status;
 }
 
+static void UpdateLidar(int node_id, int pulse_us)
+{
+  // TODO::SP: The newer sensors max out to 40m when closly obstructed.
+  // If using these, we will need to detect this condition - perhaps
+  // validate against altitude...
+
+  if (pulse_us == 0xFFFF) {
+    // Lidar is offline, mark it so, and don't update value
+    hfc.lidar_online_mask &= ~(1 << node_id);
+    return;
+  }
+
+  hfc.lidar_online_mask |= (1 << node_id);
+
+  MediatorInsert(lidar_median[node_id], pulse_us);
+  uint16_t pulse = MediatorMedian(lidar_median[node_id]);
+
+  hfc.altitude_lidar_raw[node_id] = ( (pulse*.001f) + 7.0f*hfc.altitude_lidar_raw[node_id] ) * 0.125f;
+}
+
+// Deprecated.
 static void UpdateLidarAltitude(int node_id, int lidarCount)
 {
     unsigned int pulse = 0;
@@ -3740,7 +3918,7 @@ static void UpdateLidarAltitude(int node_id, int lidarCount)
     alt_avg = alt_avg / num_lidars_reported;
     alt_avg = alt_avg-(pConfig->lidar_offset/1000.0f);
     alt_avg = ClipMinMax(alt_avg, MIN_LIDAR_PULSE/1000.0f, MAX_LIDAR_PULSE/1000.0f);
-    hfc.altitude_lidar_raw = ( alt_avg + 7.0f*hfc.altitude_lidar_raw ) * 0.125f;
+    hfc.altitude_lidar_raw[node_id] = ( alt_avg + 7.0f*hfc.altitude_lidar_raw[node_id] ) * 0.125f;
 }
 
 static int LidarFilterFCM(int node_id, int lidarCount)
@@ -3802,7 +3980,6 @@ static int LidarFilterFCM(int node_id, int lidarCount)
 
   return -1;
 }
-
 
 static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
 {
@@ -3997,7 +4174,8 @@ static void can_handler(void)
                 canbus_ack = 1;
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
-                UpdateLidarAltitude(node_id, *(uint32_t *)pdata);
+              //UpdateLidarAltitude(node_id, *(uint32_t *)pdata);
+              UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -4339,18 +4517,6 @@ void CompassCalDone(void)
     SaveCompassCalibration(&hfc.compass_cal);
 }
 
-void LidarTimeout(float dT)
-{
-  for(int i = 0; i<num_lidars; i++) {
-    hfc.lidar_timeouts[i] -= dT;
-
-    if (   (hfc.lidar_timeouts[i] <= 0)
-        && (((hfc.lidar_online_mask >> i) & 1) == 1) ) {
-      hfc.lidar_online_mask ^= (1 << i);
-    }
-  }
-}
-
 /* Function used to DISARM the UAV if it has been armed for longer than
  * but motors have not come on.
  * Ignore timeout if Preflight checsk are disabled in config
@@ -4434,8 +4600,6 @@ void do_control()
     }
 
     ArmedTimeout(dT);
-
-    LidarTimeout(dT);
 
     FlightOdometer();
 
@@ -5749,7 +5913,11 @@ void InitializeRuntimeData(void)
     hfc.AltitudeBaroGPSblend = ALTITUDE_BARO_GPS_BLEND_FREQ_INIT;
     hfc.baro_altitude_raw_lp = -9999;
     hfc.esc_temp = 20;
-    hfc.altitude_lidar_raw = 0;
+
+    for (int i=0; i < MAX_NUM_LIDARS; i++) {
+      hfc.altitude_lidar_raw[i] = 0;
+    }
+
     hfc.distance2WP_min = 999999;
     hfc.rpm_ticks          = Ticks1();
     hfc.comp_calibrate = NO_COMP_CALIBRATE;
@@ -5788,16 +5956,13 @@ void InitializeRuntimeData(void)
 
     hfc.eng_super_user = false;
 
-    if (pConfig->LidarFromServo > 0) {
-      num_lidars = num_lidars + pConfig->num_servo_nodes;
+    // Configure number of lidars based on airframe type.
+    // TODO::SP should really do this at confguration stage.
+    if (pConfig->ccpm_type == MIXERTANDEM) {
+      num_lidars = 2;
     }
-
-    if (pConfig->LidarFromPowerNode > 0) {
-      num_lidars = num_lidars + pConfig->num_power_nodes;
-    }
-
-    if ((pConfig->LidarFromPowerNode == 0) && (pConfig->LidarFromServo == 0)) {
-      num_lidars = 1; // assume lidar is connected to FCM only
+    else {
+      num_lidars = 1;
     }
 
     InitializeOdometer(&hfc);
@@ -5805,6 +5970,12 @@ void InitializeRuntimeData(void)
     hfc.positive_pid_scaling = pConfig->dynamic_pid_rc_max_gain / 15.0f;
     hfc.negative_pid_scaling = pConfig->dynamic_pid_rc_min_gain / 14.0f;
     hfc.pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
+
+    for (int i=0; i < num_lidars; i++) {
+      lidar_median[i] = MediatorNew(11);
+    }
+
+    hfc.enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 }
 
 /**

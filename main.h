@@ -34,7 +34,8 @@ void HeadingUpdate(float heading_rate, float dT);
 void CompassCalDone(void);
 int  TakeoffControlModes(void);
 int  GetMotorsState(void);
-bool IsLidarOperational(void);
+bool IsLidarOperational(void); // deprecated, no longer looking at returned value
+bool LidarOnline(void);
 
 // Local Prototypes
 static inline void UpdatePitchRateScalingFactor(float xbus_value);

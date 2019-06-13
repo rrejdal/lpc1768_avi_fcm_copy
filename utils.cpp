@@ -306,7 +306,7 @@ case LOG_PARAM_ALTITUDE:            // altitude [CTRL / current IMU / lidar] in 
         else if (index==2)
             value = Float32toFloat16(hfc->altitude_lidar);
         else
-            value = Float32toFloat16(hfc->altitude_lidar_raw);
+            value = Float32toFloat16(hfc->altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX]);
         break;
 case LOG_PARAM_GROUND_SPEED:        // ground speed in m/s [total/E/N/U] (f16)
         if (index==0)
@@ -345,6 +345,12 @@ case LOG_PARAM_TANDEM:
     }
     else if (index == 1) {
         value = Float32toFloat16(hfc->rw_cfg.elevator_gain);
+    }
+    else if (index == 2) {
+      value = Float32toFloat16(hfc->altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX]);
+    }
+    else {
+      value = Float32toFloat16(hfc->altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX]);
     }
     break;
 

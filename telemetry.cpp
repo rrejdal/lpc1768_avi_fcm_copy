@@ -513,7 +513,9 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     
     msg->latitude  = (int)(hfc->positionLatLon[0]*10000000);
     msg->longitude = (int)(hfc->positionLatLon[1]*10000000);
-    msg->lidar_alt = Float32toFloat16(hfc->altitude_lidar);
+    msg->lidar_alt_compensated = Float32toFloat16(hfc->altitude_lidar);
+    msg->lidar_raw_front = Float32toFloat16(hfc->altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX]);
+    msg->lidar_raw_rear = Float32toFloat16(hfc->altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX]);
     msg->controlStatus = hfc->controlStatus;
     msg->lidar_online_mask = hfc->lidar_online_mask;
     
@@ -1870,8 +1872,8 @@ char TelemSerial::PreFlightChecks(void)
         return false;
     }
 
-    /* LIDAR, if reading more than 0.2 meters then we have an issue */
-    if (!IsLidarOperational())
+    /* LIDAR */
+    if (!LidarOnline())
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_LIDAR);
         return false;

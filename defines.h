@@ -228,4 +228,7 @@ extern USBSerial   serial;
 #define CRUISE_MODE_PID_POS   (1 << 6)
 #define CRUISE_MODE_ACTIVE    (1 << 7)
 
+#define SINGLE_FRONT_LIDAR_INDEX  (0)
+#define REAR_TANDEM_LIDAR_INDEX   (1)
+
 #endif
