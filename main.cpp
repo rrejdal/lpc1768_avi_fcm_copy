@@ -3876,10 +3876,6 @@ bool IsLidarOperational(void) {
 
 static void UpdateLidar(int node_id, int pulse_us)
 {
-  // TODO::SP: The newer sensors max out to 40m when closely obstructed.
-  // If using these, we will need to detect this condition - perhaps
-  // validate against altitude...
-
   if (pulse_us == 0xFFFF) {
     // Lidar is offline, mark it so, and don't update value
     hfc.lidar_online_mask &= ~(1 << node_id);
@@ -3888,7 +3884,8 @@ static void UpdateLidar(int node_id, int pulse_us)
 
   hfc.lidar_online_mask |= (1 << node_id);
 
-
+  // This handles the newer type sensors which max to 40cm when reading very close objects
+  // as opposed to going to zero. When this occurs - fix reading to 10cm
   if (pulse_us >= 35000 && hfc.altitude_lidar_raw[node_id] < 1.0) {
     pulse_us = 100; // 10cm
   }
