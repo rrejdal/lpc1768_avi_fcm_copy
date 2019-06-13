@@ -4604,7 +4604,7 @@ void do_control()
          // debug_print("util %4.1f%\r\n", hfc.cpu_utilization_lp);
     }
 
-    ArmedTimeout(dT);
+    //ArmedTimeout(dT);
 
     FlightOdometer();
 
