@@ -2810,11 +2810,11 @@ static void ServoUpdate(float dT)
     // Always default to using lidar node 0.
     // This is either a single or the front lidar for tandems.
     if (hfc.lidar_online_mask & 0x1) {
-      hfc.altitude_lidar = hfc.altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX] * AngleCompensation;
+      hfc.altitude_lidar = (hfc.altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX] - pConfig->lidar_offset/1000.0f) * AngleCompensation;
     }
     else if (hfc.lidar_online_mask & 0x2) {
       // Rear Lidar (for Tandems)
-      hfc.altitude_lidar = hfc.altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX] * AngleCompensation;
+      hfc.altitude_lidar = (hfc.altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX] - pConfig->lidar_offset/1000.0f) * AngleCompensation;
     }
     else {
       // since we have lost all available lidar data, replace with imu fusion altitude
@@ -3876,7 +3876,7 @@ bool IsLidarOperational(void) {
 
 static void UpdateLidar(int node_id, int pulse_us)
 {
-  // TODO::SP: The newer sensors max out to 40m when closly obstructed.
+  // TODO::SP: The newer sensors max out to 40m when closely obstructed.
   // If using these, we will need to detect this condition - perhaps
   // validate against altitude...
 
@@ -3887,6 +3887,11 @@ static void UpdateLidar(int node_id, int pulse_us)
   }
 
   hfc.lidar_online_mask |= (1 << node_id);
+
+
+  if (pulse_us >= 35000 && hfc.altitude_lidar_raw[node_id] < 1.0) {
+    pulse_us = 100; // 10cm
+  }
 
   MediatorInsert(lidar_median[node_id], pulse_us);
   uint16_t pulse = MediatorMedian(lidar_median[node_id]);
@@ -5972,7 +5977,7 @@ void InitializeRuntimeData(void)
     hfc.pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
 
     for (int i=0; i < num_lidars; i++) {
-      lidar_median[i] = MediatorNew(11);
+      lidar_median[i] = MediatorNew(35);
     }
 
     hfc.enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
