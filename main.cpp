@@ -2220,7 +2220,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             {
                 /* enable alt hold mode */
                 hfc->ctrl_out[RAW][COLL]  = hfc->ctrl_collective_raw;
-                hfc->ctrl_out[SPEED][COLL] = hfc->IMUspeedGroundENU[2];    // initialize to current vert speed
+                hfc->ctrl_out[SPEED][COLL] = hfc->takeoff_vertical_speed;    // initialize to current vert speed
 
                 SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
                 hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + ClipMinMax(hfc->takeoff_height, TAKEOFF_HEIGHT_MIN, TAKEOFF_HEIGHT_MAX);
@@ -5625,6 +5625,7 @@ void InitializeRuntimeData(void)
     hfc.orient_reset_counter = pConfig->orient_reset_counter;
 
     hfc.takeoff_height = pConfig->takeoff_height;
+    hfc.takeoff_vertical_speed = pConfig->takeoff_vertical_speed;
 
     hfc.controlStatus = CONTROL_STATUS_PREFLIGHT;
 

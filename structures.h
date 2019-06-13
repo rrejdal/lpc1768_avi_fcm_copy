@@ -940,6 +940,8 @@ typedef struct ConfigurationData {
     float takeoff_height; // default takeoff height.
     bool eng_super_user_enable;
 
+    float takeoff_vertical_speed;
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
@@ -1150,6 +1152,7 @@ typedef struct
     float distance2WP_min;              // minimum distance so far to the next waypoint
 
     float takeoff_height;               // height to achieve during takeoff
+    float takeoff_vertical_speed;       // positive vertical speed during takeoff
     float landingWPHeight;              // height to achieve when reaching a landing WP.
     float landing_timeout;              // time (seconds) to wait to completely spool down motors at end of landing
 
