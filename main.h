@@ -36,7 +36,13 @@ int  TakeoffControlModes(void);
 int  GetMotorsState(void);
 bool IsLidarOperational(void);
 
+// Local Prototypes
+static inline void UpdatePitchRateScalingFactor(float xbus_value);
+static inline void ApplyPidScaling(T_PID *pid_layer, const float params[6], float pid_scaling);
+static inline void ResetPidScaling(T_PID *pid_layer, const float params[6]);
 
+
+// Macros
 #define IN_THE_AIR(X) ( ( (( X ) > 0.2) && (GetMotorsState() == 1) ) ? 1 : 0 )
 
 

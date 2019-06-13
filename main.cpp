@@ -768,6 +768,13 @@ static void SetRCRadioControl(void)
         hfc.rc_ctrl_request = true;
     }
 
+    // if Dynamic PID scaling is configured AND the configured value is 0
+    // then we ALWAYS take the value from the the RC Lever. This allows
+    // 'GOD' to make adjustments regardless of the control mode.
+    if (pConfig->enable_dynamic_speed_pid && (pConfig->dynamic_pid_speed_gain == 0)) {
+      UpdatePitchRateScalingFactor(xbus.valuesf[ELEVGAIN]);
+    }
+
     // if not rc_ctrl_request, ignore all RC Radio inputs, keep storing stick values
     if (!hfc.rc_ctrl_request) {
 
@@ -787,6 +794,7 @@ static void SetRCRadioControl(void)
       }
 
       telem.SaveValuesForAbort();
+
       return;
     }
 
@@ -2564,6 +2572,47 @@ static void ServoUpdateRAW(float dT)
     }
 }
 
+// Mid point on Xbus Channel 13 (right side slider) is 0.1875
+// Max is 0.444, Min is 0
+// 15 notches from Mid to Top, & 14 from Mid to bottom
+// We scale the Configured Max, Min % of adjustment across these ranges
+static inline void UpdatePitchRateScalingFactor(float xbus_value)
+{
+  float pid_scale;
+
+  if (xbus_value > 0.188) {
+    pid_scale = ((xbus_value - 0.188) / 0.017);
+    hfc.pid_PitchRateScalingFactor = hfc.positive_pid_scaling * pid_scale;
+  }
+  else if (xbus_value < 0.187) {
+    pid_scale = 14 - (xbus_value / 0.0134);
+    hfc.pid_PitchRateScalingFactor = hfc.negative_pid_scaling * pid_scale;
+  }
+  else {
+    // At mid point, set scaling to 0 (i.e no effect)
+    hfc.pid_PitchRateScalingFactor = 0;
+  }
+}
+
+// Allow for dynamically updating PID values based on a set scaling factor
+// In-lined for speed - (Compiler should be in-lining this anyhow)
+static inline void ApplyPidScaling(T_PID *pid_layer, const float params[6], float pid_scaling)
+{
+  float gain = pid_scaling / 100;
+  CheckRangeAndSetF(&pid_layer->Kp, (params[0] + params[0] * gain), -100, 100);
+  CheckRangeAndSetF(&pid_layer->Ki, (params[1] + params[1] * gain), -100, 100);
+  CheckRangeAndSetF(&pid_layer->Kd, (params[2] + params[2] * gain), -100, 100);
+}
+
+// Reset specified PID values back to those held in the configuration
+// In-lined for speed - (Compiler should be in-lining this anyhow)
+static inline void ResetPidScaling(T_PID *pid_layer, const float params[6])
+{
+  pid_layer->Kp = params[0];
+  pid_layer->Ki = params[1];
+  pid_layer->Kd = params[2];
+}
+
 // dT is the time since this function was last called (in seconds)
 static void ServoUpdate(float dT)
 {
@@ -3168,6 +3217,22 @@ static void ServoUpdate(float dT)
         // if previous mode was below RATE, reset PIDs to be bumpless
         if (control_mode_prev[PITCH]<CTRL_MODE_RATE) {
             PID_SetForEnable(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], hfc.ctrl_out[RAW][PITCH]);
+        }
+
+        if (pConfig->enable_dynamic_speed_pid && hfc.cruise_mode) {
+
+          if (ABS(hfc.ctrl_out[SPEED][PITCH]) >= pConfig->dynamic_pid_speed_threshold) {
+            // Adjust pid_pitchRate by dynamic scaling factor
+            // When traveling at higher speeds, it may be necessary to make on-the-fly pid changes.
+            ApplyPidScaling(&hfc.pid_PitchRate, pConfig->pitchrate_pid_params, hfc.pid_PitchRateScalingFactor);
+          }
+          else {
+            if (ABS(hfc.ctrl_out[SPEED][PITCH]) < 0.8f*pConfig->dynamic_pid_speed_threshold) {
+              // revert back to configured Pitch Rate PID values
+              // On dropping out of higher speeds, revert pid rate values back to configured values.
+              ResetPidScaling(&hfc.pid_PitchRate, pConfig->pitchrate_pid_params);
+            }
+          }
         }
 
         hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], dT);
@@ -5737,6 +5802,9 @@ void InitializeRuntimeData(void)
 
     InitializeOdometer(&hfc);
 
+    hfc.positive_pid_scaling = pConfig->dynamic_pid_rc_max_gain / 15.0f;
+    hfc.negative_pid_scaling = pConfig->dynamic_pid_rc_min_gain / 14.0f;
+    hfc.pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
 }
 
 /**

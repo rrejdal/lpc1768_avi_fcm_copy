@@ -571,6 +571,8 @@ void TelemSerial::Generate_System2(int time_ms)
     float WspeedN = WinSpeedEst(WangleN);
     float Wspeed = sqrtf(WspeedN*WspeedN + WspeedE*WspeedE);
     float Wcour = 0;
+    byte cruise_status = 0;
+
 //    debug_print("%f %f\r\n", WangleE, WangleN);
 
     fixC = gps_data.fix;
@@ -622,6 +624,17 @@ void TelemSerial::Generate_System2(int time_ms)
     msg->gps_fix_curr   = fixC;
     msg->gps_fix_other  = fix2;
     msg->gps_current    = gps.selected_channel_;
+
+    if (hfc->cruise_mode) {
+      cruise_status = CRUISE_MODE_ACTIVE;
+    }
+
+    cruise_status |= (abs(hfc->pid_PitchRateScalingFactor) & CRUISE_MODE_PID_MASK);
+    if (hfc->pid_PitchRateScalingFactor >= 0) {
+      cruise_status |= CRUISE_MODE_PID_POS;
+    }
+
+    msg->cruise_mode_status = cruise_status;
     msg->motor_state    = GetMotorsState();
     msg->cpu_utilization = hfc->cpu_utilization_lp * 2.55f;
 

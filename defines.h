@@ -224,4 +224,8 @@ extern USBSerial   serial;
 #define THROTTLE_LEVER_DOWN() ((xbus.valuesf[XBUS_THR_LV] < (-0.99f*pConfig->Stick100range)) ? 1 : 0)
 #define THROTTLE_LEVER_UP()   ((xbus.valuesf[XBUS_THR_LV] > ( 0.99f*pConfig->Stick100range)) ? 1 : 0)
 
+#define CRUISE_MODE_PID_MASK  (0x3F)
+#define CRUISE_MODE_PID_POS   (1 << 6)
+#define CRUISE_MODE_ACTIVE    (1 << 7)
+
 #endif

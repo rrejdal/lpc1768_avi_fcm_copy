@@ -425,7 +425,11 @@ typedef struct
     byte    gps_fix_other  : 2;
     byte    gps_current    : 2;
     byte    unused_bits    : 2;
-    byte    unused_byte1;
+
+    byte    cruise_mode_status;    // lsb bit 0-5 = % pid scaling applied.
+                                   //     bit 6 = sign (+ve(1), -ve(0))
+                                   // msb bit 7 = cruise_mode on(1), off(0)
+
     byte    motor_state;
     byte    cpu_utilization;
     byte    control_status;   // bit 0   - 1 means xbus receiving,
@@ -940,6 +944,13 @@ typedef struct ConfigurationData {
     float takeoff_height; // default takeoff height.
     bool eng_super_user_enable;
 
+    // Added in Version 12 of configuration
+    int enable_dynamic_speed_pid;
+    float dynamic_pid_speed_threshold;
+    int dynamic_pid_speed_gain;
+    int dynamic_pid_rc_max_gain;
+    int dynamic_pid_rc_min_gain;
+
     float takeoff_vertical_speed;
 
 //} __attribute__((packed)) ConfigData;
@@ -1219,6 +1230,11 @@ typedef struct
     T_PID pid_Dist2T;               //distance to target
     T_PID pid_Dist2P;               //distance to path
     T_PID pid_IMU[3];
+
+    int pid_PitchRateScalingFactor; // Used to de-rate PID scaling when in cruise mode and specific horizontal flight speed is achieved.
+    float positive_pid_scaling;
+    float negative_pid_scaling;
+
     float   speed_Iterm_E;          // I-term for speed PID, east
     float   speed_Iterm_N;          // I-term for speed PID, north
     float   speed_Iterm_E_lp;       // I-term for speed PID, east
