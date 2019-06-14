@@ -250,13 +250,14 @@ enum TELEM_PARAMS_AIRFRAME {
 #define FM_TAKEOFF_NONE         0
 #define FM_TAKEOFF_WAIT         1   // wait for user input
 #define FM_TAKEOFF_AUTO_SPOOL   2
-#define FM_TAKEOFF_ARM          3   // angle mode, spool up
-#define FM_TAKEOFF_START        4   // collective to vspeed
-#define FM_TAKEOFF_LEVEL        5   // collective to vspeed
-#define FM_TAKEOFF_SPEED        6   // speed ground, 25% vspeed threshold
-#define FM_TAKEOFF_ALTITUDE     7   // set target altitude once above 4m
-#define FM_TAKEOFF_HOLD         8   // position+alt hold at +5m, 50% vspeed threshold or +1m altitude
-#define FM_TAKEOFF_COMPLETE     9   // within 0.2m
+#define FM_TAKEOFF_RPM_CHECK    3
+#define FM_TAKEOFF_ARM          4   // angle mode, spool up
+#define FM_TAKEOFF_START        5   // collective to vspeed
+#define FM_TAKEOFF_LEVEL        6   // collective to vspeed
+#define FM_TAKEOFF_SPEED        7   // speed ground, 25% vspeed threshold
+#define FM_TAKEOFF_ALTITUDE     8   // set target altitude once above 4m
+#define FM_TAKEOFF_HOLD         9   // position+alt hold at +5m, 50% vspeed threshold or +1m altitude
+#define FM_TAKEOFF_COMPLETE     10   // within 0.2m
 
 /* landing states */
 #define FM_LANDING_NONE         0
@@ -1138,6 +1139,8 @@ typedef struct
     unsigned int rpm_ticks;     // system time in systick at the rising edge of RPM sensor pulse
     unsigned int rpm_dur_us;    // pulse duration in us, valid only when duration in ms<100
     float RPM;                  // RPM of the main shaft
+    rpmSpoolState rpm_state;
+    float spool_timeout;
 
     int   waypoint_retire;     // when true, waypoint retire logic is activated
     

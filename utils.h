@@ -48,6 +48,6 @@ void SensorCalib(FlightControlData *hfc, float dT);
 void GyroCalibDynamic(FlightControlData *hfc);
 
 uint32_t crc32b(uint8_t *message, uint32_t length);
-
+bool N1WithinPercentOfN2(float n1, float percentage, float n2);
 
 #endif

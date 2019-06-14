@@ -2175,6 +2175,58 @@ static void AbortFlight(void)
   }
 }
 
+static void initRpmThresholdCheck(void)
+{
+  hfc.rpm_state = RPM_SPOOLING;
+  hfc.spool_timeout = RPM_SPOOL_TIMEOUT;
+}
+
+// Return -1 on error
+// 0 on success
+// 1 on waiting
+static int rpm_threshold_check(float dT)
+{
+  switch (hfc.rpm_state)
+  {
+  case RPM_SPOOLING:
+    // wait for rpm to be with x% of configured value.
+    // if rpm not reached within that time, exit
+    hfc.spool_timeout -= dT;
+    if (hfc.spool_timeout > 0) {
+      if (N1WithinPercentOfN2(hfc.RPM, RPM_THRESHOLD_ERROR, pConfig->rpm_typical)) {
+        hfc.rpm_state = RPM_SPOOLED;
+        hfc.spool_timeout = RPM_HOLD_TIMEOUT;
+      }
+    }
+    else {
+      // did not spool to required rpm is designated time, fail the sequence.
+      return -1;
+    }
+    break;
+  case RPM_SPOOLED:
+    // Now we are spooled, we expect to stay with x% desired rpm for a set time
+    // before we are ready to continue with sequece.
+    hfc.spool_timeout -= dT;
+    if (N1WithinPercentOfN2(hfc.RPM, RPM_THRESHOLD_ERROR*2, pConfig->rpm_typical)) {
+      if (hfc.spool_timeout < 0) {
+        hfc.rpm_state = RPM_DONE;
+        return 0;
+      }
+    }
+    else {
+      // drop out of rpm % error, fail the sequence
+      hfc.rpm_state = RPM_FAIL;
+      return -1;
+    }
+    break;
+
+  default:
+    break;
+  }
+
+  return 1;
+}
+
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
@@ -2270,13 +2322,42 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             /* set the throttle value to spool */
             hfc->throttle_value = pConfig->Stick100range;
 
+            //if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+            //  initRpmThresholdCheck();
+            //  hfc->waypoint_stage = FM_TAKEOFF_RPM_CHECK;
+            //}
+            //else {
+              if (!hfc->afsi_takeoff_enable) {
+                  telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
+              }
+
+              hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
+              hfc->waypoint_stage  = FM_TAKEOFF_ARM;
+              hfc->message_timeout = 60000000;    // 60 seconds
+            //}
+        }
+        else if (hfc->waypoint_stage == FM_TAKEOFF_RPM_CHECK) {
+
+          int rpm_check = rpm_threshold_check(dT);
+          if (rpm_check == 0) {
+            // rpm reached - continue with takeoff
             if (!hfc->afsi_takeoff_enable) {
-                telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
+              telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
             }
 
             hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
             hfc->waypoint_stage  = FM_TAKEOFF_ARM;
             hfc->message_timeout = 60000000;    // 60 seconds
+          }
+          else if (rpm_check < 0) {
+            // Cancel and disarm
+            hfc->inhibitRCswitches = false;
+            /* send message that takeoff has timed out */
+            hfc->message_timeout = 0;
+            telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+            telem.Disarm();
+            return;
+          }
         }
         else if (   (hfc->waypoint_stage == FM_TAKEOFF_ARM)
                  && (   (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)

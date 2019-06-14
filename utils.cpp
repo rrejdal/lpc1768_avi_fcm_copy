@@ -521,3 +521,17 @@ uint32_t crc32b(unsigned char *message, uint32_t length)
    return ~crc;
 }
 
+// If n1 is within x percentage of n2 return true,
+// else return false.
+// Also check for Divide by zero.
+bool N1WithinPercentOfN2(float n1, float percentage, float n2)
+{
+
+  if (n2 == 0.0) {
+    //check for div by zero, may not be necessary for float
+    return false; //default for a target value of zero is false
+  }
+  else {
+    return (percentage > abs(abs(n2 - n1)/n2)*100.0);
+  }
+}
