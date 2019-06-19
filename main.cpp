@@ -416,9 +416,9 @@ void AutoReset(void)
         {
             for(int i = 0; i < 3; i++)
             {
-                delta_accel[i]  = ABS( hfc.accFilt[i] - hfc.accFilt_prev[i] );
+                delta_accel[i]  = ABS( hfc.acc[i] - hfc.acc_prev[i] );
                 delta_orient[i] = ABS( hfc.IMUorient[i] - hfc.IMUorient_prev[i] );
-                hfc.accFilt_prev[i] = hfc.accFilt[i];
+                hfc.acc_prev[i] = hfc.acc[i];
                 hfc.IMUorient_prev[i] = hfc.IMUorient[i];
             }
 
@@ -3443,7 +3443,7 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[PITCH] >= CTRL_MODE_RATE) {
         // if previous mode was below RATE, reset PIDs to be bumpless
         if (control_mode_prev[PITCH]<CTRL_MODE_RATE) {
-            PID_SetForEnable(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], hfc.ctrl_out[RAW][PITCH]);
+            PID_SetForEnable(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyro[PITCH], hfc.ctrl_out[RAW][PITCH]);
         }
 
         if (pConfig->enable_dynamic_speed_pid && hfc.cruise_mode) {
@@ -3462,7 +3462,7 @@ static void ServoUpdate(float dT)
           }
         }
 
-        hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyroFilt[PITCH], dT);
+        hfc.ctrl_out[RAW][PITCH] = PID(&hfc.pid_PitchRate, hfc.ctrl_out[RATE][PITCH], hfc.gyro[PITCH], dT);
     }
     else {
         hfc.ctrl_out[RAW][PITCH] = ClipMinMax(hfc.ctrl_out[RAW][PITCH], hfc.pid_PitchRate.COmin, hfc.pid_PitchRate.COmax);
@@ -3471,10 +3471,10 @@ static void ServoUpdate(float dT)
     if (hfc.control_mode[ROLL]>=CTRL_MODE_RATE) {
         //if previous mode was below RATE, reset PIDs to be bumpless
         if (control_mode_prev[ROLL]<CTRL_MODE_RATE) {
-            PID_SetForEnable(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  hfc.ctrl_out[RAW][ROLL]);
+            PID_SetForEnable(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyro[ROLL],  hfc.ctrl_out[RAW][ROLL]);
         }
 
-        hfc.ctrl_out[RAW][ROLL] = PID(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyroFilt[ROLL],  dT);
+        hfc.ctrl_out[RAW][ROLL] = PID(&hfc.pid_RollRate,  hfc.ctrl_out[RATE][ROLL],   hfc.gyro[ROLL],  dT);
     }
     else {
         hfc.ctrl_out[RAW][ROLL] = ClipMinMax(hfc.ctrl_out[RAW][ROLL], hfc.pid_RollRate.COmin, hfc.pid_RollRate.COmax);
@@ -3493,9 +3493,9 @@ static void ServoUpdate(float dT)
 
     if (hfc.control_mode[YAW] >= CTRL_MODE_RATE) {
         if (control_mode_prev[YAW] < CTRL_MODE_RATE) {
-            PID_SetForEnable(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], hfc.ctrl_out[RAW][YAW]);
+            PID_SetForEnable(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyro[YAW], hfc.ctrl_out[RAW][YAW]);
         }
-        hfc.ctrl_out[RAW][YAW] = PID(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyroFilt[YAW], dT);
+        hfc.ctrl_out[RAW][YAW] = PID(&hfc.pid_YawRate, hfc.ctrl_out[RATE][YAW], hfc.gyro[YAW], dT);
     }
     else {
         hfc.ctrl_out[RAW][YAW] = ClipMinMax(hfc.ctrl_out[RAW][YAW], hfc.pid_YawRate.COmin, hfc.pid_YawRate.COmax);
@@ -3683,7 +3683,7 @@ static void ServoUpdate(float dT)
 }
 
 // re-orients sensors within FCM, applies gains and offsets and the re-orients FCM
-static void SensorsRescale(float accRaw[3], float gyroRaw[3])
+static void SensorsRescale(float accIn[3], float gyroIn[3], float accOut[3], float gyroOut[3])
 {
     int i;
     float acc1[3];
@@ -3698,20 +3698,20 @@ static void SensorsRescale(float accRaw[3], float gyroRaw[3])
 
     // remove gyro drift
     for (i=0; i<3; i++) {
-        gyroRaw[i] -= hfc.gyro_ofs[i];
+      gyroIn[i] -= hfc.gyro_ofs[i];
     }
 
     // apply gain to gyro, if first order, take the diagonal only
     if (pConfig->gyro_first_order) {
         for (i=0; i<3; i++) {
-            gyro1[i] = mpu.Cg[i][i] * gyroRaw[i];
+            gyro1[i] = mpu.Cg[i][i] * gyroIn[i];
         }
     }
     else {
         for (i=0; i<3; i++) {
-            gyro1[i] = mpu.Cg[i][0]*gyroRaw[0]
-                           + mpu.Cg[i][1]*gyroRaw[1]
-                           + mpu.Cg[i][2]*gyroRaw[2];
+            gyro1[i] = mpu.Cg[i][0]*gyroIn[0]
+                           + mpu.Cg[i][1]*gyroIn[1]
+                           + mpu.Cg[i][2]*gyroIn[2];
         }
     }
 
@@ -3730,14 +3730,14 @@ static void SensorsRescale(float accRaw[3], float gyroRaw[3])
     // apply gain and offset to acc, if first order, take the diagonal only
     if (pConfig->acc_first_order) {
         for (i=0; i<3; i++) {
-            acc1[i] = mpu.Ca[i][i] * (accRaw[i]- mpu.aofs[i]);
+            acc1[i] = mpu.Ca[i][i] * (accIn[i]- mpu.aofs[i]);
         }
     }
     else {
         for (i=0; i<3; i++) {
-            acc1[i] = mpu.Ca[i][0] * (accRaw[0] - mpu.aofs[0])
-                            + mpu.Ca[i][1] * (accRaw[1] - mpu.aofs[1])
-                            + mpu.Ca[i][2] * (accRaw[2] - mpu.aofs[2]);
+            acc1[i] = mpu.Ca[i][0] * (accIn[0] - mpu.aofs[0])
+                            + mpu.Ca[i][1] * (accIn[1] - mpu.aofs[1])
+                            + mpu.Ca[i][2] * (accIn[2] - mpu.aofs[2]);
         }
     }
 
@@ -3755,24 +3755,13 @@ static void SensorsRescale(float accRaw[3], float gyroRaw[3])
     // re-orient the entire flight controller, negative value flips the sign
     for (i=0; i<3; i++) {
         int index = pConfig->fcm_orient[i];
-        hfc.acc[i]  = acc1[index];
-        hfc.gyro[i] = gyro1[index];
+        accOut[i]  = acc1[index];
+        gyroOut[i] = gyro1[index];
 
         if (pConfig->fcm_orient[i+3]) {
-            hfc.acc[i]  = -hfc.acc[i];
-            hfc.gyro[i] = -hfc.gyro[i];
+          accOut[i]  = -accOut[i];
+          gyroOut[i] = -gyroOut[i];
         }
-    }
-
-    // secondary gyro offset for fine drift removal
-    for (i=0; i<3; i++) {
-        hfc.gyro[i] -= hfc.gyroOfs[i];
-    }
-
-    // low passed gyro averaged value for dynamic gyro calibration
-    for (i=0; i<3; i++)
-    {
-        hfc.gyro_lp_disp[i] = (hfc.gyroFilt[i] + hfc.gyro_lp_disp[i]*4095)/4096;
     }
 }
 
@@ -4642,8 +4631,6 @@ void FlightOdometer(void)
 
 void do_control()
 {
-    float accRaw[3];
-    float gyroRaw[3];
     int i;
     int ticks;
     int time_ms;
@@ -4654,7 +4641,7 @@ void do_control()
 
     Buttons();
 
-    if (!mpu.readMotion7f_finish(accRaw, gyroRaw, &hfc.gyro_temperature)) {
+    if (!mpu.readMotion7f_finish(hfc.accRaw, hfc.gyroRaw, &hfc.gyro_temperature)) {
         //debug_print("MPU timeout\n");
     }
 
@@ -4765,24 +4752,35 @@ void do_control()
         }
     }
 
-    /* remap ACC axes into my XYZ (RFU) */
-    SensorsRescale(accRaw, gyroRaw);
 
     /* low-pass sensors */
     /* gyro +/-500 deg/s, acc +/-4G */
     for (i=0; i<3; i++)  {
-        hfc.gyroFilt[i] = LP4_1000(&hfc.lp_gyro4[i], hfc.gyro[i]);
+        hfc.gyroFilt[i] = LP4_1000(&hfc.lp_gyro4[i], hfc.gyroRaw[i]);
     }
 
     for (i=0; i<3; i++) {
-        hfc.accFilt[i]  = LP4_1000(&hfc.lp_acc4[i],  hfc.acc[i]);
+        hfc.accFilt[i]  = LP4_1000(&hfc.lp_acc4[i],  hfc.accRaw[i]);
     }
+
+    /* remap ACC axes into my XYZ (RFU) */
+    SensorsRescale(hfc.accFilt, hfc.gyroFilt, hfc.acc, hfc.gyro);
 
     for (i=0; i<3; i++) {
-        hfc.accHeliRFU[i] = hfc.accFilt[i];
+        hfc.accHeliRFU[i] = hfc.acc[i];
     }
 
-    Get_Orientation(hfc.SmoothAcc, hfc.accFilt, dT);
+    // secondary gyro offset for fine drift removal
+    for (i=0; i<3; i++) {
+        hfc.gyro[i] -= hfc.gyroOfs[i];
+    }
+
+    // low passed gyro averaged value for dynamic gyro calibration
+    for (i=0; i<3; i++) {
+        hfc.gyro_lp_disp[i] = (hfc.gyro[i] + hfc.gyro_lp_disp[i]*4095)/4096;
+    }
+
+    Get_Orientation(hfc.SmoothAcc, hfc.acc, dT);
     //debug_print("%+5.2f %+5.2f %+5.2f   %+5.2f %+5.2f %+5.2f\n", gyroRaw[PITCH], gyroRaw[ROLL], gyroRaw[YAW], hfc.gyroFilt[PITCH], hfc.gyroFilt[ROLL], hfc.gyroFilt[YAW]);
 
     MadgwickAHRSupdateIMU(dT, (hfc.gyro[ROLL])*D2R, (hfc.gyro[YAW])*D2R, (hfc.gyro[PITCH])*D2R, 0,0,0);

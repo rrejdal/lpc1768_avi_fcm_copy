@@ -1080,14 +1080,19 @@ typedef struct
     unsigned char control_mode[5];  // [P, R, Y, C, T] Control modes, 0-inhibit, 1-manual, 2-rate, 3-angle
     float SmoothAcc[3]; // low-passed acc
     int   orient_reset_counter; // once it reaches zero, IMUorient will be reset to SmoothAcc
-    float acc[3];               // accelerometer output in heli coordinates [R, F, U] G units
-    float gyro[3];              // gyro output [P, R, Y] in deg/s units
-    float gyroFilt[3];
+
+    float accRaw[3];            // raw accelerometer data
+    float accFilt[3];           // low pass flitered accelerometer data
+    float acc[3];               // filtered and calibrated accelerometer output in heli coordinates [R, F, U] G units
+    float acc_prev[3];
+    float accHeliRFU[3];        // acceleration acting on heli in heli coordinates [R,F,U] in Gs, including gravity, unused
+
+    float gyroRaw[3];           // raw gyrscope data
+    float gyroFilt[3];          // low pass filtered gyroscope data
+    float gyro[3];              // filtered and calibrated gyro output [P, R, Y] in deg/s units
     float gyroOfs[3];          //
     float gyro_lp_disp[3];           // long LP of gyro for display
-    float accFilt[3];
-    float accFilt_prev[3];
-    float accHeliRFU[3];            // acceleration acting on heli in heli coordinates [R,F,U] in Gs, including gravity, unused
+
     float GPSspeedGroundENU[3];     // heli ground speed in ground coordinates [E, N, U] in m/s
     float accGroundENUhp[3];    	// vertical acceleration relative to ground, 1G removed, high-passed
     float accGroundENU_prev[3];

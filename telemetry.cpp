@@ -484,8 +484,8 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     msg->time       = time_ms;
     msg->ctrl_modes = 0;             // p/r/y/c/t   3-bits each
     for (i=0; i<5; i++) msg->ctrl_modes |= (hfc->control_mode[i] & 0x7) << (i*3);
-    for (i=0; i<3; i++) msg->gyro_lp[i]  = Float32toFloat16(hfc->gyroFilt[i]);
-    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accFilt[i]);
+    for (i=0; i<3; i++) msg->gyro_lp[i]  = Float32toFloat16(hfc->gyro[i]);
+    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->acc[i]);
 //    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accGroundENUhp[i]);
     for (i=0; i<3; i++) msg->compass[i]  = Float32toFloat16(compass.dataXYZcalib[i]);
 #if defined(HEADING_OFFSET_ADJUST)
@@ -1785,14 +1785,14 @@ char TelemSerial::PreFlightChecks(void)
     ResetIMU(false);
 
     /* check gyro to be well calibrated and still */
-    if (ABS(hfc->gyro_lp_disp[0])>0.05f || ABS(hfc->gyro_lp_disp[1])>0.05f || ABS(hfc->gyro_lp_disp[2])>0.05f)
+    if (ABS(hfc->gyro[0])>0.05f || ABS(hfc->gyro[1])>0.05f || ABS(hfc->gyro[2])>0.05f)
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_GYRO);
         return false;
     }
 
     /* check that acc is within limits */
-    if (ABS(hfc->accFilt[0])>0.3f || ABS(hfc->accFilt[1])>0.3f || hfc->accFilt[2]>1.1f || hfc->accFilt[2]<0.9f)
+    if (ABS(hfc->acc[0])>0.3f || ABS(hfc->acc[1])>0.3f || hfc->acc[2]>1.1f || hfc->acc[2]<0.9f)
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_ACC);
         return false;

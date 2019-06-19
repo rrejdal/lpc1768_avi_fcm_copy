@@ -239,16 +239,16 @@ case LOG_PARAM_JOY_INPUT:
         value = Float32toFloat16(hfc->joy_values[index]);
         break;
 case LOG_PARAM_GYRO_RAW:
-        value = Float32toFloat16(hfc->gyro[Min(2, index)]);
+        value = Float32toFloat16(hfc->gyroRaw[Min(2, index)]);
         break;
 case LOG_PARAM_GYRO_LP:
-        value = Float32toFloat16(hfc->gyroFilt[Min(2, index)]);
+        value = Float32toFloat16(hfc->gyro[Min(2, index)]);
         break;
 case LOG_PARAM_ACC_RAW:
-        value = Float32toFloat16(hfc->acc[Min(2, index)]);
+        value = Float32toFloat16(hfc->accRaw[Min(2, index)]);
         break;
 case LOG_PARAM_ACC_LP:
-        value = Float32toFloat16(hfc->accFilt[Min(2, index)]);
+        value = Float32toFloat16(hfc->acc[Min(2, index)]);
         break;
 case LOG_PARAM_COMPASS:
         if (index==0)
