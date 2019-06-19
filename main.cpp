@@ -1236,15 +1236,15 @@ static void MixerQuad(void)
     hfc.servos_out[6] = 0;
     hfc.servos_out[7] = 0;
 
-    hfc.servos_out[0] -= hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[1] -= hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[2] += hfc.mixer_in[ROLL]*0.5f;
-    hfc.servos_out[3] += hfc.mixer_in[ROLL]*0.5f;
+    hfc.servos_out[0] -= hfc.mixer_in[ROLL];
+    hfc.servos_out[1] -= hfc.mixer_in[ROLL];
+    hfc.servos_out[2] += hfc.mixer_in[ROLL];
+    hfc.servos_out[3] += hfc.mixer_in[ROLL];
 
-    hfc.servos_out[0] += hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[1] -= hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[2] -= hfc.mixer_in[PITCH]*0.5f;
-    hfc.servos_out[3] += hfc.mixer_in[PITCH]*0.5f;
+    hfc.servos_out[0] += hfc.mixer_in[PITCH];
+    hfc.servos_out[1] -= hfc.mixer_in[PITCH];
+    hfc.servos_out[2] -= hfc.mixer_in[PITCH];
+    hfc.servos_out[3] += hfc.mixer_in[PITCH];
 
     hfc.servos_out[0] += hfc.mixer_in[YAW];
     hfc.servos_out[1] -= hfc.mixer_in[YAW];
