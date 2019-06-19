@@ -1785,7 +1785,7 @@ char TelemSerial::PreFlightChecks(void)
     ResetIMU(false);
 
     /* check gyro to be well calibrated and still */
-    if (ABS(hfc->gyro[0])>0.05f || ABS(hfc->gyro[1])>0.05f || ABS(hfc->gyro[2])>0.05f)
+    if (ABS(hfc->gyro_lp_disp[0])>0.05f || ABS(hfc->gyro_lp_disp[1])>0.05f || ABS(hfc->gyro_lp_disp[2])>0.05f)
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_GYRO);
         return false;
