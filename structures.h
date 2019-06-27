@@ -1146,6 +1146,7 @@ typedef struct
     float RPM;                  // RPM of the main shaft
     rpmSpoolState rpm_state;
     float spool_timeout;
+    float spool_hold_timeout;
 
     int   waypoint_retire;     // when true, waypoint retire logic is activated
     

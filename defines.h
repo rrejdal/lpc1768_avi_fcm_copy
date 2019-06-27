@@ -239,7 +239,11 @@ typedef enum {
 } rpmSpoolState;
 
 // Variable Pitch (Tandem) airframes
-#define RPM_SPOOL_TIMEOUT    20.0f  // Wait upto x seconds to reach desired RPM
+#define RPM_SPOOL_TIMEOUT    30.0f  // Wait upto x seconds to reach desired RPM
 #define RPM_HOLD_TIMEOUT     3.0f   // Hold RPM for 3 seconds before continuing takeoff sequence
 #define RPM_THRESHOLD_ERROR  5.0f   // RPM must be 5% of configured value to continue takeoff
+
+#define DEFAULT_TAKEOFF_TIMEOUT 60000000  // 60 Seconds
+#define DEFAULT_LANDING_TIMEOUT 30000000  // 30 Seconds
+
 #endif
