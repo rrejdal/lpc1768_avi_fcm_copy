@@ -4,6 +4,7 @@
 #include "HMC5883L.h"
 #include "mymath.h"
 #include "defines.h"
+#include "main.h"
 
 static unsigned int ticks;
 static unsigned int ticks_base=0;    // counts how many times SysTick wrapped around
@@ -401,6 +402,7 @@ bool Streaming_Process(FlightControlData *hfc)
     return false;
 }
 
+#if 0
 void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
 {
     if (hfc->profile_mode == PROFILING_START)
@@ -421,7 +423,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
     {
         int i;
         //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-        float *controlled = &hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
+        float *controlled = hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
         float delta = 0;            // value added to the controlled variable
         int t = GetTime_ms() - hfc->profile_start_time;  // timeline in ms
         int Td = hfc->profile_lag;
@@ -460,6 +462,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
         *controlled = (*controlled) + delta;
     }
 }
+#endif
 
 void GyroCalibDynamic(FlightControlData *hfc)
 {
@@ -479,11 +482,19 @@ void WDT_Kick()
 /* timeout in seconds */
 void WDT_Init(float timeout)
 {
+
+    NVIC_SetVector(WDT_IRQn, (uint32_t)&WDTHandler);
+    NVIC_EnableIRQ(WDT_IRQn);
+
     LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
     uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
     LPC_WDT->WDTC = timeout * (float)clk;
-    LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
+    //LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
+    LPC_WDT->WDMOD = 0x2; // WD Int Mode
+
     WDT_Kick();
+
+
 }
 
 /* to be called during startup, returns true if the reset by WDT timeout,
@@ -535,3 +546,10 @@ bool N1WithinPercentOfN2(float n1, float percentage, float n2)
     return (percentage > abs(abs(n2 - n1)/n2)*100.0);
   }
 }
+
+uint32_t GetResetReason(void)
+{
+  return LPC_SC->RSID;
+}
+
+

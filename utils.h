@@ -32,7 +32,7 @@ void perf_printf();
 
 bool Streaming_Process(FlightControlData *hfc);
 
-void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
+//void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
 
 /* float32/float16 conversion
 ** largest +/-65504, smallest +/-6.10352e—6 */
@@ -49,5 +49,6 @@ void GyroCalibDynamic(FlightControlData *hfc);
 
 uint32_t crc32b(uint8_t *message, uint32_t length);
 bool N1WithinPercentOfN2(float n1, float percentage, float n2);
+uint32_t GetResetReason(void);
 
 #endif

@@ -1316,7 +1316,9 @@ typedef struct
 
     bool setZeroSpeed;
 
-    uint32 OdometerReading;
+    uint32_t OdometerReading;
+
+    uint32_t state_value;
 
 } FlightControlData;
 
