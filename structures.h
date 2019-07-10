@@ -1318,7 +1318,9 @@ typedef struct
 
     uint32_t OdometerReading;
 
-    uint32_t state_value;
+    uint32_t system_status_mask;
+
+    uint32_t system_reset_reason;
 
 } FlightControlData;
 

@@ -3,6 +3,7 @@
 #include "IMU.h"
 #include "utils.h"
 #include "defines.h"
+#include "structures.h"
 
 static const float gyro_scale_factor[4] = {250.0f/32768.0f, 500.0f/32768.0f, 1000.0f/32768.0f, 2000.0f/32768.0f};
 static const float acc_scale_factor[4]  = {  2.0f/32768.0f,   4.0f/32768.0f,    8.0f/32768.0f,   16.0f/32768.0f};
@@ -86,7 +87,7 @@ bool MPU6050::is_ok()
     return false;
 }
 
-int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
+int MPU6050::init(const ConfigData *pConfig, char lp, unsigned int *serial_num)
 {
     int result = 1;
 
@@ -94,7 +95,7 @@ int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
     EEPROM_TYPE ee_type = IMU_EEPROM;
     i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
 
-    if (type == INTERNAL) {
+    if (pConfig->imu_internal == INTERNAL) {
         i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
         ee_type = FCM_EEPROM;
     }
@@ -113,11 +114,13 @@ int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
         wait_ms(50);
     }
 
-    if (!use_defaults) {
+    if (!pConfig->force_gyro_acc_defaults) {
         if (read_eeprom() != 0) {
             result = -1;
         }
     }
+
+    *serial_num = eeprom->data.serial_num;
 
     /* clock source and disable sleep */
     i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
@@ -132,7 +135,7 @@ int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
     i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
 
     /* enable secondary I2C for HMC5883L */
-    i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
+    //i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
 
     return result;
 }

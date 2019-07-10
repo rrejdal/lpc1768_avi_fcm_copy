@@ -85,10 +85,12 @@ BMPx80::BMPx80(I2Ci *m_i2c)
     bmp = BMP_NONE;
 }
 
-bool BMPx80::Init()
+bool BMPx80::Init(const ConfigData *pConfig)
 {
+  if (pConfig->baro_enable) {
     i2c_address = BMP180_ADDRESS;
-  // Read the WHO_AM_I register of the BMP-180, this is a good test of communication
+
+    // Read the WHO_AM_I register of the BMP-180, this is a good test of communication
     int c = i2c->read_reg_blocking(i2c_address, BMP180_WHO_AM_I);
     if(c == BMP180_ID)
     {
@@ -109,7 +111,9 @@ bool BMPx80::Init()
         return true;
     }
     debug_print("No BMP detected\r\n");
-    return false;
+  }
+
+  return false;
 }
 
 // Stores all of the BMP180's calibration values into global variables

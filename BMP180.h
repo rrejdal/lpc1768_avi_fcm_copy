@@ -3,6 +3,7 @@
  
 #include "mbed.h"
 #include "I2Ci.h"
+#include "structures.h"
 
 #define BMP_NONE    0
 #define BMP_180     1
@@ -12,7 +13,7 @@ class BMPx80
 {
   public:
     BMPx80(I2Ci *m_i2c);
-    bool Init();
+    bool Init(const ConfigData *pConfig);
     void Calibration180();
     void Calibration280();
     bool GetTPA(float dT, float *pTemp, float *pPress, float *pAlt);

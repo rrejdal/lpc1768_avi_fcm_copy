@@ -40,7 +40,7 @@ float Float16toFloat32(const unsigned short int in);
 unsigned short int Float32toFloat16(const float in);
 
 /* watchdog API */
-void WDT_Kick();
+void KickWatchdog();
 void WDT_Init(float timeout);
 bool WDT_ResetByWDT();
 
@@ -50,5 +50,7 @@ void GyroCalibDynamic(FlightControlData *hfc);
 uint32_t crc32b(uint8_t *message, uint32_t length);
 bool N1WithinPercentOfN2(float n1, float percentage, float n2);
 uint32_t GetResetReason(void);
+
+void SetFcmLedState(uint32_t state_mask);
 
 #endif

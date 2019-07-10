@@ -69,6 +69,14 @@ typedef enum {
 #define MAX_NODE_ID     15
 
 typedef enum {
+  AVI_MSGID_NONE    = 0,
+  AVI_MSGID_INFO    = 1,
+  AVI_MSGID_PN      = 2,
+  AVI_MSGID_SYNC    = 3,
+  AVI_MSGID_CFG     = 9,  // TODO::SP - This needs to be remapped, and at present will not support Power node
+} AVI_CANBUS_COMMON_MSG_IDS;
+
+typedef enum {
     AVIDRONE_MSGID_SERVO_NONE    = 0,
     AVIDRONE_MSGID_SERVO_INFO    = 1,
     AVIDRONE_MSGID_SERVO_PN      = 2,

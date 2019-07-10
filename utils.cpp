@@ -5,6 +5,7 @@
 #include "mymath.h"
 #include "defines.h"
 #include "main.h"
+#include "hardware.h"
 
 static unsigned int ticks;
 static unsigned int ticks_base=0;    // counts how many times SysTick wrapped around
@@ -13,6 +14,22 @@ static unsigned int p1_counter = 0;
 static int avg_delta = 0;
 static int min_delta = 1<<30;
 static int max_delta = 0;
+
+DigitalOut  led1(LED_1);
+DigitalOut  led2(LED_2);
+DigitalOut  led3(LED_3);
+DigitalOut  led4(LED_4);
+DigitalOut  ArmedLed(LED_3);
+
+DigitalOut  leds[4] = {led1, led2, led3, led4};
+
+void SetFcmLedState(uint32_t state_mask)
+{
+  for(int i=0; i < 4; i++) {
+    leds[i] = state_mask & (1 << i);
+  }
+
+}
 
 float DistanceCourse(double lat1, double long1, double lat2, double long2, float *course)
 {
@@ -473,7 +490,7 @@ void GyroCalibDynamic(FlightControlData *hfc)
 
 // "kick" or "feed" the dog - reset the watchdog timer
 // by writing this required bit pattern
-void WDT_Kick()
+void KickWatchdog()
 {
     LPC_WDT->WDFEED = 0xAA;
     LPC_WDT->WDFEED = 0x55;
@@ -492,7 +509,7 @@ void WDT_Init(float timeout)
     //LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
     LPC_WDT->WDMOD = 0x2; // WD Int Mode
 
-    WDT_Kick();
+    KickWatchdog();
 
 
 }
@@ -549,7 +566,24 @@ bool N1WithinPercentOfN2(float n1, float percentage, float n2)
 
 uint32_t GetResetReason(void)
 {
-  return LPC_SC->RSID;
+  uint32_t reset_reason = LPC_SC->RSID;
+  uint32_t ret_mask = 0;
+
+  if (reset_reason & 0x4) {
+    ret_mask |= (1 << 0); // WD reset
+  }
+
+  if (reset_reason & 0x10)
+  {
+    ret_mask |= (1 << 2); // SYSreset
+  }
+
+  if (reset_reason & 0x8)
+  {
+    ret_mask |= (1 << 3); // BODR
+  }
+
+  return ret_mask;
 }
 
 
