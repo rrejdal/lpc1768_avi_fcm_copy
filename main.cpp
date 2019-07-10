@@ -49,6 +49,7 @@ static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
 
 int __attribute__((__section__(".hfcruntime"))) _hfc_runtime; // this is defined by the linker. DO NOT CHANGE!
 
+bool skip = false;
 
 void GenerateSpeed2AngleLUT(void);
 void ResetIterms(void);
@@ -71,28 +72,6 @@ void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
 void CompassCalDone(void);
 
 
-// System Failure Status flags
-#define CONFIG_FAIL       (1 << 0)
-
-#define N1_NAV_FAIL       (1 << 1)
-#define N1_GPS0_FAIL      (1 << 2)
-#define N1_GPS1_FAIL      (1 << 3)
-#define N1_COMPASS0_FAIL  (1 << 4)
-#define N1_COMPASS1_FAIL  (1 << 5)
-#define N1_SERVO_FAIL     (1 << 6)
-#define N1_PWR_FAIL       (1 << 7)
-
-#define N2_NAV_FAIL       (1 << 8)
-#define N2_GPS0_FAIL      (1 << 9)
-#define N2_GPS1_FAIL      (1 << 10)
-#define N2_COMPASS0_FAIL  (1 << 11)
-#define N2_COMPASS1_FAIL  (1 << 12)
-#define N2_SERVO_FAIL     (1 << 13)
-#define N2_PWR_FAIL       (1 << 14)
-
-#define IMU_FAIL          (1 << 15)
-#define BARO_FAIL         (1 << 16)
-
 //USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
 USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
 
@@ -109,7 +88,8 @@ HMC5883L    compass(&Li2c);
 BMPx80      baro(&Li2c);
 
 XBus xbus(XBUS_IN);
-CAN can(CAN_RXD1, CAN_TXD1);
+//CAN can(CAN_RXD1, CAN_TXD1);
+CAN *Canbus = NULL;
 GPS gps;
 
 //Serial pc(TRGT_TXD, TRGT_RXD);  // Debug Serial Port
@@ -177,8 +157,6 @@ double heading[MAX_NUM_GPS];
 static void CanbusSync(int num_nodes, int node_type);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
-static int init_ok = 1;
-static int init_warning = 0;
 
 #define CAN_TIMEOUT 500
 #define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
@@ -194,32 +172,11 @@ static int can_power_coeff = 0;
 static int canbus_livelink_avail = 0;
 static int power_update_avail = 0;
 
-#define FCM_FATAL_ERROR() { \
-    while(1) { \
-        WDT_Kick(); \
-        SetLedsState(0xF); \
-        wait(1.0f); \
-        SetLedsState(0); \
-        wait(1.0f); \
-    } \
-}
-
-#define FCM_NOTIFY_CFG_UPDATED() { \
-    int state = 0; \
-    for (int i=0; i < 10; i++) { \
-        KickWatchdog(); \
-        /*led1 = led2 = led3 = led4 = state;*/ \
-        wait(0.3f); \
-        state = !state; \
-    } \
-}
-
 #ifdef LCD_ENABLED
 void ProcessButtonSelection();
 static void Buttons();
 static void PrintOrient();
 #endif
-
 
 static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
@@ -601,7 +558,7 @@ static void WriteToServoNodeServos(int num_servo_nodes)
             can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
                                                     (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_SERVO_LO_CTRL);
 
-            if (!can.write(can_tx_message)) {
+            if (!Canbus->write(can_tx_message)) {
                 ++write_canbus_error;
             }
         }
@@ -613,7 +570,7 @@ static void WriteToServoNodeServos(int num_servo_nodes)
             can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
                                                     (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_SERVO_HI_CTRL);
 
-            if (!can.write(can_tx_message)) {
+            if (!Canbus->write(can_tx_message)) {
                 ++write_canbus_error;
             }
         }
@@ -648,7 +605,7 @@ static void WriteToPowerNodeServos()
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
                                                 (DEFAULT_NODE_ID), AVIDRONE_MSGID_PWR_LO_CTRL);
 
-        if (!can.write(can_tx_message)) {
+        if (!Canbus->write(can_tx_message)) {
             ++write_canbus_error;
         }
     }
@@ -659,7 +616,7 @@ static void WriteToPowerNodeServos()
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
                                                 (DEFAULT_NODE_ID), AVIDRONE_MSGID_PWR_HI_CTRL);
 
-        if (!can.write(can_tx_message)) {
+        if (!Canbus->write(can_tx_message)) {
             ++write_canbus_error;
         }
     }
@@ -4260,7 +4217,7 @@ static void can_handler(void)
         //led4 = !led4;
     }
 
-    while(can.read(can_rx_message)) {
+    while(Canbus->read(can_rx_message)) {
 
         int node_type = AVIDRONE_CAN_NODETYPE(can_rx_message.id);
         int node_id = (AVIDRONE_CAN_NODEID(can_rx_message.id) -1);
@@ -4273,7 +4230,7 @@ static void can_handler(void)
             }
             else if (message_id == AVIDRONE_MSGID_LIDAR) {
               //UpdateLidarAltitude(node_id, *(uint32_t *)pdata);
-              UpdateLidar(node_id, *(uint32_t *)pdata);
+              //UpdateLidar(node_id, *(uint32_t *)pdata);
             }
             else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
                 UpdateCastleLiveLink(node_id, message_id, pdata);
@@ -4339,6 +4296,7 @@ static void can_handler(void)
             }
         }
         else {
+          break;
             // Unknown
         }
     }
@@ -4665,7 +4623,7 @@ void DoFlightControl()
     int utilization = 0;
     //GpsData gps_data;
 
-    KickWatchdog();
+    KICK_WATCHDOG();
 
 #ifdef LCD_ENABLED
     Buttons();
@@ -5285,8 +5243,6 @@ static void ProcessUserCmnds(char c)
                 if (SaveNewConfig() == 0) {
                     usb_print("ACK");   // Informs Host, all done
 
-                    FCM_NOTIFY_CFG_UPDATED();
-
                     // NOTE::SP: NO RETURN FROM HERE. THIS GENERATES A SOFTWARE RESET OF THE LPC1768
                     //           WHICH CAUSES THE NEW CONFIGURATION TO BE LOADED.
                     NVIC_SystemReset();
@@ -5337,7 +5293,7 @@ static void ProcessUserCmnds(char c)
                                                         DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
 
                 while( (can_power_coeff == i) && --timeout) {
-                    if (!can.write(can_tx_message)) {
+                    if (!Canbus->write(can_tx_message)) {
                         ++write_canbus_error;
                     }
                     wait_ms(20);
@@ -5381,7 +5337,7 @@ static void ProcessUserCmnds(char c)
 
             timeout = 60; // seconds
             while(--timeout) {
-                KickWatchdog();
+                KICK_WATCHDOG();
                 wait(1.0f);
             }
 
@@ -5499,7 +5455,7 @@ static void ProcessUserCmnds(char c)
         }
         else if (strcmp(request, "loop") == 0) {
           // force watchdog reset
-          WDT_Init(0.5f);
+          //InitializeWatchdog(0.5f);
           while(1);
         }
         else {
@@ -5673,62 +5629,65 @@ static void PrintOrient()
 //
 // - Initialize Canbus Node(s)
 //
-int InitCanbusNode(int num_nodes, int node_type)
+uint32_t InitCanbusNode(int num_nodes, int node_type)
 {
-    CANMessage can_tx_message;
-    int timeout = CAN_TIMEOUT;
-    int ret_mask = 0;
+  CANMessage can_tx_message;
+  int timeout = CAN_TIMEOUT;
+  uint32_t ret_mask = 0;
 
-    // ping the board to determine -
-    //  - a) Is the board connected and
-    //  - b) Read board information (Firmware Version, Hardware Serial Num)
-    for (int i = 0; i < num_nodes; i++) {
-        can_node_found = 0;
-        timeout = CAN_TIMEOUT;
+  // ping the board to determine -
+  //  - a) Is the board connected and
+  //  - b) Read board information (Firmware Version, Hardware Serial Num)
+  for (int i = 0; i < num_nodes; i++) {
+    can_node_found = 0;
+    timeout = CAN_TIMEOUT;  // TODO::SP - Why do we need 10 seconds to timeout on Canbus???
 
-        can_tx_message.len = 0;
-        can_tx_message.id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_INFO);
+    can_tx_message.len = 0;
+    can_tx_message.id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_INFO);
 
-        while(!can_node_found && --timeout) {
-            if (!can.write(can_tx_message)) {
-                ++write_canbus_error;
-            }
-            wait_ms(20);
-        }
-
-        if (!can_node_found) {
-            ret_mask |= (1 << i);
-        }
+    while(!can_node_found && --timeout) {
+      KICK_WATCHDOG();
+      if (!Canbus->write(can_tx_message)) {
+          ++write_canbus_error;
+      }
+      wait_ms(20);
     }
-    return ret_mask;
+
+    if (!can_node_found) {
+      ret_mask |= (1 << i);
+    }
+  }
+
+  return ret_mask;
 }
 
 //
 // - Configure operation of a particular type of Canbus Node.
 //
-int ConfigureCanbusNode(int num_nodes, int node_type, CANMessage *can_tx_message)
+uint32_t ConfigureCanbusNode(int num_nodes, int node_type, CANMessage *can_tx_message)
 {
-    int timeout = CAN_TIMEOUT;
-    int ret_mask = 0;
+  int timeout = CAN_TIMEOUT;
+  uint32_t ret_mask = 0;
 
-    // Configure Node. Board will 'ACK' message to indicate success.
-    for (int i = 0; i < num_nodes; i++) {
-        canbus_ack = 0;
+  // Configure Node. Board will 'ACK' message to indicate success.
+  for (int i = 0; i < num_nodes; i++) {
+    canbus_ack = 0;
 
-        can_tx_message->id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_CFG);
+    can_tx_message->id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_CFG);
 
-        while(!canbus_ack && --timeout) {
-            if (!can.write(*can_tx_message)) {
-                ++write_canbus_error;
-            }
-            wait_ms(20);
-        }
-
-        if (!canbus_ack) {
-          ret_mask |= (1 << i);
-        }
+    while(!canbus_ack && --timeout) {
+      KICK_WATCHDOG();
+      if (!Canbus->write(*can_tx_message)) {
+          ++write_canbus_error;
+      }
+      wait_ms(20);
     }
-    return ret_mask;
+
+    if (!canbus_ack) {
+      ret_mask |= (1 << i);
+    }
+  }
+  return ret_mask;
 }
 
 //
@@ -5736,18 +5695,18 @@ int ConfigureCanbusNode(int num_nodes, int node_type, CANMessage *can_tx_message
 //
 static void CanbusSync(int num_nodes, int node_type)
 {
-    CANMessage can_tx_message;
+  CANMessage can_tx_message;
 
-    can_tx_message.type   = CANData;
-    can_tx_message.format = CANStandard;
-    can_tx_message.len    = 0;
+  can_tx_message.type   = CANData;
+  can_tx_message.format = CANStandard;
+  can_tx_message.len    = 0;
 
-    for (int i = 0; i < num_nodes; i++) {
-        can_tx_message.id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_SYNC);
-        if (!can.write(can_tx_message)) {
-            ++write_canbus_error;
-        }
+  for (int i = 0; i < num_nodes; i++) {
+    can_tx_message.id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_SYNC);
+    if (!Canbus->write(can_tx_message)) {
+      ++write_canbus_error;
     }
+  }
 }
 
 //
@@ -5758,11 +5717,26 @@ void InitializeRuntimeData(void)
     phfc = (FlightControlData *)&_hfc_runtime;
 
     uint32_t hfc_size = sizeof(FlightControlData);
+    KICK_WATCHDOG();
     memset(phfc, 0x00, hfc_size);
+
+    // Configure number of lidars based on airframe type.
+    // TODO::SP should really do this at confguration stage.
+    if (pConfig->ccpm_type == MIXERTANDEM) {
+      num_lidars = 2;
+    }
+    else {
+      num_lidars = 1;
+    }
+
+    for (int i=0; i < num_lidars; i++) {
+      lidar_median[i] = MediatorNew(35);
+    }
 
     // If we are warm resetting, DO NOT re-init data. We are trying to
     // keep running under a warm reset.
-    if (GetResetReason() & 0x1) {
+    phfc->system_reset_reason = GetResetReason();
+    if (phfc->system_reset_reason & 0x1) {
       return;
     }
 
@@ -5930,7 +5904,8 @@ void InitializeRuntimeData(void)
     const CompassCalibrationData *pCompass_cal = NULL;
 
     if (LoadCompassCalibration(&pCompass_cal) == 0) {
-        memcpy(&phfc->compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
+      KICK_WATCHDOG();
+      memcpy(&phfc->compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
     }
     else {
         // no valid calibration, use defaults
@@ -5957,24 +5932,11 @@ void InitializeRuntimeData(void)
 
     phfc->eng_super_user = false;
 
-    // Configure number of lidars based on airframe type.
-    // TODO::SP should really do this at confguration stage.
-    if (pConfig->ccpm_type == MIXERTANDEM) {
-      num_lidars = 2;
-    }
-    else {
-      num_lidars = 1;
-    }
-
-    InitializeOdometer(phfc);
+        InitializeOdometer(phfc);
 
     phfc->positive_pid_scaling = pConfig->dynamic_pid_rc_max_gain / 15.0f;
     phfc->negative_pid_scaling = pConfig->dynamic_pid_rc_min_gain / 14.0f;
     phfc->pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
-
-    for (int i=0; i < num_lidars; i++) {
-      lidar_median[i] = MediatorNew(35);
-    }
 
     phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 }
@@ -5984,6 +5946,7 @@ uint32_t InitializeSystemData()
   uint32_t ret_value = 0;
 
   // Clear out the Runtime RAM copy of the config Data
+  KICK_WATCHDOG();
   memset(pRamConfigData, 0x00, sizeof(ConfigData));
 
   // load configuration,
@@ -5994,8 +5957,7 @@ uint32_t InitializeSystemData()
   // Initialize Runtime Data
   InitializeRuntimeData();
 
-  // Determine last reset reason and set FCM led status appropriately
-  phfc->system_reset_reason = GetResetReason();
+  // set FCM led status based upon last reset reason
   SetFcmLedState(phfc->system_reset_reason);
 
   return ret_value;
@@ -6007,68 +5969,61 @@ uint32_t InitializeSystemData()
   */
 static uint32_t InitCanbus(void)
 {
-    int status = 0;
-    int ret_mask = 0;
-    CANMessage node_cfg_data;
+  int status = 0;
+  uint32_t ret_mask = 0;
+  CANMessage node_cfg_data;
 
-    // Configure CAN frequency to either 1Mhz or 500Khz, based on configuration
-    can.frequency((pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
-    can.attach(can_handler);
+  // Configure CAN frequency to either 1Mhz or 500Khz, based on configuration
+  Canbus = new CAN(CAN_RXD1, CAN_TXD1, (pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
+  Canbus->reset();
+  Canbus->attach(can_handler);
 
-    // TODO::SP - Add message to confgure failsafe operation.
+  // TODO::SP - Add message to confgure failsafe operation.
 
-    // Initialize and configure any servo nodes...
-    if (pConfig->num_servo_nodes) {
-        if ((status = InitCanbusNode(pConfig->num_servo_nodes, AVIDRONE_SERVO_NODETYPE)) == 0) {
-
-          // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
-          node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
-          node_cfg_data.data[1] = LIDAR_ACTIVE;
-          node_cfg_data.len = 2;
-
-          status = ConfigureCanbusNode(pConfig->num_servo_nodes, AVIDRONE_SERVO_NODETYPE, &node_cfg_data);
-        }
-
-        if (status & 0x1) { ret_mask |= N1_SERVO_FAIL; }
-        if (status & 0x2) { ret_mask |= N2_SERVO_FAIL; }
+  // Initialize and configure any servo nodes...
+  if (pConfig->num_servo_nodes) {
+    if ((status = InitCanbusNode(pConfig->num_servo_nodes, AVIDRONE_SERVO_NODETYPE)) == 0) {
+      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
+      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+      node_cfg_data.data[1] = LIDAR_ACTIVE;
+      node_cfg_data.len = 2;
+      status = ConfigureCanbusNode(pConfig->num_servo_nodes, AVIDRONE_SERVO_NODETYPE, &node_cfg_data);
     }
 
-    // Initialize and configure any GPS nodes...
-    if (pConfig->num_gps_nodes) {
+    if (status & 0x1) { ret_mask |= N1_SERVO_FAIL; }
+    if (status & 0x2) { ret_mask |= N2_SERVO_FAIL; }
+  }
 
-        gps.Init(pConfig->num_gps_nodes);
+  // Initialize and configure any GPS nodes...
+  if (pConfig->num_gps_nodes) {
+    gps.Init(pConfig->num_gps_nodes);
 
-        if ((status = InitCanbusNode(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE)) == 0) {
-
-          // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
-          node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
-          node_cfg_data.len = 1;
-
-          status = ConfigureCanbusNode(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE, &node_cfg_data);
-        }
-
-        if (status & 0x1) { ret_mask |= N1_NAV_FAIL; }
-        if (status & 0x2) { ret_mask |= N2_NAV_FAIL; }
+    if ((status = InitCanbusNode(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE)) == 0) {
+      // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
+      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
+      node_cfg_data.len = 1;
+      status = ConfigureCanbusNode(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE, &node_cfg_data);
     }
 
-    // Initialize and configure any Power nodes...
-    if (pConfig->num_power_nodes) {
-        if ((status = InitCanbusNode(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE)) == 0) {
+    if (status & 0x1) { ret_mask |= N1_NAV_FAIL; }
+    if (status & 0x2) { ret_mask |= N2_NAV_FAIL; }
+  }
 
-          // Enable all PWM channels and Lidar.
-          node_cfg_data.data[0] = PWM_CHANNEL_1_8;
-          node_cfg_data.data[1] = LIDAR_ACTIVE;
-          node_cfg_data.len = 2;
-
-          // TODO::SP - CFG Message ID is changed.
-          status = ConfigureCanbusNode(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE, &node_cfg_data);
-        }
-
-        if (status & 0x1) { ret_mask |= N1_PWR_FAIL; }
-        if (status & 0x2) { ret_mask |= N2_PWR_FAIL; }
+  // Initialize and configure any Power nodes...
+  if (pConfig->num_power_nodes) {
+    if ((status = InitCanbusNode(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE)) == 0) {
+      // Enable all PWM channels and Lidar.
+      node_cfg_data.data[0] = PWM_CHANNEL_1_8;
+      node_cfg_data.data[1] = LIDAR_ACTIVE;
+      node_cfg_data.len = 2;
+      // TODO::SP - CFG Message ID is changed.
+      status = ConfigureCanbusNode(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE, &node_cfg_data);
     }
 
-    return ret_mask;
+    if (status & 0x1) { ret_mask |= N1_PWR_FAIL; }
+    if (status & 0x2) { ret_mask |= N2_PWR_FAIL; }
+  }
+  return ret_mask;
 }
 
 /**
@@ -6083,6 +6038,8 @@ int main()
 #endif
 
   SysTick_Run();
+
+  InitializeWatchdog(1.0f);  // 250ms
 
 #ifdef LCD_ENABLED
   spi.frequency(4000000);
@@ -6112,9 +6069,6 @@ int main()
   telemetry.baud(pConfig->telem_baudrate);
   telem.Generate_AircraftCfg();
 
-  // 500ms WatchdogTimer
-  //WDT_Init(0.5f);
-
   // Start IMU read
   mpu.readMotion7_start();
 
@@ -6128,12 +6082,6 @@ int main()
       ProcessUserCmnds(serial.getc());
     }
   }
-}
-
-void WDTHandler(void)
-{
-  NVIC_DisableIRQ(WDT_IRQn);
-  while(1);
 }
 
 /************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/

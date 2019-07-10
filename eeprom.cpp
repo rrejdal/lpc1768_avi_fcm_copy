@@ -2,6 +2,7 @@
 #include <math.h>
 #include "version.h"
 #include "defines.h"
+#include "utils.h"
 
 
 EEPROM::EEPROM(I2Ci *m_i2c, EEPROM_TYPE m_type)
@@ -76,6 +77,7 @@ int EEPROM::read_data()
     char paddr[2];
 
     // Initialize buffers
+    KICK_WATCHDOG();
     memset((void *)buffer, 0x00, sizeof(buffer));
     memset(&data, 0x00, sizeof(data));
 

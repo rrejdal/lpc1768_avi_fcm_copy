@@ -10,6 +10,11 @@
 #define EarthR  6372795
 #define DPM (180.0f/EarthR/3.14159265359f)   // degrees per meter
 
+#define KICK_WATCHDOG() { \
+		LPC_WDT->WDFEED = 0xAA; \
+		LPC_WDT->WDFEED = 0x55; \
+}
+
 /* returns distance in meters and course in deg (+/-180) from north CW from (1) to (2) */
 /* accurate only for short distances, a few kilometers, since it assumes the Earth is flat */
 float DistanceCourse(double lat1, double long1, double lat2, double long2, float *course);
@@ -41,7 +46,7 @@ unsigned short int Float32toFloat16(const float in);
 
 /* watchdog API */
 void KickWatchdog();
-void WDT_Init(float timeout);
+void InitializeWatchdog(float timeout);
 bool WDT_ResetByWDT();
 
 void SensorCalib(FlightControlData *hfc, float dT);

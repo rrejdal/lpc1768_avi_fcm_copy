@@ -488,30 +488,33 @@ void GyroCalibDynamic(FlightControlData *hfc)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
 
-// "kick" or "feed" the dog - reset the watchdog timer
-// by writing this required bit pattern
-void KickWatchdog()
+//
+// - NVIC Interrupt handler for the watchdog handler
+//
+void NVIC_WatchdogHandler(void)
 {
-    LPC_WDT->WDFEED = 0xAA;
-    LPC_WDT->WDFEED = 0x55;
+  NVIC_DisableIRQ(WDT_IRQn);
+
+  // Plan here is to look at the stack pointer and save to hfc (which is not re-initialised after soft boot)
+  // the address, thus we could trace reason for the watchdog.
+  // In addition we could keep track of the number of resets?
+  SetFcmLedState(0xF);
+
 }
 
 /* timeout in seconds */
-void WDT_Init(float timeout)
+void InitializeWatchdog(float timeout)
 {
+  //NVIC_SetVector(WDT_IRQn, (uint32_t)&NVIC_WatchdogHandler);
+  //NVIC_EnableIRQ(WDT_IRQn);
 
-    NVIC_SetVector(WDT_IRQn, (uint32_t)&WDTHandler);
-    NVIC_EnableIRQ(WDT_IRQn);
+  LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
+  uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
+  LPC_WDT->WDTC = timeout * (float)clk;
+  LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
+  //LPC_WDT->WDMOD = 0x2; // WD Int Mode
 
-    LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
-    uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
-    LPC_WDT->WDTC = timeout * (float)clk;
-    //LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
-    LPC_WDT->WDMOD = 0x2; // WD Int Mode
-
-    KickWatchdog();
-
-
+  KICK_WATCHDOG();
 }
 
 /* to be called during startup, returns true if the reset by WDT timeout,

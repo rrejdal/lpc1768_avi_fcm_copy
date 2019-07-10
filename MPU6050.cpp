@@ -87,57 +87,54 @@ bool MPU6050::is_ok()
     return false;
 }
 
-int MPU6050::init(const ConfigData *pConfig, char lp, unsigned int *serial_num)
+uint32_t MPU6050::init(const ConfigData *pConfig, char lp, unsigned int *serial_num)
 {
-    int result = 1;
+  uint32_t result = 0;
 
-    // Assume external IMU by default.
-    EEPROM_TYPE ee_type = IMU_EEPROM;
-    i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
+  // Assume external IMU by default.
+  EEPROM_TYPE ee_type = IMU_EEPROM;
+  i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
 
-    if (pConfig->imu_internal == INTERNAL) {
-        i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
-        ee_type = FCM_EEPROM;
+  if (pConfig->imu_internal) {
+    i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
+    ee_type = FCM_EEPROM;
+  }
+
+  // Confirm we can talk to IMU and its who we expect it to be
+  int r = i2c->read_reg_blocking(i2c_address, MPU6050_WHO_AM_I);
+  if (r != WHO_AM_I_VALUE_6050) {
+    debug_print("Unrecognized Who Am I: %x\r\n", r);
+    return IMU_FAIL;
+  }
+
+  eeprom = new EEPROM(i2c, ee_type);
+
+  if (mux) {
+    i2c->write_reg_blocking(MUX_ADDRESS, mux_chan);
+    wait_ms(50);
+  }
+
+  if (!pConfig->force_gyro_acc_defaults) {
+    if (read_eeprom() != 0) {
+        result = IMU_WARN;
     }
+  }
 
-    // Confirm we can talk to IMU and its who we expect it to be
-    int r = i2c->read_reg_blocking(i2c_address, MPU6050_WHO_AM_I);
-    if (r != WHO_AM_I_VALUE_6050) {
-        debug_print("Unrecognized Who Am I: %x\r\n", r);
-        return -2;
-    }
+  *serial_num = eeprom->data.serial_num;
 
-    eeprom = new EEPROM(i2c, ee_type);
+  /* clock source and disable sleep */
+  i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
 
-    if (mux) {
-        i2c->write_reg_blocking(MUX_ADDRESS, mux_chan);
-        wait_ms(50);
-    }
+  /* config - sync input and LPF */
+  i2c->write_reg_blocking(i2c_address, MPU6050_CONFIG, lp);
 
-    if (!pConfig->force_gyro_acc_defaults) {
-        if (read_eeprom() != 0) {
-            result = -1;
-        }
-    }
+  /* gyro range */
+  i2c->write_reg_blocking(i2c_address, MPU6050_GYRO_CONFIG, gyro_scale<<3);
 
-    *serial_num = eeprom->data.serial_num;
+  /* acc range */
+  i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
 
-    /* clock source and disable sleep */
-    i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
-
-    /* config - sync input and LPF */
-    i2c->write_reg_blocking(i2c_address, MPU6050_CONFIG, lp);
-
-    /* gyro range */
-    i2c->write_reg_blocking(i2c_address, MPU6050_GYRO_CONFIG, gyro_scale<<3);
-
-    /* acc range */
-    i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
-
-    /* enable secondary I2C for HMC5883L */
-    //i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
-
-    return result;
+  return result;
 }
 
 void MPU6050::ForceCalData()

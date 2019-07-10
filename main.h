@@ -36,7 +36,7 @@ int  TakeoffControlModes(void);
 int  GetMotorsState(void);
 bool IsLidarOperational(void); // deprecated, no longer looking at returned value
 bool LidarOnline(void);
-void WDTHandler(void);
+void NVIC_WatchdogHandler(void);
 
 // Local Prototypes
 static inline void UpdatePitchRateScalingFactor(float xbus_value);

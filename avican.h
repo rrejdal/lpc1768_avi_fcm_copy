@@ -74,6 +74,7 @@ typedef enum {
   AVI_MSGID_PN      = 2,
   AVI_MSGID_SYNC    = 3,
   AVI_MSGID_CFG     = 9,  // TODO::SP - This needs to be remapped, and at present will not support Power node
+  AVI_MSGID_FAILSAFE = 10,
 } AVI_CANBUS_COMMON_MSG_IDS;
 
 typedef enum {

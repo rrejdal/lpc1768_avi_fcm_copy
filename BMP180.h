@@ -13,7 +13,7 @@ class BMPx80
 {
   public:
     BMPx80(I2Ci *m_i2c);
-    bool Init(const ConfigData *pConfig);
+    uint32_t Init(const ConfigData *pConfig);
     void Calibration180();
     void Calibration280();
     bool GetTPA(float dT, float *pTemp, float *pPress, float *pAlt);

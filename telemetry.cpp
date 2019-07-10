@@ -744,6 +744,9 @@ void TelemSerial::Generate_AircraftCfg(void)
 
     msg->odometerReading = (hfc->OdometerReading /1000);
 
+    msg->system_status_mask = hfc->system_status_mask;
+    msg->system_reset_reason = hfc->system_reset_reason;
+
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
@@ -2438,7 +2441,9 @@ void TelemSerial::ProcessCommands(void)
     {
         if (sub_cmd == RESET_SUBID) {
             // NOTE::SP: Causes a MICRO Soft Reset
-            NVIC_SystemReset();
+            //NVIC_SystemReset();
+            // Force a Watchdog Reset
+            while(1);
         }
     }
     else

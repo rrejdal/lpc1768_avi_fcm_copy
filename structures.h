@@ -671,6 +671,9 @@ typedef struct
 
     uint32      odometerReading;
 
+    uint32      system_status_mask;
+    uint32      system_reset_reason;
+
 } T_AircraftConfig;
 
 typedef struct
