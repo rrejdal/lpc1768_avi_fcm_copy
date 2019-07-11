@@ -2442,7 +2442,6 @@ void TelemSerial::ProcessCommands(void)
         if (sub_cmd == RESET_SUBID) {
             // NOTE::SP: Causes a MICRO Soft Reset
             //NVIC_SystemReset();
-            // Force a Watchdog Reset
             while(1);
         }
     }

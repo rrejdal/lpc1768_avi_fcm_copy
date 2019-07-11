@@ -72,7 +72,6 @@ void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
 void CompassCalDone(void);
 
 
-//USBSerial   serial(0x1f00, 0x2012, 0x0001, false);
 USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
 
 #ifdef LCD_ENABLED
@@ -88,7 +87,6 @@ HMC5883L    compass(&Li2c);
 BMPx80      baro(&Li2c);
 
 XBus xbus(XBUS_IN);
-//CAN can(CAN_RXD1, CAN_TXD1);
 CAN *Canbus = NULL;
 GPS gps;
 
@@ -104,7 +102,7 @@ AFSI_Serial afsi(&afsi_serial,&telem);
 InterruptIn  lidar(LIDAR_PWM);
 InterruptIn  *rpm = NULL;
 
-PwmOut *FCM_SERVO_CH6 = NULL;   // This can be re-purposed as RPM Sensor Input
+PwmOut FCM_SERVO_CH6(CHANNEL_6);
 PwmOut FCM_SERVO_CH5(CHANNEL_5);
 PwmOut FCM_SERVO_CH4(CHANNEL_4);
 PwmOut FCM_SERVO_CH3(CHANNEL_3);
@@ -137,9 +135,6 @@ const ConfigData *pConfig = NULL;
 #define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
 #define COMPASS_SEL_MASK(x)     ((x) << 2)
 
-Lidar_Data lidar_data[MAX_NUM_LIDARS] = {0};
-int num_lidars = 0;
-
 typedef struct {
     uint8_t major_version;
     uint8_t minor_version;
@@ -162,7 +157,7 @@ ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so 
 #define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
 
 // Macros for controlling 'special' reserved FCM outputs
-#define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6->pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
+#define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 
 static int can_node_found = 0;
@@ -178,7 +173,6 @@ static void Buttons();
 static void PrintOrient();
 #endif
 
-static void RPM_rise();
 static void UpdateBatteryStatus(float dT);
 
 typedef uint16_t Item;
@@ -648,11 +642,8 @@ static void WriteToFcmServos(void)
     FCM_SERVO_CH3.pulsewidth_us((int)(1500.5f + pwm_values[2] * 500));
     FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[3] * 500));
     FCM_SERVO_CH5.pulsewidth_us((int)(1500.5f + pwm_values[4] * 500));
+    FCM_SERVO_CH6.pulsewidth_us((int)(1500.5f + pwm_values[5] * 500));
 
-    // CH6 may have been re-purposed for rpm speed sense
-    if (FCM_SERVO_CH6) {
-            FCM_SERVO_CH6->pulsewidth_us((int)(1500.5f + pwm_values[5] * 500));
-    }
 }
 
 static void ProcessFcmLinkLive(void)
@@ -2304,7 +2295,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
             /* set the throttle value to spool */
             hfc->throttle_value = pConfig->Stick100range;
 
-            if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+            if ((pConfig->throttle_ctrl == PROP_VARIABLE_PITCH) && !pConfig->disable_pre_flight) {
               initRpmThresholdCheck();
               hfc->waypoint_stage = FM_TAKEOFF_RPM_CHECK;
             }
@@ -2812,7 +2803,6 @@ static inline void ResetPidScaling(T_PID *pid_layer, const float params[6])
 // dT is the time since this function was last called (in seconds)
 static void ServoUpdate(float dT)
 {
-    int lidar_node;
     char control_mode_prev[4] = {0,0,0,0};
     char xbus_new_values = xbus.NewValues(dT, phfc->throttle_armed, phfc->fixedThrottleMode);
 
@@ -3106,6 +3096,7 @@ static void ServoUpdate(float dT)
 
     // processes staged waypoints - takeoff, landing, ... etc
     ProcessFlightMode(phfc,dT);
+
 
 #ifdef LCD_ENABLED
     Display_Process(phfc, xbus_new_values, dT);
@@ -3892,39 +3883,12 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
 
 bool LidarOnline(void)
 {
-  for (int i = 0; i < num_lidars; i++) {
+  for (int i = 0; i < phfc->num_lidars; i++) {
       if (((phfc->lidar_online_mask >> i) & 1) == 0 ) {
         return false;
       }
   }
   return true;
-}
-
-// Deprecated.
-bool IsLidarOperational(void) {
-  bool status = true;
-
-  for (int i = 0; i < num_lidars; i++) {
-
-    // Check to ensure lidars are reporting to FCM
-    if ( ((phfc->lidar_online_mask >> i) & 1) == 0 ) {
-      status = false;
-      break;
-    }
-
-    // if the raw lidar is reading less than half the set lidar offset
-    // then check lidars.
-    if (lidar_data[i].current_alt < ((pConfig->lidar_offset/1000.0f)/2) ) {
-      status = false;
-      break;
-    }
-  }
-
-  if (phfc->altitude_lidar_raw[0] > 0.2) {
-    status = false;
-  }
-
-  return status;
 }
 
 static void UpdateLidar(int node_id, int pulse_us)
@@ -3949,205 +3913,114 @@ static void UpdateLidar(int node_id, int pulse_us)
   phfc->altitude_lidar_raw[node_id] = ( (pulse*.001f) + 7.0f*phfc->altitude_lidar_raw[node_id] ) * 0.125f;
 }
 
-// Deprecated.
-static void UpdateLidarAltitude(int node_id, int lidarCount)
-{
-    unsigned int pulse = 0;
-    int num_lidars_reported = 0;
-
-    pulse = ClipMinMax(lidarCount, MIN_LIDAR_PULSE, MAX_LIDAR_PULSE);
-    lidar_data[node_id].current_alt = pulse*0.001f;
-
-    //Reset the Lidar timeout
-    phfc->lidar_timeouts[node_id] = LIDAR_TIMEOUT;
-    phfc->lidar_online_mask |= (1 << node_id);
-
-    float alt_avg = 0;
-
-    for (int i = 0; i < num_lidars; i++) {
-      if ( ((phfc->lidar_online_mask >> i) & 1) == 1 ) {
-        alt_avg += lidar_data[i].current_alt;
-        num_lidars_reported++;
-      }
-    }
-    alt_avg = alt_avg / num_lidars_reported;
-    alt_avg = alt_avg-(pConfig->lidar_offset/1000.0f);
-    alt_avg = ClipMinMax(alt_avg, MIN_LIDAR_PULSE/1000.0f, MAX_LIDAR_PULSE/1000.0f);
-    phfc->altitude_lidar_raw[node_id] = ( alt_avg + 7.0f*phfc->altitude_lidar_raw[node_id] ) * 0.125f;
-}
-
-static int LidarFilterFCM(int node_id, int lidarCount)
-{
-
-  int pulse_width = ClipMinMax(lidarCount, MIN_LIDAR_PULSE, MAX_LIDAR_PULSE);
-
-  /* lidar_data.alt[] is a circular buffer such that
-   * lidar_data.alt[i-1] is approx 0.005 seconds behind lidar_data.alt[i] since
-   * the lidar data rate is approx 200Hz.
-   * lidar_data.i_current is the index of the current location in
-   * the lidar_data.alt[] circular buffer.
-   * This code updates the location of the circular buffer.
-   */
-  lidar_data[node_id].data_indx++;
-  if (lidar_data[node_id].data_indx >= LIDAR_HISTORY_SIZE) {
-    lidar_data[node_id].data_indx -= LIDAR_HISTORY_SIZE;
-  }
-  lidar_data[node_id].alt[lidar_data[node_id].data_indx] = lidarCount * 0.001f;
-
-  int current = lidar_data[node_id].data_indx;
-  int previous = current - 1;
-  int history_pass = 1;
-
-  /* check the current lidar reading with the 10 previous values before */
-  for (int i = 0; i < LIDAR_HISTORY_SIZE-1; i++) {
-    if (previous < 0) {
-        previous = LIDAR_HISTORY_SIZE-1;
-    }
-
-    if (lidar_data[node_id].alt[previous] != INVALID_LIDAR_DATA) {
-
-      /* Lidar data comes in on average 200Hz, every 0.005s, a change in altitude of
-       * 0.05m in 0.005s = 10 m/s, the drone should not be ascending that fast.
-       * Every entry in lidar_data[i].alt[] is approx. 0.005s apart.*/
-      if ( ABS(lidar_data[node_id].alt[current] - lidar_data[node_id].alt[previous]) >= (0.05f*(i+1)) ) {
-
-        /* When the Lidar goes out of range, that is, greater than 35m or so, then
-         * the lidar pulses go to below 30us -> 30mm = 3cm = 0.03m.
-         * In this case we want to keep the last largest reading, start check at >=15m*/
-        if ( (lidar_data[node_id].alt[previous] >= 10) && (lidar_data[node_id].alt[current] <= 0.03) ) {
-          lidar_data[node_id].alt[current] = lidar_data[node_id].alt[previous];
-          pulse_width = (int)(lidar_data[node_id].alt[previous]*1000);
-          break;
-        }
-        else {
-          lidar_data[node_id].alt[current] = INVALID_LIDAR_DATA;
-          history_pass = 0;
-          break;
-        }
-      }
-    }
-    previous--;
-  }
-
-  if (history_pass == 1) {
-    return pulse_width;
-  }
-
-  return -1;
-}
-
+//
+// - Process Live Link messagefrom Canbus Node
+//
 static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
 {
-    float *data= (float *)pdata;
-    int new_data = 1;
+  float *data= (float *)pdata;
+  int new_data = 1;
 
-    // TODO::SP: Only taking Castle Link from Servo Node id 1 at present
-//    if (node_id > 0) {
-//        return;
-//    }
+  switch (message_id) {
+    case AVIDRONE_MSGID_CASTLE_0:
+      castle_link_live[node_id].battery_voltage = *data++;
+      castle_link_live[node_id].ripple_voltage = *data;
+      castle_link_live[node_id].new_data_mask |= (1 << 0);
+      break;
+    case AVIDRONE_MSGID_CASTLE_1:
+      castle_link_live[node_id].current = *data++;
+      castle_link_live[node_id].output_power = *data;
+      castle_link_live[node_id].new_data_mask |= (1 << 1);
+      break;
+    case AVIDRONE_MSGID_CASTLE_2:
+      castle_link_live[node_id].throttle = *data++;
+      castle_link_live[node_id].rpm = *data;
+      castle_link_live[node_id].new_data_mask |= (1 << 2);
+      break;
+    case AVIDRONE_MSGID_CASTLE_3:
+      castle_link_live[node_id].bec_voltage = *data++;
+      castle_link_live[node_id].bec_current = *data;
+      castle_link_live[node_id].new_data_mask |= (1 << 3);
+      break;
+    case AVIDRONE_MSGID_CASTLE_4:
+      castle_link_live[node_id].temperature = *(float *)data;
+      castle_link_live[node_id].new_data_mask |= (1 << 4);
+      break;
+    default:
+        break;
+  }
 
-    switch (message_id) {
-        case AVIDRONE_MSGID_CASTLE_0:
-            castle_link_live[node_id].battery_voltage = *data++;
-            castle_link_live[node_id].ripple_voltage = *data;
-            castle_link_live[node_id].new_data_mask |= (1 << 0);
-            break;
-        case AVIDRONE_MSGID_CASTLE_1:
-            castle_link_live[node_id].current = *data++;
-            castle_link_live[node_id].output_power = *data;
-            castle_link_live[node_id].new_data_mask |= (1 << 1);
-            break;
-        case AVIDRONE_MSGID_CASTLE_2:
-            castle_link_live[node_id].throttle = *data++;
-            castle_link_live[node_id].rpm = *data;
-            castle_link_live[node_id].new_data_mask |= (1 << 2);
-            break;
-        case AVIDRONE_MSGID_CASTLE_3:
-            castle_link_live[node_id].bec_voltage = *data++;
-            castle_link_live[node_id].bec_current = *data;
-            castle_link_live[node_id].new_data_mask |= (1 << 3);
-            break;
-        case AVIDRONE_MSGID_CASTLE_4:
-            castle_link_live[node_id].temperature = *(float *)data;
-            castle_link_live[node_id].new_data_mask |= (1 << 4);
-            break;
-        default:
-            break;
-    }
+  for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
+      if (castle_link_live[i].new_data_mask < 0x1F) {
+          new_data = 0;
+          break;
+      }
+  }
+
+  if (new_data == 1) {
+    new_data = 0;
+
+    float Iaux = 0;
+    float Iesc = 0;
+    float Vmain = 0;
+    float Vbec = 0;
+    float RPM = 0;
+    float esc_temp = 0;
 
     for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
-        if (castle_link_live[i].new_data_mask < 0x1F) {
-            new_data = 0;
-            break;
-        }
+      castle_link_live[i].new_data_mask = 0;
+
+      Iaux += castle_link_live[i].bec_current;
+      Iesc += castle_link_live[i].current;
+      Vmain += castle_link_live[i].battery_voltage;
+      Vbec += castle_link_live[i].bec_voltage;
+      RPM += castle_link_live[i].rpm;
+      esc_temp += castle_link_live[node_id].temperature;
     }
 
-    if (new_data == 1) {
-        new_data = 0;
+    Vmain /= MAX_NUM_CASTLE_LINKS;
+    Vbec /= MAX_NUM_CASTLE_LINKS;
+    RPM /= MAX_NUM_CASTLE_LINKS;
+    esc_temp /= MAX_NUM_CASTLE_LINKS;
 
-        float Iaux     = 0;
-        float Iesc     = 0;
-        float Vmain    = 0;
-        float Vbec     = 0;
-        float RPM      = 0;
-        float esc_temp = 0;
+    phfc->power.Iaux = Iaux;
+    phfc->power.Iesc = (Iesc + 3* phfc->power.Iesc ) * 0.25f;
+    phfc->power.Iesc = ClipMinMax(phfc->power.Iesc, 0, phfc->power.Iesc);
 
-        for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
-            castle_link_live[i].new_data_mask = 0;
+    phfc->power.Vmain = (Vmain + 3* phfc->power.Vmain) * 0.25f;
+    phfc->power.Vesc = phfc->power.Vmain;
 
-            Iaux     += castle_link_live[i].bec_current;
-            Iesc     += castle_link_live[i].current;
-            Vmain    += castle_link_live[i].battery_voltage;
-            Vbec     += castle_link_live[i].bec_voltage;
-            RPM      += castle_link_live[i].rpm;
-            esc_temp += castle_link_live[node_id].temperature;
-        }
+    phfc->power.Vservo = Vbec;
+    phfc->power.Vservo = ClipMinMax(phfc->power.Vservo, 0, phfc->power.Vservo);
 
-        Vmain    /= MAX_NUM_CASTLE_LINKS;
-        Vbec     /= MAX_NUM_CASTLE_LINKS;
-        RPM      /= MAX_NUM_CASTLE_LINKS;
-        esc_temp /= MAX_NUM_CASTLE_LINKS;
+    phfc->power.Vaux = Vbec;
+    phfc->power.Vaux = ClipMinMax(phfc->power.Vaux, 0, phfc->power.Vaux);
 
-        // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
-        phfc->power.Iaux   = Iaux;
-        phfc->power.Iesc   = (Iesc + 3* phfc->power.Iesc ) * 0.25f;
-        phfc->power.Iesc   = ClipMinMax(phfc->power.Iesc, 0, phfc->power.Iesc);
+    phfc->esc_temp = esc_temp;
 
-        phfc->power.Vmain  = (Vmain + 3* phfc->power.Vmain) * 0.25f;
-        phfc->power.Vesc   = phfc->power.Vmain;
-
-        phfc->power.Vservo = Vbec;
-        phfc->power.Vservo = ClipMinMax(phfc->power.Vservo, 0, phfc->power.Vservo);
-
-        phfc->power.Vaux   = Vbec;
-        phfc->power.Vaux   = ClipMinMax(phfc->power.Vaux, 0, phfc->power.Vaux);
-
-        phfc->esc_temp    = esc_temp;
-
-        if (!pConfig->rpm_sensor) {
-            phfc->RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
-        }
-
-        canbus_livelink_avail = 1;
+    if (!pConfig->rpm_sensor) {
+      phfc->RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
     }
+    canbus_livelink_avail = 1;
+  }
 }
 
+//
+// - Update compass data sent from the CanBus
+//
 static void UpdateCompassData(int node_id, unsigned char *pdata)
 {
-    signed short raw_x;
-    signed short raw_y;
-    signed short raw_z;
+  signed short raw_x;
+  signed short raw_y;
+  signed short raw_z;
 
 #ifdef COMPASS_HEADING
-    heading[node_id] = *(double *)pdata;
+  heading[node_id] = *(double *)pdata;
 #else
-
-    raw_x = pdata[0] | (pdata[1] << 8);
-    raw_y = pdata[2] | (pdata[3] << 8);
-    raw_z = pdata[4] | (pdata[5] << 8);
-
-    compass.UpdateRawData(raw_x, raw_y, raw_z);
-
+  raw_x = pdata[0] | (pdata[1] << 8);
+  raw_y = pdata[2] | (pdata[3] << 8);
+  raw_z = pdata[4] | (pdata[5] << 8);
+  compass.UpdateRawData(raw_x, raw_y, raw_z);
 #endif
 }
 
@@ -4208,98 +4081,102 @@ static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
 }
 
 //
-static void can_handler(void)
+// - Callback ISR Handler for Canbus
+//
+static void CanbusISRHandler(void)
 {
-    static int rx_count = 0;
-    CANMessage can_rx_message;
+  CANMessage can_rx_message;
+  bool unkown_message = false;
 
-    if ((++rx_count % 10) == 0) {
-        //led4 = !led4;
-    }
+  while(Canbus->read(can_rx_message) && !unkown_message) {
+    int node_type = AVIDRONE_CAN_NODETYPE(can_rx_message.id);
+    int node_id = (AVIDRONE_CAN_NODEID(can_rx_message.id) -1);
+    int message_id = AVIDRONE_CAN_MSGID(can_rx_message.id);
+    unsigned char *pdata = &can_rx_message.data[0];
 
-    while(Canbus->read(can_rx_message)) {
-
-        int node_type = AVIDRONE_CAN_NODETYPE(can_rx_message.id);
-        int node_id = (AVIDRONE_CAN_NODEID(can_rx_message.id) -1);
-        int message_id = AVIDRONE_CAN_MSGID(can_rx_message.id);
-        unsigned char *pdata = &can_rx_message.data[0];
-
-        if (node_type == AVIDRONE_SERVO_NODETYPE) {
-            if (message_id == AVIDRONE_MSGID_SERVO_ACK) {
-                canbus_ack = 1;
-            }
-            else if (message_id == AVIDRONE_MSGID_LIDAR) {
-              //UpdateLidarAltitude(node_id, *(uint32_t *)pdata);
-              //UpdateLidar(node_id, *(uint32_t *)pdata);
-            }
-            else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
-                UpdateCastleLiveLink(node_id, message_id, pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_SERVO_INFO) {
-                UpdateBoardInfo(node_id, pdata);
-                can_node_found = 1;
-            }
-            else if (message_id == AVIDRONE_MSGID_SERVO_PN) {
-                UpdateBoardPartNum(node_id, PN_SN, pdata);
-            }
-            else {
-                // Unknown
-            }
+    switch(node_type) {
+      case AVIDRONE_SERVO_NODETYPE:
+      {
+        if (message_id == AVIDRONE_MSGID_SERVO_ACK) {
+          canbus_ack = 1;
         }
-        else if (node_type == AVIDRONE_GPS_NODETYPE) {
-            if ((message_id >= AVIDRONE_MSGID_GPS_0) && (message_id <= AVIDRONE_MSGID_GPS_4)) {
-                gps.AddGpsData(node_id, message_id, (char *)pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_COMPASS_XYZ) {
-                UpdateCompassData(node_id, pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_GPS_ACK) {
-                canbus_ack = 1;
-            }
-            else if (message_id == AVIDRONE_MSGID_GPS_INFO) {
-                UpdateBoardInfo(node_id, pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_GPS_PN) {
-                UpdateBoardPartNum(node_id, PN_GPS, pdata);
-                can_node_found = 1;
-            }
-            else {
-                // Unknown
-            }
+        else if (message_id == AVIDRONE_MSGID_LIDAR) {
+          UpdateLidar(node_id, *(uint32_t *)pdata);
         }
-        else if (node_type == AVIDRONE_PWR_NODETYPE) {
-            if (message_id == AVIDRONE_MSGID_PWR_ACK) {
-                canbus_ack = 1;
-            }
-            else if (message_id == AVIDRONE_PWR_MSGID_LIDAR) {
-                UpdateLidar(node_id, *(uint32_t *)pdata);
-            }
-            else if ((message_id >= AVIDRONE_PWR_MSGID_CASTLE_0) && (message_id <= AVIDRONE_PWR_MSGID_CASTLE_4)) {
-                UpdateCastleLiveLink(node_id, message_id, pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_PWR_V_I) {
-                UpdatePowerNodeVI(node_id, pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_PWR_INFO) {
-                UpdateBoardInfo(node_id, pdata);
-            }
-            else if (message_id == AVIDRONE_MSGID_PWR_PN) {
-                UpdateBoardPartNum(node_id, PN_PWR, pdata);
-                can_node_found = 1;
-            }
-            else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
-                can_power_coeff++;
-                UpdatePowerNodeCoeff(node_id, pdata);
-            }
-            else {
-                // Unknown
-            }
+        else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
+          UpdateCastleLiveLink(node_id, message_id, pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_SERVO_INFO) {
+          UpdateBoardInfo(node_id, pdata);
+          can_node_found = 1;
+        }
+        else if (message_id == AVIDRONE_MSGID_SERVO_PN) {
+          UpdateBoardPartNum(node_id, PN_SN, pdata);
         }
         else {
-          break;
-            // Unknown
+          phfc->stats.canbus_error_count++;
         }
+      }
+      break;
+      case AVIDRONE_GPS_NODETYPE:
+      {
+        if ((message_id >= AVIDRONE_MSGID_GPS_0) && (message_id <= AVIDRONE_MSGID_GPS_4)) {
+          gps.AddGpsData(node_id, message_id, (char *)pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_COMPASS_XYZ) {
+          UpdateCompassData(node_id, pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_GPS_ACK) {
+          canbus_ack = 1;
+        }
+        else if (message_id == AVIDRONE_MSGID_GPS_INFO) {
+          UpdateBoardInfo(node_id, pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_GPS_PN) {
+          UpdateBoardPartNum(node_id, PN_GPS, pdata);
+          can_node_found = 1;
+        }
+        else {
+            phfc->stats.canbus_error_count++;
+        }
+      }
+      break;
+      case AVIDRONE_PWR_NODETYPE:
+      {
+        if (message_id == AVIDRONE_MSGID_PWR_ACK) {
+          canbus_ack = 1;
+        }
+        else if (message_id == AVIDRONE_PWR_MSGID_LIDAR) {
+          UpdateLidar(node_id, *(uint32_t *)pdata);
+        }
+        else if ((message_id >= AVIDRONE_PWR_MSGID_CASTLE_0) && (message_id <= AVIDRONE_PWR_MSGID_CASTLE_4)) {
+          UpdateCastleLiveLink(node_id, message_id, pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_PWR_V_I) {
+          UpdatePowerNodeVI(node_id, pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_PWR_INFO) {
+          UpdateBoardInfo(node_id, pdata);
+        }
+        else if (message_id == AVIDRONE_MSGID_PWR_PN) {
+          UpdateBoardPartNum(node_id, PN_PWR, pdata);
+          can_node_found = 1;
+        }
+        else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
+          can_power_coeff++;
+          UpdatePowerNodeCoeff(node_id, pdata);
+        }
+        else {
+            phfc->stats.canbus_error_count++;
+        }
+      }
+      break;
+      default:
+        unkown_message = true;
+        phfc->stats.canbus_error_count++;
+        break;
     }
+  }
 }
 
 // TODO::SP: Either extend or remove this..
@@ -4320,6 +4197,8 @@ static void ProcessStats(void)
     }
 }
 
+// TODO::SP - Need to update lidar handling when only using an FCM
+#if 0
 static void Lidar_Process(FlightControlData *hfc)
 {
     int node_id = num_lidars - 1;
@@ -4333,50 +4212,17 @@ static void Lidar_Process(FlightControlData *hfc)
     // in this case the octo runs using power node and FCM.
     // FCM will use a node_id = 2 - 1 = 1, while
     // the power node uses a node_id = 1 -1 = 0
-    int filtered_data = LidarFilterFCM(node_id, d);
+    //int filtered_data = LidarFilterFCM(node_id, d);
+    // TODO::SP - update Lidar filtering for FCM
     if (filtered_data != -1) {
-      UpdateLidarAltitude(node_id,filtered_data);
+      //UpdateLidarAltitude(node_id,filtered_data);
+      // TODO::SP - replace with new lidar handling.
     }
     hfc->lidar_pulse = false;
 
     return;
 }
-
-static void RPM_Process(void)
-{
-    /* RPM math */
-    if (pConfig->rpm_sensor) {
-        if (phfc->rpm_pulse) {
-
-            int dms = phfc->rpm_time_ms - phfc->rpm_time_ms_last;
-
-            if (dms<=0 || dms>=1000) {
-                phfc->RPM = 0;
-            }
-            else {
-                float rpm = 0;
-                if (dms<100) {
-                    if (phfc->rpm_dur_us>0) {
-                        rpm = 30000000.0f/phfc->rpm_dur_us;   // 2 pulses per rotation
-                    }
-                }
-                else {
-                    rpm = 30000.0f/dms;
-                }
-
-                phfc->RPM = LP_RC(rpm, phfc->RPM, 1, dms*0.001f);
-            }
-
-            phfc->rpm_time_ms_last = phfc->rpm_time_ms;
-            phfc->rpm_pulse = false;
-        }
-        else {
-            int dur_ms = phfc->time_ms - phfc->rpm_time_ms_last;
-            if (dur_ms>=1000)
-            phfc->RPM = 0;
-        }
-    }
-}
+#endif
 
 /*Function used for making new and on-going compass calibration
  * adjustments to the compass gains and offsets
@@ -4613,6 +4459,9 @@ void FlightOdometer(void)
   }
 }
 
+//
+// - Process Main AVI Flight Control
+//
 void DoFlightControl()
 {
     int i;
@@ -4621,7 +4470,6 @@ void DoFlightControl()
     float dT;  // runtime of do_control() loop, in seconds
     float baro_altitude_raw_prev;
     int utilization = 0;
-    //GpsData gps_data;
 
     KICK_WATCHDOG();
 
@@ -4651,10 +4499,6 @@ void DoFlightControl()
     }
     else {
       phfc->gyro_temp_lp = (phfc->gyro_temperature + 511*phfc->gyro_temp_lp)*0.001953125f;
-    }
-
-    if (!(phfc->print_counter&0x3f)) {
-         // debug_print("util %4.1f%\r\n", phfc->cpu_utilization_lp);
     }
 
     //ArmedTimeout(dT);
@@ -4695,26 +4539,6 @@ void DoFlightControl()
             CompassCalibration();
         }
     }
-
-#if defined(HEADING_OFFSET_ADJUST)
-    // As ground speed increases, trust the gps heading more
-    if(     (phfc->gps_speed >= pConfig->gps_speed_heading_threshold)
-         && (gps.gps_data_.PDOP*0.01f < 2.00f )
-         && (phfc->full_auto || (phfc->control_mode[PITCH] >= CTRL_MODE_SPEED) )
-         && (ABS(phfc->ctrl_out[RATE][YAW]) <= pConfig->yaw_heading_threshold) ) {
-
-        float current_offset = phfc->gps_heading - phfc->heading;
-        wrap180(&current_offset);
-
-        if ( ABS(current_offset) >= pConfig->heading_offset_threshold)   {
-            phfc->heading_offset = phfc->gps_heading - phfc->compass_heading_lp;
-            wrap180(&phfc->heading_offset);
-        }
-    }
-
-    phfc->heading = phfc->compass_heading_lp + phfc->heading_offset;
-    wrap180(&phfc->heading);
-#endif
 
     if (pConfig->baro_enable == 1) {
         phfc->baro_dT += dT;
@@ -4963,11 +4787,12 @@ void DoFlightControl()
     PrintOrient();
 #endif
 
+
     if (pConfig->servo_raw) {
         ServoUpdateRAW(dT);
     }
     else {
-        ServoUpdate(dT);
+      ServoUpdate(dT);
     }
 
     SetAgsControls();
@@ -5043,11 +4868,9 @@ void DoFlightControl()
 
     // TODO::SP: Assumption here is that lidar not from servo and not from power,
     // then must be onboard FCM. Should be better handled!
-    if ((pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0)) {
-        Lidar_Process(phfc);
-    }
-
-    RPM_Process();
+    //if ((pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0)) {
+    //    Lidar_Process(phfc);
+    //}
 
     telem.ProcessInputBytes(telemetry);
 
@@ -5097,36 +4920,9 @@ static void Lidar_rise(void)
     phfc->lidar_rise = GetTime_us();
 }
 
-static void RPM_rise(void)
-{
-    phfc->rpm_dur_us = Ticks2us(phfc->rpm_ticks);
-    phfc->rpm_ticks = Ticks1();
-    phfc->rpm_time_ms = phfc->time_ms;
-    phfc->rpm_pulse = true;
-}
-
 static void InitFcmIO(void)
 {
-
     lidar.mode(PullNone);
-
-    // TODO::SP: Prob don't need to support RPM sensor moving forward....
-    if (pConfig->rpm_sensor) {
-        if ((pConfig->ccpm_type==CCPM_HEX || pConfig->ccpm_type==CCPM_QUAD
-                        || pConfig->ccpm_type==CCPM_OCTO ) && pConfig->fcm_servo) {
-            //debug_print("Cannot use RPM sensor on multicopter when servo's driven from FCM\n");
-        }
-        else {
-            rpm = new InterruptIn(p21);
-            if (rpm) {
-                rpm->mode(PullUp);
-                rpm->rise(&RPM_rise);
-            }
-        }
-    }
-    else {
-        FCM_SERVO_CH6 = new PwmOut(p21);
-    }
 
     if (pConfig->fcm_linklive_enable) {
         FCMLinkLive = new DigitalInOut(p26);
@@ -5143,8 +4939,8 @@ static void InitFcmIO(void)
     // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 6
     // FOR USE WITH ARMED LED
     if (FCM_SERVO_CH6) {
-        FCM_SERVO_CH6->period_us(pConfig->pwm_period);
-        FCM_SERVO_CH6->pulsewidth_us(1500);
+        FCM_SERVO_CH6.period_us(pConfig->pwm_period);
+        FCM_SERVO_CH6.pulsewidth_us(1500);
     }
 
     // NOTE::SP: HACK OF THE DAY 12-09-2018
@@ -5714,231 +5510,230 @@ static void CanbusSync(int num_nodes, int node_type)
 //
 void InitializeRuntimeData(void)
 {
-    phfc = (FlightControlData *)&_hfc_runtime;
+  uint32_t last_reset = GetResetReason();
 
-    uint32_t hfc_size = sizeof(FlightControlData);
-    KICK_WATCHDOG();
-    memset(phfc, 0x00, hfc_size);
+  phfc = (FlightControlData *)&_hfc_runtime;  // This area is Reserved by the linker!
 
-    // Configure number of lidars based on airframe type.
-    // TODO::SP should really do this at confguration stage.
-    if (pConfig->ccpm_type == MIXERTANDEM) {
-      num_lidars = 2;
-    }
-    else {
-      num_lidars = 1;
-    }
-
-    for (int i=0; i < num_lidars; i++) {
-      lidar_median[i] = MediatorNew(35);
-    }
-
-    // If we are warm resetting, DO NOT re-init data. We are trying to
-    // keep running under a warm reset.
-    phfc->system_reset_reason = GetResetReason();
-    if (phfc->system_reset_reason & 0x1) {
-      return;
-    }
-
-	// Setup FCM's serial number.
-    int *fcm_serial_num;
-    IAP iap;
-    fcm_serial_num = iap.read_serial();
-    phfc->fcm_serialnum_0 = fcm_serial_num[0];
-    phfc->fcm_serialnum_1 = fcm_serial_num[1];
-    phfc->fcm_serialnum_2 = fcm_serial_num[2];
-    phfc->fcm_serialnum_3 = fcm_serial_num[3];
-
-    phfc->PRstick_rate  = pConfig->PRstickRate / pConfig->Stick100range;
-    phfc->PRstick_angle = pConfig->PRstickAngle /pConfig->Stick100range;
-    phfc->YawStick_rate = pConfig->YawStickRate / pConfig->Stick100range;
-    phfc->Stick_Vspeed  = pConfig->StickVspeed / pConfig->Stick100range;
-    phfc->Stick_Hspeed  = pConfig->StickHspeed / pConfig->Stick100range;
-
-    // convert dead band values in % to servo range
-    for (int i = 0; i < 4; i++) {
-      phfc->StickDeadband[i] = pConfig->stick_deadband[i] * 0.01f * pConfig->Stick100range;
-    }
-
-    PID_Init(&phfc->pid_PitchRate,  pConfig->pitchrate_pid_params,  0, 1);
-    PID_Init(&phfc->pid_RollRate,   pConfig->rollrate_pid_params,   0, 1);
-    PID_Init(&phfc->pid_YawRate,    pConfig->yawrate_pid_params,    0, 1);
-    PID_Init(&phfc->pid_PitchAngle, pConfig->pitchangle_pid_params, 1, 0);
-    PID_Init(&phfc->pid_RollAngle,  pConfig->rollangle_pid_params,  1, 0);
-    PID_Init(&phfc->pid_CollVspeed, pConfig->collvspeed_pid_params, 0, 0);
-    PID_Init(&phfc->pid_PitchSpeed, pConfig->pitchspeed_pid_params, 0, 0);
-    PID_Init(&phfc->pid_RollSpeed,  pConfig->rollspeed_pid_params,  0, 0);
-
-    PID_Init(&phfc->pid_IMU[0],     pConfig->imu_pid_params, 1, 0);
-    PID_Init(&phfc->pid_IMU[1],     pConfig->imu_pid_params, 1, 0);
-    PID_Init(&phfc->pid_IMU[2],     pConfig->imu_yaw_pid_params, 1, 0);
-
-    PID_P_Acc_Init(&phfc->pid_YawAngle,    pConfig->yawangle_pid_params,    1, true); // enable deceleration
-    PID_P_Acc_Init(&phfc->pid_CollAlt,     pConfig->collalt_pid_params,     0, true); // same acc and dec
-    PID_P_Acc_Init(&phfc->pid_Dist2T,      pConfig->dist2T_pid_params,      0, true);
-    PID_P_Acc_Init(&phfc->pid_Dist2P,      pConfig->dist2P_pid_params,      0, false);
-    PID_P_Acc_Init(&phfc->pid_PitchCruise, pConfig->pitchCruise_pid_params, 0, false);
-
-    phfc->speed_Iterm_E     = 0;
-    phfc->speed_Iterm_N     = 0;
-    phfc->speed_Iterm_E_lp  = 0;
-    phfc->speed_Iterm_N_lp  = 0;
-
-    // save default values for playlist mode, duplicated and used within phfc->
-    //   - These used to be in cfg, but this is now READ only
-    phfc->rw_cfg.VspeedMax = phfc->pid_CollAlt.COmax;
-    phfc->rw_cfg.VspeedMin = phfc->pid_CollAlt.COmin;
-    phfc->rw_cfg.VspeedAcc = phfc->pid_CollAlt.acceleration;
-    phfc->rw_cfg.HspeedMax = phfc->pid_Dist2T.COmax;
-    phfc->rw_cfg.HspeedAcc = phfc->pid_Dist2T.acceleration;
-
-    // initialize sensor's low pass filters
-    for (int i=0; i < 3; i++) {
-      phfc->calib_gyro_avg[i]  = 0;
-    }
-
-    LP4_Init(&phfc->lp_gyro4[PITCH], pConfig->gyro_lp_freq[PITCH]);
-    LP4_Init(&phfc->lp_gyro4[ROLL], pConfig->gyro_lp_freq[ROLL]);
-    LP4_Init(&phfc->lp_gyro4[YAW], pConfig->gyro_lp_freq[YAW]);
-
-    for (int i=0; i < 3; i++) {
-        LP4_Init(&phfc->lp_acc4[i], pConfig->acc_lp_freq);
-    }
-
-    LP4_Init(&phfc->lp_baro4, pConfig->baro_lp_freq);
-    LP4_Init(&phfc->lp_baro_vspeed4, pConfig->baro_vspeed_lp_freq);
-
-    phfc->Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
-    phfc->telem_ctrl_period = Max(phfc->telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
-
-    phfc->throttle_value   = -pConfig->Stick100range;
-    phfc->collective_value = -pConfig->Stick100range;
-
-    //Give a 10 percent (up to 1000mAh) buffer on the battery capacity
-    phfc->power.capacity_total = ((pConfig->battery_capacity-min(pConfig->battery_capacity*0.1,1000)) / 1000.0f * 3600); // As
-    phfc->power.energy_total   = (phfc->power.capacity_total * pConfig->battery_cells * 3.7f);  // Ws
-
-    phfc->dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
-    phfc->ctrl_source = pConfig->default_ctrl_source;
-    phfc->acc_dyn_turns = pConfig->default_acc_dyn_turns;
-
-    for (int i = 0; i < 3; i++) {
-      phfc->home_pos[i] = pConfig->default_home_position[i];
-    }
-
-    phfc->orient_reset_counter = pConfig->orient_reset_counter;
-
-    phfc->takeoff_height = pConfig->takeoff_height;
-    phfc->takeoff_vertical_speed = pConfig->takeoff_vertical_speed;
-
-    phfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
-
-    // NOTE:SP: This is data which is updated at runtime to a duplicated
-    // Read/Write area.
-    phfc->rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
-    phfc->rw_cfg.GTWP_retire_speed = pConfig->GTWP_retire_speed;
-    phfc->rw_cfg.FTWP_retire_sr_factor = pConfig->FTWP_retire_sr_factor;
-    phfc->rw_cfg.low_speed_limit = pConfig->low_speed_limit;
-    phfc->rw_cfg.PRstickRate = pConfig->PRstickRate;
-    phfc->rw_cfg.PRstickAngle = pConfig->PRstickAngle;
-    phfc->rw_cfg.YawStickRate = pConfig->YawStickRate;
-    phfc->rw_cfg.StickVspeed = pConfig->StickVspeed;
-    phfc->rw_cfg.StickHspeed = pConfig->StickHspeed;
-    phfc->rw_cfg.StickHaccel = pConfig->StickHaccel;
-    phfc->rw_cfg.RollPitchAngle = pConfig->RollPitchAngle;
-    phfc->rw_cfg.wind_compensation = pConfig->wind_compensation;
-    phfc->rw_cfg.path_navigation = pConfig->path_navigation;
-    phfc->rw_cfg.ManualLidarAltitude = pConfig->ManualLidarAltitude;
-    phfc->rw_cfg.AngleCollMixing = pConfig->AngleCollMixing;
-    phfc->rw_cfg.cruise_speed_limit = pConfig->cruise_speed_limit;
-    phfc->rw_cfg.nose_to_WP = pConfig->nose_to_WP;
-    phfc->rw_cfg.landing_wind_threshold = pConfig->landing_wind_threshold;
-    phfc->rw_cfg.battery_capacity = pConfig->battery_capacity;
-    phfc->rw_cfg.WindTableScale = pConfig->WindTableScale;
-    phfc->rw_cfg.elevator_gain = pConfig->elevator_gain;
-    phfc->rw_cfg.dcp_gain = pConfig->dcp_gain;
-    phfc->rw_cfg.throttle_offset = pConfig->throttle_offset;
-    for (int i=0; i < 3; i++) {
-      phfc->rw_cfg.AccIntegGains[i] = pConfig->AccIntegGains[i];
-    }
-    phfc->rw_cfg.AltitudeBaroGPSblend_final = pConfig->AltitudeBaroGPSblend_final;
-    phfc->rw_cfg.Pos_GPS_IMU_BlendGlitch = pConfig->Pos_GPS_IMU_BlendGlitch;
-    phfc->rw_cfg.Pos_GPS_IMU_BlendReg = pConfig->Pos_GPS_IMU_BlendReg;
-    phfc->rw_cfg.BaroVspeedWeight = pConfig->BaroVspeedWeight;
-    phfc->rw_cfg.BaroAltitudeWeight = pConfig->BaroAltitudeWeight;
-    phfc->rw_cfg.GPSVspeedWeight = pConfig->GPSVspeedWeight;
-    phfc->rw_cfg.gps_vspeed = pConfig->gps_vspeed;
-    for (int i=0; i < 3; i++) {
-      phfc->rw_cfg.TurnAccParams[i] = pConfig->TurnAccParams[i];
-    }
-    phfc->rw_cfg.joystick_max_speed = pConfig->joystick_max_speed;
+  // If we are warm resetting, DO NOT re-init data. We are trying to
+  // keep running under a warm reset.
+  if (last_reset & 0x1) {
+    phfc->system_reset_reason = last_reset;
 
     phfc->command.command = TELEM_CMD_NONE;
-    phfc->rc_ctrl_request = false;
-    phfc->playlist_status = PLAYLIST_NONE;
-    phfc->display_mode = DISPLAY_SPLASH;
-    phfc->control_mode[PITCH] = CTRL_MODE_ANGLE;
-    phfc->control_mode[ROLL] = CTRL_MODE_ANGLE;
-    phfc->control_mode[YAW] = CTRL_MODE_ANGLE;
-    phfc->control_mode[COLL] = CTRL_MODE_MANUAL;
-    phfc->control_mode[THRO] = CTRL_MODE_MANUAL;
-    phfc->waypoint_type = WAYPOINT_NONE;
-    phfc->btnMenuPrev = true;
-    phfc->btnSelectPrev = true;
-    phfc->AltitudeBaroGPSblend = ALTITUDE_BARO_GPS_BLEND_FREQ_INIT;
-    phfc->baro_altitude_raw_lp = -9999;
-    phfc->esc_temp = 20;
+    return;
+  }
 
-    for (int i=0; i < MAX_NUM_LIDARS; i++) {
-      phfc->altitude_lidar_raw[i] = 0;
+  // POWER ON RESET - Ensure Runtime data is Initialized.
+  KICK_WATCHDOG();
+  memset(phfc, 0x00, sizeof(FlightControlData));
+
+  phfc->system_reset_reason = last_reset;
+
+	// Setup FCM's serial number.
+  int *fcm_serial_num;
+  IAP iap;
+  fcm_serial_num = iap.read_serial();
+  phfc->fcm_serialnum_0 = fcm_serial_num[0];
+  phfc->fcm_serialnum_1 = fcm_serial_num[1];
+  phfc->fcm_serialnum_2 = fcm_serial_num[2];
+  phfc->fcm_serialnum_3 = fcm_serial_num[3];
+
+  phfc->PRstick_rate  = pConfig->PRstickRate / pConfig->Stick100range;
+  phfc->PRstick_angle = pConfig->PRstickAngle /pConfig->Stick100range;
+  phfc->YawStick_rate = pConfig->YawStickRate / pConfig->Stick100range;
+  phfc->Stick_Vspeed  = pConfig->StickVspeed / pConfig->Stick100range;
+  phfc->Stick_Hspeed  = pConfig->StickHspeed / pConfig->Stick100range;
+
+  phfc->num_lidars = (pConfig->ccpm_type == MIXERTANDEM) ? 2 : 1; // TODO::SP - this should come from configuration
+
+  // convert dead band values in % to servo range
+  for (int i = 0; i < 4; i++) {
+    phfc->StickDeadband[i] = pConfig->stick_deadband[i] * 0.01f * pConfig->Stick100range;
+  }
+
+  PID_Init(&phfc->pid_PitchRate,  pConfig->pitchrate_pid_params,  0, 1);
+  PID_Init(&phfc->pid_RollRate,   pConfig->rollrate_pid_params,   0, 1);
+  PID_Init(&phfc->pid_YawRate,    pConfig->yawrate_pid_params,    0, 1);
+  PID_Init(&phfc->pid_PitchAngle, pConfig->pitchangle_pid_params, 1, 0);
+  PID_Init(&phfc->pid_RollAngle,  pConfig->rollangle_pid_params,  1, 0);
+  PID_Init(&phfc->pid_CollVspeed, pConfig->collvspeed_pid_params, 0, 0);
+  PID_Init(&phfc->pid_PitchSpeed, pConfig->pitchspeed_pid_params, 0, 0);
+  PID_Init(&phfc->pid_RollSpeed,  pConfig->rollspeed_pid_params,  0, 0);
+
+  PID_Init(&phfc->pid_IMU[0],     pConfig->imu_pid_params, 1, 0);
+  PID_Init(&phfc->pid_IMU[1],     pConfig->imu_pid_params, 1, 0);
+  PID_Init(&phfc->pid_IMU[2],     pConfig->imu_yaw_pid_params, 1, 0);
+
+  PID_P_Acc_Init(&phfc->pid_YawAngle,    pConfig->yawangle_pid_params,    1, true); // enable deceleration
+  PID_P_Acc_Init(&phfc->pid_CollAlt,     pConfig->collalt_pid_params,     0, true); // same acc and dec
+  PID_P_Acc_Init(&phfc->pid_Dist2T,      pConfig->dist2T_pid_params,      0, true);
+  PID_P_Acc_Init(&phfc->pid_Dist2P,      pConfig->dist2P_pid_params,      0, false);
+  PID_P_Acc_Init(&phfc->pid_PitchCruise, pConfig->pitchCruise_pid_params, 0, false);
+
+  phfc->speed_Iterm_E     = 0;
+  phfc->speed_Iterm_N     = 0;
+  phfc->speed_Iterm_E_lp  = 0;
+  phfc->speed_Iterm_N_lp  = 0;
+
+  // save default values for playlist mode, duplicated and used within phfc->
+  //   - These used to be in cfg, but this is now READ only
+  phfc->rw_cfg.VspeedMax = phfc->pid_CollAlt.COmax;
+  phfc->rw_cfg.VspeedMin = phfc->pid_CollAlt.COmin;
+  phfc->rw_cfg.VspeedAcc = phfc->pid_CollAlt.acceleration;
+  phfc->rw_cfg.HspeedMax = phfc->pid_Dist2T.COmax;
+  phfc->rw_cfg.HspeedAcc = phfc->pid_Dist2T.acceleration;
+
+  // initialize sensor's low pass filters
+  for (int i=0; i < 3; i++) {
+    phfc->calib_gyro_avg[i]  = 0;
+  }
+
+  LP4_Init(&phfc->lp_gyro4[PITCH], pConfig->gyro_lp_freq[PITCH]);
+  LP4_Init(&phfc->lp_gyro4[ROLL], pConfig->gyro_lp_freq[ROLL]);
+  LP4_Init(&phfc->lp_gyro4[YAW], pConfig->gyro_lp_freq[YAW]);
+
+  for (int i=0; i < 3; i++) {
+      LP4_Init(&phfc->lp_acc4[i], pConfig->acc_lp_freq);
+  }
+
+  LP4_Init(&phfc->lp_baro4, pConfig->baro_lp_freq);
+  LP4_Init(&phfc->lp_baro_vspeed4, pConfig->baro_vspeed_lp_freq);
+
+  phfc->Pos_GPS_IMU_Blend = pConfig->Pos_GPS_IMU_BlendReg;
+  phfc->telem_ctrl_period = Max(phfc->telem_ctrl_period, (pConfig->telem_min_ctrl_period * 1000));
+
+  phfc->throttle_value   = -pConfig->Stick100range;
+  phfc->collective_value = -pConfig->Stick100range;
+
+  //Give a 10 percent (up to 1000mAh) buffer on the battery capacity
+  phfc->power.capacity_total = ((pConfig->battery_capacity-min(pConfig->battery_capacity*0.1,1000)) / 1000.0f * 3600); // As
+  phfc->power.energy_total   = (phfc->power.capacity_total * pConfig->battery_cells * 3.7f);  // Ws
+
+  phfc->dyn_yaw_rate = pConfig->default_dyn_yaw_rate;
+  phfc->ctrl_source = pConfig->default_ctrl_source;
+  phfc->acc_dyn_turns = pConfig->default_acc_dyn_turns;
+
+  for (int i = 0; i < 3; i++) {
+    phfc->home_pos[i] = pConfig->default_home_position[i];
+  }
+
+  phfc->orient_reset_counter = pConfig->orient_reset_counter;
+
+  phfc->takeoff_height = pConfig->takeoff_height;
+  phfc->takeoff_vertical_speed = pConfig->takeoff_vertical_speed;
+
+  phfc->controlStatus = CONTROL_STATUS_PREFLIGHT;
+
+  // NOTE:SP: This is data which is updated at runtime to a duplicated
+  // Read/Write area.
+  phfc->rw_cfg.GTWP_retire_radius = pConfig->GTWP_retire_radius;
+  phfc->rw_cfg.GTWP_retire_speed = pConfig->GTWP_retire_speed;
+  phfc->rw_cfg.FTWP_retire_sr_factor = pConfig->FTWP_retire_sr_factor;
+  phfc->rw_cfg.low_speed_limit = pConfig->low_speed_limit;
+  phfc->rw_cfg.PRstickRate = pConfig->PRstickRate;
+  phfc->rw_cfg.PRstickAngle = pConfig->PRstickAngle;
+  phfc->rw_cfg.YawStickRate = pConfig->YawStickRate;
+  phfc->rw_cfg.StickVspeed = pConfig->StickVspeed;
+  phfc->rw_cfg.StickHspeed = pConfig->StickHspeed;
+  phfc->rw_cfg.StickHaccel = pConfig->StickHaccel;
+  phfc->rw_cfg.RollPitchAngle = pConfig->RollPitchAngle;
+  phfc->rw_cfg.wind_compensation = pConfig->wind_compensation;
+  phfc->rw_cfg.path_navigation = pConfig->path_navigation;
+  phfc->rw_cfg.ManualLidarAltitude = pConfig->ManualLidarAltitude;
+  phfc->rw_cfg.AngleCollMixing = pConfig->AngleCollMixing;
+  phfc->rw_cfg.cruise_speed_limit = pConfig->cruise_speed_limit;
+  phfc->rw_cfg.nose_to_WP = pConfig->nose_to_WP;
+  phfc->rw_cfg.landing_wind_threshold = pConfig->landing_wind_threshold;
+  phfc->rw_cfg.battery_capacity = pConfig->battery_capacity;
+  phfc->rw_cfg.WindTableScale = pConfig->WindTableScale;
+  phfc->rw_cfg.elevator_gain = pConfig->elevator_gain;
+  phfc->rw_cfg.dcp_gain = pConfig->dcp_gain;
+  phfc->rw_cfg.throttle_offset = pConfig->throttle_offset;
+
+  for (int i=0; i < 3; i++) {
+    phfc->rw_cfg.AccIntegGains[i] = pConfig->AccIntegGains[i];
+  }
+
+  phfc->rw_cfg.AltitudeBaroGPSblend_final = pConfig->AltitudeBaroGPSblend_final;
+  phfc->rw_cfg.Pos_GPS_IMU_BlendGlitch = pConfig->Pos_GPS_IMU_BlendGlitch;
+  phfc->rw_cfg.Pos_GPS_IMU_BlendReg = pConfig->Pos_GPS_IMU_BlendReg;
+  phfc->rw_cfg.BaroVspeedWeight = pConfig->BaroVspeedWeight;
+  phfc->rw_cfg.BaroAltitudeWeight = pConfig->BaroAltitudeWeight;
+  phfc->rw_cfg.GPSVspeedWeight = pConfig->GPSVspeedWeight;
+  phfc->rw_cfg.gps_vspeed = pConfig->gps_vspeed;
+
+  for (int i=0; i < 3; i++) {
+    phfc->rw_cfg.TurnAccParams[i] = pConfig->TurnAccParams[i];
+  }
+
+  phfc->rw_cfg.joystick_max_speed = pConfig->joystick_max_speed;
+
+  phfc->command.command = TELEM_CMD_NONE;
+  phfc->rc_ctrl_request = false;
+  phfc->playlist_status = PLAYLIST_NONE;
+  phfc->display_mode = DISPLAY_SPLASH;
+  phfc->control_mode[PITCH] = CTRL_MODE_ANGLE;
+  phfc->control_mode[ROLL] = CTRL_MODE_ANGLE;
+  phfc->control_mode[YAW] = CTRL_MODE_ANGLE;
+  phfc->control_mode[COLL] = CTRL_MODE_MANUAL;
+  phfc->control_mode[THRO] = CTRL_MODE_MANUAL;
+  phfc->waypoint_type = WAYPOINT_NONE;
+  phfc->btnMenuPrev = true;
+  phfc->btnSelectPrev = true;
+  phfc->AltitudeBaroGPSblend = ALTITUDE_BARO_GPS_BLEND_FREQ_INIT;
+  phfc->baro_altitude_raw_lp = -9999;
+  phfc->esc_temp = 20;
+
+  for (int i=0; i < MAX_NUM_LIDARS; i++) {
+    phfc->altitude_lidar_raw[i] = 0;
+  }
+
+  phfc->distance2WP_min = 999999;
+
+  phfc->comp_calibrate = NO_COMP_CALIBRATE;
+
+  GenerateSpeed2AngleLUT();
+
+  // If there is a valid compass calibration, load it.
+  // otherwise use defaults.
+  const CompassCalibrationData *pCompass_cal = NULL;
+
+  if (LoadCompassCalibration(&pCompass_cal) == 0) {
+    KICK_WATCHDOG();
+    memcpy(&phfc->compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
+  }
+  else {
+    // no valid calibration, use defaults
+    for (int i = 0; i < 3; i++) {
+      phfc->compass_cal.comp_ofs[i] = 0;
     }
 
-    phfc->distance2WP_min = 999999;
-    phfc->rpm_ticks          = Ticks1();
-    phfc->comp_calibrate = NO_COMP_CALIBRATE;
-
-    GenerateSpeed2AngleLUT();
-
-    // If there is a valid compass calibration, load it.
-    // otherwise use defaults.
-    const CompassCalibrationData *pCompass_cal = NULL;
-
-    if (LoadCompassCalibration(&pCompass_cal) == 0) {
-      KICK_WATCHDOG();
-      memcpy(&phfc->compass_cal, pCompass_cal, sizeof(CompassCalibrationData));
-    }
-    else {
-        // no valid calibration, use defaults
-        for (int i = 0; i < 3; i++) {
-          phfc->compass_cal.comp_ofs[i] = 0;
-        }
-
-        for (int i = 0; i < 3; i++) {
-          phfc->compass_cal.comp_gains[i] = 1;
-        }
-
-        for (int i = 0; i < 3; i++) {
-          phfc->compass_cal.compassMin[i] = 9999;
-        }
-
-        for (int i = 0; i < 3; i++) {
-          phfc->compass_cal.compassMax[i] = -9999;
-        }
+    for (int i = 0; i < 3; i++) {
+      phfc->compass_cal.comp_gains[i] = 1;
     }
 
-    phfc->box_dropper_ = 0;
+    for (int i = 0; i < 3; i++) {
+      phfc->compass_cal.compassMin[i] = 9999;
+    }
 
-    phfc->heading_offset = 0; //pConfig->heading_offset;
+    for (int i = 0; i < 3; i++) {
+      phfc->compass_cal.compassMax[i] = -9999;
+    }
+  }
 
-    phfc->eng_super_user = false;
+  phfc->box_dropper_ = 0;
 
-        InitializeOdometer(phfc);
+  phfc->heading_offset = 0; //pConfig->heading_offset;
 
-    phfc->positive_pid_scaling = pConfig->dynamic_pid_rc_max_gain / 15.0f;
-    phfc->negative_pid_scaling = pConfig->dynamic_pid_rc_min_gain / 14.0f;
-    phfc->pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
+  phfc->eng_super_user = false;
 
-    phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
+  InitializeOdometer(phfc);
+
+  phfc->positive_pid_scaling = pConfig->dynamic_pid_rc_max_gain / 15.0f;
+  phfc->negative_pid_scaling = pConfig->dynamic_pid_rc_min_gain / 14.0f;
+  phfc->pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
+
+  phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 }
 
 uint32_t InitializeSystemData()
@@ -5957,6 +5752,11 @@ uint32_t InitializeSystemData()
   // Initialize Runtime Data
   InitializeRuntimeData();
 
+  // Initialize Lidar Filter
+  for (int i=0; i < phfc->num_lidars; i++) {
+    lidar_median[i] = MediatorNew(35);
+  }
+
   // set FCM led status based upon last reset reason
   SetFcmLedState(phfc->system_reset_reason);
 
@@ -5973,12 +5773,16 @@ static uint32_t InitCanbus(void)
   uint32_t ret_mask = 0;
   CANMessage node_cfg_data;
 
-  // Configure CAN frequency to either 1Mhz or 500Khz, based on configuration
+  // Create New Canbus Client
   Canbus = new CAN(CAN_RXD1, CAN_TXD1, (pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
   Canbus->reset();
-  Canbus->attach(can_handler);
+  Canbus->attach(CanbusISRHandler);
 
   // TODO::SP - Add message to confgure failsafe operation.
+
+  if (phfc->system_reset_reason & 0x1) {
+    return ret_mask;
+  }
 
   // Initialize and configure any servo nodes...
   if (pConfig->num_servo_nodes) {
@@ -6032,14 +5836,13 @@ static uint32_t InitCanbus(void)
   */
 int main()
 {
-
 #if defined (CRP_LOCK)
   SetJtag(LOCK_JTAG);
 #endif
 
   SysTick_Run();
 
-  InitializeWatchdog(1.0f);  // 250ms
+  InitializeWatchdog(0.25f);  // 250ms
 
 #ifdef LCD_ENABLED
   spi.frequency(4000000);
@@ -6074,7 +5877,6 @@ int main()
 
   // Loop Forever, processing control
   while(1) {
-
     DoFlightControl();
 
     // Process Serial commands if USB is available

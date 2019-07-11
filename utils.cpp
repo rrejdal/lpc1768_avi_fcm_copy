@@ -574,6 +574,8 @@ uint32_t GetResetReason(void)
 
   if (reset_reason & 0x4) {
     ret_mask |= (1 << 0); // WD reset
+    LPC_SC->RSID &= 0xFB;
+    LPC_WDT->WDMOD &= 0xFB;
   }
 
   if (reset_reason & 0x10)

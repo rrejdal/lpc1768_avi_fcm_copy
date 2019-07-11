@@ -327,11 +327,6 @@ enum TELEM_PARAMS_AIRFRAME {
 #define COMP_CALIBRATE_DONE     2
 
 #define MAX_NUM_LIDARS            2
-#define LIDAR_TIMEOUT        0.100f  //0.100 seconds = 100 milli-seconds
-#define LIDAR_HISTORY_SIZE       10
-#define INVALID_LIDAR_DATA     9999
-#define MAX_LIDAR_PULSE       40000   /* 40000 us @ 1us/1mm = 40m max range */
-#define MIN_LIDAR_PULSE           0   /* 40000 us @ 1us/1mm = 40m max range */
 
 typedef struct /* size 24bytes */
 {
@@ -740,6 +735,7 @@ typedef struct
     char    can_power_tx_failed;
     uint16  can_servo_tx_errors;
     uint16  can_power_tx_errors;
+    uint16  canbus_error_count;
 } T_Stats;
 
 typedef struct {
@@ -1135,17 +1131,13 @@ typedef struct
 
     float altitude_lidar;       // altitude above ground from LIDAR, angle compensated
     float altitude_lidar_raw[MAX_NUM_LIDARS];   // altitude above ground from LIDAR, raw value
-    float lidar_timeouts[MAX_NUM_LIDARS];
     int   lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
 
     float altitude_WPnext;      // next waypoint altitude, relative to takeoff site
     unsigned int lidar_rise;	// system time at the rising edge of lidar pwm;
     unsigned int lidar_fall;    // system time at the falling edge
     unsigned int lidar_counter;
-    unsigned int rpm_time_ms;   // system time in ms at the rising edge of RPM sensor pulse
-    unsigned int rpm_time_ms_last;
-    unsigned int rpm_ticks;     // system time in systick at the rising edge of RPM sensor pulse
-    unsigned int rpm_dur_us;    // pulse duration in us, valid only when duration in ms<100
+
     float RPM;                  // RPM of the main shaft
     rpmSpoolState rpm_state;
     float spool_timeout;
@@ -1319,6 +1311,8 @@ typedef struct
 
     bool setZeroSpeed;
 
+    byte num_lidars;
+
     uint32_t OdometerReading;
 
     uint32_t system_status_mask;
@@ -1338,13 +1332,6 @@ typedef struct
 {
     T_Servo servo[4];
 } T_Servos;
-
-typedef struct {
-  float      alt[LIDAR_HISTORY_SIZE]; // circular buffer of altitude data (in meters) used for filtering, necessary only for FCM lidar
-  int        data_indx;
-  int        new_data_rdy;
-  float      current_alt;
-} Lidar_Data;
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
  * 					  AVICAN_POWER_VALUES2 all uint16 Vservo, Vaux12V, dTms_adc, adc_count */
