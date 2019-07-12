@@ -572,20 +572,26 @@ uint32_t GetResetReason(void)
   uint32_t reset_reason = LPC_SC->RSID;
   uint32_t ret_mask = 0;
 
-  if (reset_reason & 0x4) {
-    ret_mask |= (1 << 0); // WD reset
-    LPC_SC->RSID &= 0xFB;
-    LPC_WDT->WDMOD &= 0xFB;
+  if (reset_reason & 0x1) {
+    ret_mask |= RESET_REASON_POR;
   }
 
-  if (reset_reason & 0x10)
-  {
-    ret_mask |= (1 << 2); // SYSreset
+  if (reset_reason & 0x4) {
+    ret_mask |= RESET_REASON_WD;
+    LPC_SC->RSID &= 0x3B;
+    LPC_WDT->WDMOD &= 0xB;
   }
 
   if (reset_reason & 0x8)
   {
-    ret_mask |= (1 << 3); // BODR
+    ret_mask |= RESET_REASON_BODR;
+    LPC_SC->RSID &= 0x37;
+  }
+
+  if (reset_reason & 0x10)
+  {
+    ret_mask |= RESET_REASON_SYS;
+    LPC_SC->RSID &= 0x2F;
   }
 
   return ret_mask;

@@ -35,82 +35,82 @@ int GPS::Init(int number_of_channels)
 	return 1;
 }
 
-void GPS::AddGpsData(int channel, int msg_id, char *msg)
+void GPS::AddGpsData(int channel, int seq_id, char *msg)
 {
 	static int new_data_mask = 0;
 
-    if (channel >= number_of_channels_) {
-        return;
+  if (channel >= number_of_channels_) {
+      return;
+  }
+
+  switch(seq_id) {
+    case AVI_GPS0:
+    {
+      GpsAviCanMsg0 *msg0 = (GpsAviCanMsg0*)msg;
+
+      gps_channel_[channel].msg0.altitude = msg0->altitude;
+      gps_channel_[channel].msg0.sats_fix = msg0->sats_fix;
+
+      gps_channel_[channel].fix = (msg0->sats_fix & 0x3);
+
+      gps_channel_[channel].online_ = msg0->gps_status;
+      gps_channel_[channel].other_fix_ = msg0->other_sats_fix;
+
+      //gps_channel_[channel].new_data = 1;
+      new_data_mask |= (1 <<0);
+      break;
     }
-
-    switch(msg_id) {
-        case AVIDRONE_MSGID_GPS_0:
-        {
-            GpsAviCanMsg0 *msg0 = (GpsAviCanMsg0*)msg;
-
-            gps_channel_[channel].msg0.altitude = msg0->altitude;
-            gps_channel_[channel].msg0.sats_fix = msg0->sats_fix;
-
-            gps_channel_[channel].fix = (msg0->sats_fix & 0x3);
-
-            gps_channel_[channel].online_ = msg0->gps_status;
-            gps_channel_[channel].other_fix_ = msg0->other_sats_fix;
-
-            //gps_channel_[channel].new_data = 1;
-            new_data_mask |= (1 <<0);
-            break;
-        }
-        case AVIDRONE_MSGID_GPS_1:
-        {
-            GpsAviCanMsg1 *msg1 = (GpsAviCanMsg1*)msg;
-            gps_channel_[channel].msg1.lat = msg1->lat;
-            gps_channel_[channel].msg1.lon = msg1->lon;
-            new_data_mask |= (1 <<1);
-            break;
-        }
-        case AVIDRONE_MSGID_GPS_2:
-        {
-            GpsAviCanMsg2 *msg2 = (GpsAviCanMsg2*)msg;
-            gps_channel_[channel].msg2.speedE = msg2->speedE;
-            gps_channel_[channel].msg2.speedN = msg2->speedN;
-            gps_channel_[channel].msg2.speedU = msg2->speedU;
-
-			gps_channel_[channel].speedENU[0] = msg2->speedE;
-			gps_channel_[channel].speedENU[1] = msg2->speedN;
-			gps_channel_[channel].speedENU[2] = msg2->speedU;
-
-            gps_channel_[channel].msg2.PDOP   = msg2->PDOP;
-            new_data_mask |= (1 <<2);
-            break;
-        }
-        case AVIDRONE_MSGID_GPS_3:
-        {
-            GpsAviCanMsg3 *msg3 = (GpsAviCanMsg3*)msg;
-            gps_channel_[channel].msg3.date = msg3->date;
-            gps_channel_[channel].msg3.time = msg3->time;
-            new_data_mask |= (1 <<3);
-            break;
-        }
-        case AVIDRONE_MSGID_GPS_4:
-        {
-            GpsAviCanMsg4 *msg4 = (GpsAviCanMsg4*)msg;
-            gps_channel_[channel].msg4.glitch_data = msg4->glitch_data;
-            gps_channel_[channel].msg4.crc_err_cnt = msg4->crc_err_cnt;
-            gps_channel_[channel].msg4.msg_cnt = msg4->msg_cnt;
-            gps_channel_[channel].glitch =  ((gps_channel_[channel].msg4.glitch_data & 0x8000) >> 15);
-            gps_channel_[channel].glitches =  gps_channel_[channel].msg4.glitch_data & 0x7FFF;
-            new_data_mask |= (1 <<4);
-            break;
-        }
-        default:
-            break;
+    case AVI_GPS1:
+    {
+      GpsAviCanMsg1 *msg1 = (GpsAviCanMsg1*)msg;
+      gps_channel_[channel].msg1.lat = msg1->lat;
+      gps_channel_[channel].msg1.lon = msg1->lon;
+      new_data_mask |= (1 <<1);
+      break;
     }
+    case AVI_GPS2:
+    {
+      GpsAviCanMsg2 *msg2 = (GpsAviCanMsg2*)msg;
+      gps_channel_[channel].msg2.speedE = msg2->speedE;
+      gps_channel_[channel].msg2.speedN = msg2->speedN;
+      gps_channel_[channel].msg2.speedU = msg2->speedU;
 
-    if (new_data_mask == 0x1F) {
-        //debug_print("New Data in ch[%d]\r\n", channel);
-        gps_channel_[channel].new_data = 1;
-        new_data_mask = 0;
+      gps_channel_[channel].speedENU[0] = msg2->speedE;
+      gps_channel_[channel].speedENU[1] = msg2->speedN;
+      gps_channel_[channel].speedENU[2] = msg2->speedU;
+
+      gps_channel_[channel].msg2.PDOP   = msg2->PDOP;
+      new_data_mask |= (1 <<2);
+      break;
     }
+    case AVI_GPS3:
+    {
+      GpsAviCanMsg3 *msg3 = (GpsAviCanMsg3*)msg;
+      gps_channel_[channel].msg3.date = msg3->date;
+      gps_channel_[channel].msg3.time = msg3->time;
+      new_data_mask |= (1 <<3);
+      break;
+    }
+    case AVI_GPS4:
+    {
+      GpsAviCanMsg4 *msg4 = (GpsAviCanMsg4*)msg;
+      gps_channel_[channel].msg4.glitch_data = msg4->glitch_data;
+      gps_channel_[channel].msg4.crc_err_cnt = msg4->crc_err_cnt;
+      gps_channel_[channel].msg4.msg_cnt = msg4->msg_cnt;
+      gps_channel_[channel].glitch =  ((gps_channel_[channel].msg4.glitch_data & 0x8000) >> 15);
+      gps_channel_[channel].glitches =  gps_channel_[channel].msg4.glitch_data & 0x7FFF;
+      new_data_mask |= (1 <<4);
+      break;
+    }
+    default:
+        break;
+  }
+
+  if (new_data_mask == 0x1F) {
+    //debug_print("New Data in ch[%d]\r\n", channel);
+    gps_channel_[channel].new_data = 1;
+    new_data_mask = 0;
+  }
 }
 
 // Returns ptr to current in use GPS data

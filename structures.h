@@ -1319,6 +1319,8 @@ typedef struct
 
     uint32_t system_reset_reason;
 
+    byte soft_reset_counter;
+
 } FlightControlData;
 
 

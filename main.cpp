@@ -549,8 +549,7 @@ static void WriteToServoNodeServos(int num_servo_nodes)
         for (int i=0; i < num_servo_nodes; i++) {
             memcpy(can_tx_message.data, &pwm_values[i][0], 8);
 
-            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
-                                                    (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_SERVO_LO_CTRL);
+            can_tx_message.id = AVI_CAN_ID(AVI_SERVO_NODETYPE, (DEFAULT_NODE_ID + i), AVI_SERVOS_0_3, AVI_MSGID_CDP);
 
             if (!Canbus->write(can_tx_message)) {
                 ++write_canbus_error;
@@ -561,8 +560,7 @@ static void WriteToServoNodeServos(int num_servo_nodes)
         for (int i=0; i < num_servo_nodes; i++) {
             memcpy(can_tx_message.data, &pwm_values[i][4], 8);
 
-            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
-                                                    (DEFAULT_NODE_ID + i), AVIDRONE_MSGID_SERVO_HI_CTRL);
+            can_tx_message.id = AVI_CAN_ID(AVI_SERVO_NODETYPE, (DEFAULT_NODE_ID + i), AVI_SERVOS_4_7, AVI_MSGID_CDP);
 
             if (!Canbus->write(can_tx_message)) {
                 ++write_canbus_error;
@@ -596,8 +594,7 @@ static void WriteToPowerNodeServos()
     if (pwm_out ^= 1) {
         memcpy(can_tx_message.data, &pwm_values[0][0], 8);
 
-        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                (DEFAULT_NODE_ID), AVIDRONE_MSGID_PWR_LO_CTRL);
+        can_tx_message.id = AVI_CAN_ID(AVI_PWR_NODETYPE, (DEFAULT_NODE_ID), AVI_SERVOS_0_3, AVI_MSGID_CDP);
 
         if (!Canbus->write(can_tx_message)) {
             ++write_canbus_error;
@@ -607,8 +604,7 @@ static void WriteToPowerNodeServos()
 
         memcpy(can_tx_message.data, &pwm_values[0][4], 8);
 
-        can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                (DEFAULT_NODE_ID), AVIDRONE_MSGID_PWR_HI_CTRL);
+        can_tx_message.id = AVI_CAN_ID(AVI_PWR_NODETYPE, (DEFAULT_NODE_ID), AVI_SERVOS_4_7, AVI_MSGID_CDP);
 
         if (!Canbus->write(can_tx_message)) {
             ++write_canbus_error;
@@ -3916,33 +3912,33 @@ static void UpdateLidar(int node_id, int pulse_us)
 //
 // - Process Live Link messagefrom Canbus Node
 //
-static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pdata)
+static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
 {
   float *data= (float *)pdata;
   int new_data = 1;
 
-  switch (message_id) {
-    case AVIDRONE_MSGID_CASTLE_0:
+  switch (seq_id) {
+    case AVI_CL0:
       castle_link_live[node_id].battery_voltage = *data++;
       castle_link_live[node_id].ripple_voltage = *data;
       castle_link_live[node_id].new_data_mask |= (1 << 0);
       break;
-    case AVIDRONE_MSGID_CASTLE_1:
+    case AVI_CL1:
       castle_link_live[node_id].current = *data++;
       castle_link_live[node_id].output_power = *data;
       castle_link_live[node_id].new_data_mask |= (1 << 1);
       break;
-    case AVIDRONE_MSGID_CASTLE_2:
+    case AVI_CL2:
       castle_link_live[node_id].throttle = *data++;
       castle_link_live[node_id].rpm = *data;
       castle_link_live[node_id].new_data_mask |= (1 << 2);
       break;
-    case AVIDRONE_MSGID_CASTLE_3:
+    case AVI_CL3:
       castle_link_live[node_id].bec_voltage = *data++;
       castle_link_live[node_id].bec_current = *data;
       castle_link_live[node_id].new_data_mask |= (1 << 3);
       break;
-    case AVIDRONE_MSGID_CASTLE_4:
+    case AVI_CL4:
       castle_link_live[node_id].temperature = *(float *)data;
       castle_link_live[node_id].new_data_mask |= (1 << 4);
       break;
@@ -4089,92 +4085,67 @@ static void CanbusISRHandler(void)
   bool unkown_message = false;
 
   while(Canbus->read(can_rx_message) && !unkown_message) {
-    int node_type = AVIDRONE_CAN_NODETYPE(can_rx_message.id);
-    int node_id = (AVIDRONE_CAN_NODEID(can_rx_message.id) -1);
-    int message_id = AVIDRONE_CAN_MSGID(can_rx_message.id);
+
+    int node_type = AVI_CAN_NODETYPE(can_rx_message.id);
+    int node_id = (AVI_CAN_NODEID(can_rx_message.id) -1);
+    int seq_id = AVI_CAN_SEQID(can_rx_message.id);
+    int message_id = AVI_CAN_MSGID(can_rx_message.id);
     unsigned char *pdata = &can_rx_message.data[0];
 
-    switch(node_type) {
-      case AVIDRONE_SERVO_NODETYPE:
+    switch(message_id) {
+    case AVI_MSGID_PDP:
       {
-        if (message_id == AVIDRONE_MSGID_SERVO_ACK) {
-          canbus_ack = 1;
-        }
-        else if (message_id == AVIDRONE_MSGID_LIDAR) {
+        if (seq_id == AVI_LIDAR) {
           UpdateLidar(node_id, *(uint32_t *)pdata);
         }
-        else if ((message_id >= AVIDRONE_MSGID_CASTLE_0) && (message_id <= AVIDRONE_MSGID_CASTLE_4)) {
-          UpdateCastleLiveLink(node_id, message_id, pdata);
-        }
-        else if (message_id == AVIDRONE_MSGID_SERVO_INFO) {
-          UpdateBoardInfo(node_id, pdata);
-          can_node_found = 1;
-        }
-        else if (message_id == AVIDRONE_MSGID_SERVO_PN) {
-          UpdateBoardPartNum(node_id, PN_SN, pdata);
-        }
-        else {
-          phfc->stats.canbus_error_count++;
-        }
-      }
-      break;
-      case AVIDRONE_GPS_NODETYPE:
-      {
-        if ((message_id >= AVIDRONE_MSGID_GPS_0) && (message_id <= AVIDRONE_MSGID_GPS_4)) {
-          gps.AddGpsData(node_id, message_id, (char *)pdata);
-        }
-        else if (message_id == AVIDRONE_MSGID_COMPASS_XYZ) {
-          UpdateCompassData(node_id, pdata);
-        }
-        else if (message_id == AVIDRONE_MSGID_GPS_ACK) {
-          canbus_ack = 1;
-        }
-        else if (message_id == AVIDRONE_MSGID_GPS_INFO) {
-          UpdateBoardInfo(node_id, pdata);
-        }
-        else if (message_id == AVIDRONE_MSGID_GPS_PN) {
-          UpdateBoardPartNum(node_id, PN_GPS, pdata);
-          can_node_found = 1;
-        }
-        else {
-            phfc->stats.canbus_error_count++;
-        }
-      }
-      break;
-      case AVIDRONE_PWR_NODETYPE:
-      {
-        if (message_id == AVIDRONE_MSGID_PWR_ACK) {
-          canbus_ack = 1;
-        }
-        else if (message_id == AVIDRONE_PWR_MSGID_LIDAR) {
-          UpdateLidar(node_id, *(uint32_t *)pdata);
-        }
-        else if ((message_id >= AVIDRONE_PWR_MSGID_CASTLE_0) && (message_id <= AVIDRONE_PWR_MSGID_CASTLE_4)) {
-          UpdateCastleLiveLink(node_id, message_id, pdata);
-        }
-        else if (message_id == AVIDRONE_MSGID_PWR_V_I) {
+        else if (seq_id == AVI_VI) {
           UpdatePowerNodeVI(node_id, pdata);
         }
-        else if (message_id == AVIDRONE_MSGID_PWR_INFO) {
-          UpdateBoardInfo(node_id, pdata);
-        }
-        else if (message_id == AVIDRONE_MSGID_PWR_PN) {
-          UpdateBoardPartNum(node_id, PN_PWR, pdata);
-          can_node_found = 1;
-        }
-        else if (message_id == AVIDRONE_MSGID_PWR_COEFF) {
-          can_power_coeff++;
-          UpdatePowerNodeCoeff(node_id, pdata);
-        }
         else {
-            phfc->stats.canbus_error_count++;
+          UpdateCastleLiveLink(node_id, seq_id, pdata);
         }
       }
       break;
-      default:
-        unkown_message = true;
-        phfc->stats.canbus_error_count++;
-        break;
+
+    case AVI_MSGID_GPS:
+      {
+        if (seq_id == AVI_COMPASS) {
+          UpdateCompassData(node_id, pdata);
+        }
+        else {
+          gps.AddGpsData(node_id, seq_id, (char *)pdata);
+        }
+      }
+      break;
+
+    case AVI_MSGID_CTRL:
+      {
+        if (seq_id == AVI_ACK) {
+          canbus_ack = 1;
+        }
+      }
+      break;
+
+    case AVI_MSGID_SDP:
+      {
+        if(seq_id == AVI_BOARDINFO_0) {
+          UpdateBoardInfo(node_id, pdata);
+          if (node_type == AVI_SERVO_NODETYPE) {
+            can_node_found = 1;
+          }
+        }
+        else if(seq_id == AVI_BOARDINFO_1) {
+          UpdateBoardPartNum(node_id, node_type, pdata);
+          if (node_type != AVI_SERVO_NODETYPE) {
+            can_node_found = 1;
+          }
+        }
+      }
+      break;
+
+    default:
+      phfc->stats.canbus_error_count++;
+      break;
     }
   }
 }
@@ -4881,11 +4852,11 @@ void DoFlightControl()
     AutoReset();
 
     if (pConfig->num_gps_nodes > 0) {
-      CanbusSync(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE);
+      CanbusSync(pConfig->num_gps_nodes, AVI_GPS_NODETYPE);
     }
 
     if (pConfig->num_power_nodes > 0) {
-      CanbusSync(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE);
+      CanbusSync(pConfig->num_power_nodes, AVI_PWR_NODETYPE);
     }
 
     phfc->power.dT += dT;
@@ -5077,90 +5048,7 @@ static void ProcessUserCmnds(char c)
         // Calibrate requested
         usb_print("OK");
         serial.scanf("%19s", request);
-
-        // Wait for Load Type - config
-        if (strcmp(request, "pwr_read") == 0) {
-            int timeout = CAN_TIMEOUT;
-            CANMessage can_tx_message;
-
-            for( int i = 0; i < 2; i ++) {
-                can_tx_message.len = 0;
-                can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                        DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
-
-                while( (can_power_coeff == i) && --timeout) {
-                    if (!Canbus->write(can_tx_message)) {
-                        ++write_canbus_error;
-                    }
-                    wait_ms(20);
-                }
-
-                if (can_power_coeff == i) {
-                    usb_print("ERROR");
-                }
-                else {
-                    if (can_power_coeff == 1) {
-                        usb_print("\r\n---voltage: slope=%f offset=%f",
-                                  phfc->power.Vslope,phfc->power.Voffset);
-                    }
-                    else if (can_power_coeff == 2) {
-                        usb_print("\r\n---current: slope=%f offset=%f \r\n",
-                                  phfc->power.Islope,phfc->power.Ioffset);
-                    }
-
-                }
-            }
-            can_power_coeff = 0;
-        }
-#if 0
-        // SP::NOTE: 28/12/2018
-        // TEMP REMOVING MECHANSIM FOR STARTING A CALIBRATION TO THE POWER NODE.
-        // THIS IS NO LONGER THE DESIRED WAY TO PERFORM POWER NODE CALIBRATION.
-        else if (strcmp(request, "start") == 0) {
-            // Issue a request to start power node calibration
-            can_power_coeff = 0;
-            timeout = 2;
-            can_tx_message.len = 2;
-            can_tx_message.data[0] = PWM_NO_CHANNEL;
-            can_tx_message.data[1] = CALIBRATE_PWR_NODE;
-
-            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_CFG);
-
-            if (!can.write(can_tx_message)) {
-                ++write_canbus_error;
-            }
-
-            timeout = 60; // seconds
-            while(--timeout) {
-                KICK_WATCHDOG();
-                wait(1.0f);
-            }
-
-            // Now poll to see if it completed successfully
-            can_tx_message.len = 0;
-            can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_PWR_NODETYPE,
-                                                    DEFAULT_NODE_ID, AVIDRONE_MSGID_PWR_COEFF);
-
-            timeout = CAN_TIMEOUT;
-            while(!can_power_coeff && --timeout) {
-                if (!can.write(can_tx_message)) {
-                    ++write_canbus_error;
-                }
-                wait_ms(20);
-            }
-
-            if (!can_power_coeff) {
-                usb_print("ERROR");
-            }
-            else {
-                usb_print("Vcoeff[%f], Icoeff[%f]", phfc->power.Vcoeff, phfc->power.Icoeff);
-            }
-            can_power_coeff = 0;
-        }
-        else
-#endif
-        else if (strcmp(request, "compass") == 0) {
+        if (strcmp(request, "compass") == 0) {
 
             usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
             usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", phfc->compass_cal.compassMax[0],phfc->compass_cal.compassMin[0],
@@ -5173,7 +5061,6 @@ static void ProcessUserCmnds(char c)
         else {
             usb_print("NACK\r\n");
         }
-
     }
     else if (c == 'M') {
         // System Manifest
@@ -5439,7 +5326,7 @@ uint32_t InitCanbusNode(int num_nodes, int node_type)
     timeout = CAN_TIMEOUT;  // TODO::SP - Why do we need 10 seconds to timeout on Canbus???
 
     can_tx_message.len = 0;
-    can_tx_message.id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_INFO);
+    can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_BOARDINFO_0, AVI_MSGID_SDP);
 
     while(!can_node_found && --timeout) {
       KICK_WATCHDOG();
@@ -5469,7 +5356,7 @@ uint32_t ConfigureCanbusNode(int num_nodes, int node_type, CANMessage *can_tx_me
   for (int i = 0; i < num_nodes; i++) {
     canbus_ack = 0;
 
-    can_tx_message->id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_CFG);
+    can_tx_message->id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_CFG, AVI_MSGID_SDP);
 
     while(!canbus_ack && --timeout) {
       KICK_WATCHDOG();
@@ -5487,7 +5374,7 @@ uint32_t ConfigureCanbusNode(int num_nodes, int node_type, CANMessage *can_tx_me
 }
 
 //
-// - Send a Canbus Sync(Heartbeat) request to particular Node(s)
+// - Send a Canbus Sync(Heartbeat) request to either GPS or Power nodes.
 //
 static void CanbusSync(int num_nodes, int node_type)
 {
@@ -5498,7 +5385,7 @@ static void CanbusSync(int num_nodes, int node_type)
   can_tx_message.len    = 0;
 
   for (int i = 0; i < num_nodes; i++) {
-    can_tx_message.id = AVIDRONE_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_MSGID_SYNC);
+    can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SYNC, AVI_MSGID_CTRL);
     if (!Canbus->write(can_tx_message)) {
       ++write_canbus_error;
     }
@@ -5516,9 +5403,12 @@ void InitializeRuntimeData(void)
 
   // If we are warm resetting, DO NOT re-init data. We are trying to
   // keep running under a warm reset.
-  if (last_reset & 0x1) {
+  if (last_reset & (RESET_REASON_WD | RESET_REASON_SYS)) {
     phfc->system_reset_reason = last_reset;
+    phfc->soft_reset_counter++;
 
+    // initialize incoming command to None, to ensure we don't process an old
+    // command when soft resetting.
     phfc->command.command = TELEM_CMD_NONE;
     return;
   }
@@ -5528,6 +5418,7 @@ void InitializeRuntimeData(void)
   memset(phfc, 0x00, sizeof(FlightControlData));
 
   phfc->system_reset_reason = last_reset;
+  phfc->soft_reset_counter = 0;
 
 	// Setup FCM's serial number.
   int *fcm_serial_num;
@@ -5780,18 +5671,18 @@ static uint32_t InitCanbus(void)
 
   // TODO::SP - Add message to confgure failsafe operation.
 
-  if (phfc->system_reset_reason & 0x1) {
-    return ret_mask;
-  }
+  //if (phfc->system_reset_reason & (RESET_REASON_WD | RESET_REASON_SYS)) {
+  //  return ret_mask;
+  //}
 
   // Initialize and configure any servo nodes...
   if (pConfig->num_servo_nodes) {
-    if ((status = InitCanbusNode(pConfig->num_servo_nodes, AVIDRONE_SERVO_NODETYPE)) == 0) {
+    if ((status = InitCanbusNode(pConfig->num_servo_nodes, AVI_SERVO_NODETYPE)) == 0) {
       // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
       node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
-      status = ConfigureCanbusNode(pConfig->num_servo_nodes, AVIDRONE_SERVO_NODETYPE, &node_cfg_data);
+      status = ConfigureCanbusNode(pConfig->num_servo_nodes, AVI_SERVO_NODETYPE, &node_cfg_data);
     }
 
     if (status & 0x1) { ret_mask |= N1_SERVO_FAIL; }
@@ -5802,11 +5693,11 @@ static uint32_t InitCanbus(void)
   if (pConfig->num_gps_nodes) {
     gps.Init(pConfig->num_gps_nodes);
 
-    if ((status = InitCanbusNode(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE)) == 0) {
+    if ((status = InitCanbusNode(pConfig->num_gps_nodes, AVI_GPS_NODETYPE)) == 0) {
       // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
       node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
       node_cfg_data.len = 1;
-      status = ConfigureCanbusNode(pConfig->num_gps_nodes, AVIDRONE_GPS_NODETYPE, &node_cfg_data);
+      status = ConfigureCanbusNode(pConfig->num_gps_nodes, AVI_GPS_NODETYPE, &node_cfg_data);
     }
 
     if (status & 0x1) { ret_mask |= N1_NAV_FAIL; }
@@ -5815,13 +5706,13 @@ static uint32_t InitCanbus(void)
 
   // Initialize and configure any Power nodes...
   if (pConfig->num_power_nodes) {
-    if ((status = InitCanbusNode(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE)) == 0) {
+    if ((status = InitCanbusNode(pConfig->num_power_nodes, AVI_PWR_NODETYPE)) == 0) {
       // Enable all PWM channels and Lidar.
       node_cfg_data.data[0] = PWM_CHANNEL_1_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
       // TODO::SP - CFG Message ID is changed.
-      status = ConfigureCanbusNode(pConfig->num_power_nodes, AVIDRONE_PWR_NODETYPE, &node_cfg_data);
+      status = ConfigureCanbusNode(pConfig->num_power_nodes, AVI_PWR_NODETYPE, &node_cfg_data);
     }
 
     if (status & 0x1) { ret_mask |= N1_PWR_FAIL; }
@@ -5842,7 +5733,7 @@ int main()
 
   SysTick_Run();
 
-  InitializeWatchdog(0.25f);  // 250ms
+  //InitializeWatchdog(0.25f);  // 250ms
 
 #ifdef LCD_ENABLED
   spi.frequency(4000000);

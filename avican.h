@@ -31,52 +31,95 @@
 /* Using CAN2.0B standard mode, providing 11 bit identifiers.
  * Avidrone Can node/msg assignment as follows:
  *
- *  - bits[10..8] Node TYPE (0.7 node Types)
- *  - bits[07..4] Node ID   (0.15 node ids per node type)
- *  - bits[03..0] Msg ID    (0..15 message ids per node type)
+ *  - bits[10..8] Node TYPE (3 bits, 0-7 Node Types)
+ *  - bits[7..6]  Node ID   (2 bits, 0-3 Node Ids, per Node Type)
+ *  - bits[5..3]  Msg Seq   (3 bits, 0-7 Message Seq Num (per Msg Id))
+ *  - bits[2..0]  Msg ID    (3 bits, 0-7 message ids per node type)
  */
 
-#define AVIDRONE_CAN_NODE_TYPE_MASK     0x700
-#define AVIDRONE_CAN_NODE_TYPE_SHIFT    8
+#define AVI_CAN_NODE_TYPE_MASK  0x700
+#define AVI_CAN_NODE_TYPE_SHIFT 8
 
-#define AVIDRONE_CAN_NODE_MASK      0xF0
-#define AVIDRONE_CAN_NODE_SHIFT     4
+#define AVI_CAN_NODE_MASK  0xC0
+#define AVI_CAN_NODE_SHIFT 6
 
-#define AVIDRONE_CAN_MSGID_MASK     0xF
-#define AVIDRONE_CAN_MSGID_SHIFT    0
+#define AVI_CAN_SEQ_MASK   0x38
+#define AVI_CAN_SEQ_SHIFT  3
 
-#define AVIDRONE_CAN_ID(__TYPE__,__NODE__,__MSG__) ( ((__TYPE__) << AVIDRONE_CAN_NODE_TYPE_SHIFT) \
-                                                   | ((__NODE__) << AVIDRONE_CAN_NODE_SHIFT) \
-                                                   | ((__MSG__) & AVIDRONE_CAN_MSGID_MASK) )
+#define AVI_CAN_MSGID_MASK  0x7
+#define AVI_CAN_MSGID_SHIFT 0
 
-#define AVIDRONE_CAN_NODETYPE(__MSG__) (((__MSG__) & AVIDRONE_CAN_NODE_TYPE_MASK) >> AVIDRONE_CAN_NODE_TYPE_SHIFT)
-#define AVIDRONE_CAN_NODEID(__MSG__) (((__MSG__) & AVIDRONE_CAN_NODE_MASK) >> AVIDRONE_CAN_NODE_SHIFT)
-#define AVIDRONE_CAN_MSGID(__MSG__) ((__MSG__) & AVIDRONE_CAN_MSGID_MASK)
+#define AVI_CAN_ID(__TYPE__, __NODE__, __SEQ__, __MSG__) \
+  ( ((__TYPE__) << AVI_CAN_NODE_TYPE_SHIFT) \
+		  | ((__NODE__) << AVI_CAN_NODE_SHIFT) \
+		  | ((__SEQ__) << AVI_CAN_SEQ_SHIFT) \
+      | ((__MSG__) & AVI_CAN_MSGID_MASK) )
+
+#define AVI_CAN_NODETYPE(__MSG__) (((__MSG__) & AVI_CAN_NODE_TYPE_MASK) >> AVI_CAN_NODE_TYPE_SHIFT)
+#define AVI_CAN_NODEID(__MSG__) (((__MSG__) & AVI_CAN_NODE_MASK) >> AVI_CAN_NODE_SHIFT)
+#define AVI_CAN_SEQID(__MSG__) (((__MSG__) & AVI_CAN_SEQ_MASK) >> AVI_CAN_SEQ_SHIFT)
+#define AVI_CAN_MSGID(__MSG__) ((__MSG__) & AVI_CAN_MSGID_MASK)
 
 typedef enum {
-    AVIDRONE_NODETYPE_NONE  = 0,
-    AVIDRONE_FCM_NODETYPE   = 1,
-    AVIDRONE_SERVO_NODETYPE = 2,
-    AVIDRONE_GPS_NODETYPE   = 3,
-    AVIDRONE_PWR_NODETYPE   = 4,
-    AVIDRONE_RSVD1_NODETYPE = 5,
-    AVIDRONE_RSVD2_NODETYPE = 6,
-    AVIDRONE_RSVD3_NODETYPE = 7,
-    AVIDRONE_NODETYPE_MAX   = AVIDRONE_PWR_NODETYPE,
-} AVIDRONE_CAN_NODE_TYPE;
+    AVI_NODETYPE_NONE  = 0,
+    AVI_FCM_NODETYPE   = 1,
+    AVI_SERVO_NODETYPE = 2,
+    AVI_GPS_NODETYPE   = 3,
+    AVI_PWR_NODETYPE   = 4,
+    AVI_RSVD1_NODETYPE = 5,
+    AVI_RSVD2_NODETYPE = 6,
+    AVI_RSVD3_NODETYPE = 7,
+} AVI_CAN_NODE_TYPE;
 
 #define DEFAULT_NODE_ID 1
 #define MAX_NODE_ID     15
 
 typedef enum {
-  AVI_MSGID_NONE    = 0,
-  AVI_MSGID_INFO    = 1,
-  AVI_MSGID_PN      = 2,
-  AVI_MSGID_SYNC    = 3,
-  AVI_MSGID_CFG     = 9,  // TODO::SP - This needs to be remapped, and at present will not support Power node
-  AVI_MSGID_FAILSAFE = 10,
+  AVI_MSGID_CTRL    = 0,
+  AVI_MSGID_SDP     = 1,  // Setup Data Packet
+  AVI_MSGID_CDP     = 2,  // Control Data Packet (From FCM)
+  AVI_MSGID_PDP     = 3,  // Process Data Packet (To FCM)
+  AVI_MSGID_GPS     = 4,
 } AVI_CANBUS_COMMON_MSG_IDS;
 
+typedef enum {
+  AVI_SYNC = 0,
+  AVI_ACK  = 7,
+} AVI_CANBUS_SEQID_CTRL;
+
+typedef enum {
+  AVI_CFG          = 0,
+  AVI_BOARDINFO_0  = 1,
+  AVI_BOARDINFO_1  = 2,
+  AVI_FAILSAFE_0_3 = 3,
+  AVI_FAILSAFE_4_7 = 4,
+} AVI_CANBUS_SEQID_SDP;
+
+typedef enum {
+  AVI_SERVOS_0_3  = 0,
+  AVI_SERVOS_4_7  = 1,
+} AVI_CANBUS_SEQID_CDP;
+
+typedef enum {
+  AVI_LIDAR  = 0,
+  AVI_CL0  = 1,
+  AVI_CL1  = 2,
+  AVI_CL2  = 3,
+  AVI_CL3  = 4,
+  AVI_CL4  = 5,
+  AVI_VI   = 6,
+} AVI_CANBUS_SEQID_PDP;
+
+typedef enum {
+  AVI_GPS0  = 0,
+  AVI_GPS1  = 1,
+  AVI_GPS2  = 2,
+  AVI_GPS3  = 3,
+  AVI_GPS4  = 4,
+  AVI_COMPASS = 5,
+} AVI_CANBUS_SEQID_GPS;
+
+#if 0
 typedef enum {
     AVIDRONE_MSGID_SERVO_NONE    = 0,
     AVIDRONE_MSGID_SERVO_INFO    = 1,
@@ -131,6 +174,7 @@ typedef enum {
     AVIDRONE_MSGID_PWR_COEFF    = 15,
     AVIDRONE_MSGID_PWR_MAX      = AVIDRONE_MSGID_PWR_SYNC,
 } AVIDRONE_CAN_PWR_MSG_IDS;
+#endif
 
 // Canbus Servo/Power Node configurations
 #define PWM_NO_CHANNEL  (0)
