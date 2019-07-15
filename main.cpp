@@ -2199,7 +2199,7 @@ static int rpm_threshold_check(float dT)
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
-  static float abortTimer = ABORT_TIMEOUT_SEC;
+  static float abort_flight_timer = ABORT_TIMEOUT_SEC;
   static float led_timer = 1.0; // toggle time for Armed LED
   static int led_state = 1;
 
@@ -2212,7 +2212,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
           && (hfc->playlist_status != PLAYLIST_PLAYING)
           && (hfc->ctrl_source != CTRL_SOURCE_AFSI)) {
 
-      if (abortTimer <= 0) {
+      if (abort_flight_timer <= 0) {
 
         // Toggle Arm LED to show we are aborting the flight
         led_timer -= dT;
@@ -2227,11 +2227,11 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         AbortFlight();
       }
       else {
-        abortTimer -= dT;
+        abort_flight_timer -= dT;
       }
     }
     else {
-      abortTimer = ABORT_TIMEOUT_SEC;
+      abort_flight_timer = ABORT_TIMEOUT_SEC;
 
       // Process FCM reserved LEDS.
       // PWM_5 reserved for FCM box dropper
@@ -4123,6 +4123,9 @@ static void CanbusISRHandler(void)
         if (seq_id == AVI_ACK) {
           canbus_ack = 1;
         }
+        else {
+          unkown_message = true;
+        }
       }
       break;
 
@@ -4130,21 +4133,25 @@ static void CanbusISRHandler(void)
       {
         if(seq_id == AVI_BOARDINFO_0) {
           UpdateBoardInfo(node_id, pdata);
-          if (node_type == AVI_SERVO_NODETYPE) {
-            can_node_found = 1;
-          }
+          //if (node_type == AVI_SERVO_NODETYPE) {
+          //  can_node_found = 1;
+          //}
         }
         else if(seq_id == AVI_BOARDINFO_1) {
           UpdateBoardPartNum(node_id, node_type, pdata);
-          if (node_type != AVI_SERVO_NODETYPE) {
+          //if (node_type != AVI_SERVO_NODETYPE) {
             can_node_found = 1;
-          }
+          //}
+        }
+        else {
+          unkown_message = true;
         }
       }
       break;
 
     default:
       phfc->stats.canbus_error_count++;
+      unkown_message = true;
       break;
     }
   }
@@ -5312,65 +5319,63 @@ static void PrintOrient()
 //
 // - Initialize Canbus Node(s)
 //
-uint32_t InitCanbusNode(int num_nodes, int node_type)
+uint32_t InitCanbusNode(int node_type, int node_id)
 {
   CANMessage can_tx_message;
   int timeout = CAN_TIMEOUT;
-  uint32_t ret_mask = 0;
+  uint32_t ret = 0;
+
+  //if (phfc->system_reset_reason & (RESET_REASON_WD)) {
 
   // ping the board to determine -
   //  - a) Is the board connected and
   //  - b) Read board information (Firmware Version, Hardware Serial Num)
-  for (int i = 0; i < num_nodes; i++) {
-    can_node_found = 0;
-    timeout = CAN_TIMEOUT;  // TODO::SP - Why do we need 10 seconds to timeout on Canbus???
+  can_node_found = 0;
+  timeout = CAN_TIMEOUT;  // TODO::SP - Why do we need 10 seconds to timeout on Canbus???
 
-    can_tx_message.len = 0;
-    can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_BOARDINFO_0, AVI_MSGID_SDP);
+  can_tx_message.len = 0;
+  can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_BOARDINFO_0, AVI_MSGID_SDP);
 
-    while(!can_node_found && --timeout) {
-      KICK_WATCHDOG();
-      if (!Canbus->write(can_tx_message)) {
-          ++write_canbus_error;
-      }
-      wait_ms(20);
+  while(!can_node_found && --timeout) {
+    KICK_WATCHDOG();
+    if (!Canbus->write(can_tx_message)) {
+        ++write_canbus_error;
     }
-
-    if (!can_node_found) {
-      ret_mask |= (1 << i);
-    }
+    wait_ms(20);
   }
 
-  return ret_mask;
+  if (!can_node_found) {
+    ret = 1;
+  }
+
+  return ret;
 }
 
 //
 // - Configure operation of a particular type of Canbus Node.
 //
-uint32_t ConfigureCanbusNode(int num_nodes, int node_type, CANMessage *can_tx_message)
+uint32_t ConfigureCanbusNode(int node_type, int node_id, CANMessage *can_tx_message)
 {
   int timeout = CAN_TIMEOUT;
-  uint32_t ret_mask = 0;
+  uint32_t ret = 0;
 
   // Configure Node. Board will 'ACK' message to indicate success.
-  for (int i = 0; i < num_nodes; i++) {
-    canbus_ack = 0;
+  canbus_ack = 0;
 
-    can_tx_message->id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_CFG, AVI_MSGID_SDP);
+  can_tx_message->id = AVI_CAN_ID(node_type, node_id, AVI_CFG, AVI_MSGID_SDP);
 
-    while(!canbus_ack && --timeout) {
-      KICK_WATCHDOG();
-      if (!Canbus->write(*can_tx_message)) {
-          ++write_canbus_error;
-      }
-      wait_ms(20);
+  while(!canbus_ack && --timeout) {
+    KICK_WATCHDOG();
+    if (!Canbus->write(*can_tx_message)) {
+        ++write_canbus_error;
     }
-
-    if (!canbus_ack) {
-      ret_mask |= (1 << i);
-    }
+    wait_ms(20);
   }
-  return ret_mask;
+
+  if (!canbus_ack) {
+    ret = 1;
+  }
+  return ret;
 }
 
 //
@@ -5397,19 +5402,22 @@ static void CanbusSync(int num_nodes, int node_type)
 //
 void InitializeRuntimeData(void)
 {
-  uint32_t last_reset = GetResetReason();
+  uint32_t last_reset = LPC_SC->RSID; //GetResetReason();
 
   phfc = (FlightControlData *)&_hfc_runtime;  // This area is Reserved by the linker!
 
   // If we are warm resetting, DO NOT re-init data. We are trying to
   // keep running under a warm reset.
-  if (last_reset & (RESET_REASON_WD | RESET_REASON_SYS)) {
+  //if (last_reset & (RESET_REASON_WD | RESET_REASON_SYS)) {
+  //if (last_reset & (RESET_REASON_WD)) {
+  if (last_reset != 0x9) {
     phfc->system_reset_reason = last_reset;
     phfc->soft_reset_counter++;
 
     // initialize incoming command to None, to ensure we don't process an old
     // command when soft resetting.
     phfc->command.command = TELEM_CMD_NONE;
+
     return;
   }
 
@@ -5625,6 +5633,9 @@ void InitializeRuntimeData(void)
   phfc->pid_PitchRateScalingFactor = pConfig->dynamic_pid_speed_gain;
 
   phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
+
+  //phfc->abort_flight_timer = ABORT_TIMEOUT_SEC;
+  LPC_RIT->RICOUNTER = 0;
 }
 
 uint32_t InitializeSystemData()
@@ -5648,6 +5659,8 @@ uint32_t InitializeSystemData()
     lidar_median[i] = MediatorNew(35);
   }
 
+  gps.Init(pConfig->num_gps_nodes);
+
   // set FCM led status based upon last reset reason
   SetFcmLedState(phfc->system_reset_reason);
 
@@ -5660,7 +5673,7 @@ uint32_t InitializeSystemData()
   */
 static uint32_t InitCanbus(void)
 {
-  int status = 0;
+  int error = 0;
   uint32_t ret_mask = 0;
   CANMessage node_cfg_data;
 
@@ -5669,55 +5682,59 @@ static uint32_t InitCanbus(void)
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
 
-  // TODO::SP - Add message to confgure failsafe operation.
+  // TODO::SP - Add message to configure failsafe operation.
 
-  //if (phfc->system_reset_reason & (RESET_REASON_WD | RESET_REASON_SYS)) {
-  //  return ret_mask;
-  //}
+  if (LPC_SC->RSID != 0x9) {
+    return 0;
+  }
 
   // Initialize and configure any servo nodes...
-  if (pConfig->num_servo_nodes) {
-    if ((status = InitCanbusNode(pConfig->num_servo_nodes, AVI_SERVO_NODETYPE)) == 0) {
+  for (int node_id =0; node_id < pConfig->num_servo_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, BASE_NODE_ID + node_id)) == 0) {
       // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
       node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
-      status = ConfigureCanbusNode(pConfig->num_servo_nodes, AVI_SERVO_NODETYPE, &node_cfg_data);
+      error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, BASE_NODE_ID + node_id, &node_cfg_data);
     }
 
-    if (status & 0x1) { ret_mask |= N1_SERVO_FAIL; }
-    if (status & 0x2) { ret_mask |= N2_SERVO_FAIL; }
+    if (error) {
+      if (node_id == 0) {ret_mask |= N1_SERVO_FAIL;}
+      if (node_id == 1) {ret_mask |= N2_SERVO_FAIL;}
+    }
   }
 
   // Initialize and configure any GPS nodes...
-  if (pConfig->num_gps_nodes) {
-    gps.Init(pConfig->num_gps_nodes);
-
-    if ((status = InitCanbusNode(pConfig->num_gps_nodes, AVI_GPS_NODETYPE)) == 0) {
+  for (int node_id =0; node_id < pConfig->num_gps_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_GPS_NODETYPE, BASE_NODE_ID + node_id)) == 0) {
       // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
       node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
       node_cfg_data.len = 1;
-      status = ConfigureCanbusNode(pConfig->num_gps_nodes, AVI_GPS_NODETYPE, &node_cfg_data);
+      error = ConfigureCanbusNode(AVI_GPS_NODETYPE, BASE_NODE_ID + node_id, &node_cfg_data);
     }
 
-    if (status & 0x1) { ret_mask |= N1_NAV_FAIL; }
-    if (status & 0x2) { ret_mask |= N2_NAV_FAIL; }
+    if (error) {
+      if (node_id == 0) {ret_mask |= N1_NAV_FAIL;}
+      if (node_id == 1) {ret_mask |= N2_NAV_FAIL;}
+    }
   }
 
   // Initialize and configure any Power nodes...
-  if (pConfig->num_power_nodes) {
-    if ((status = InitCanbusNode(pConfig->num_power_nodes, AVI_PWR_NODETYPE)) == 0) {
+  for (int node_id =0; node_id < pConfig->num_power_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_PWR_NODETYPE, BASE_NODE_ID + node_id)) == 0) {
       // Enable all PWM channels and Lidar.
       node_cfg_data.data[0] = PWM_CHANNEL_1_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
-      // TODO::SP - CFG Message ID is changed.
-      status = ConfigureCanbusNode(pConfig->num_power_nodes, AVI_PWR_NODETYPE, &node_cfg_data);
+      error = ConfigureCanbusNode(AVI_PWR_NODETYPE, BASE_NODE_ID + node_id, &node_cfg_data);
     }
 
-    if (status & 0x1) { ret_mask |= N1_PWR_FAIL; }
-    if (status & 0x2) { ret_mask |= N2_PWR_FAIL; }
+    if (error) {
+      if (node_id == 0) {ret_mask |= N1_PWR_FAIL;}
+      if (node_id == 1) {ret_mask |= N2_PWR_FAIL;}
+    }
   }
+
   return ret_mask;
 }
 
@@ -5754,6 +5771,8 @@ int main()
 
   phfc->system_status_mask |= baro.Init(pConfig);
 
+  SysTick_Run();
+
   // Initialize FCM local IO
   InitFcmIO();
 
@@ -5762,6 +5781,9 @@ int main()
   telem.Initialize(phfc, pConfig);
   telemetry.baud(pConfig->telem_baudrate);
   telem.Generate_AircraftCfg();
+
+  //phfc->abort_flight_timer = ABORT_TIMEOUT_SEC;
+  //LPC_RIT->RICOUNTER = 0;
 
   // Start IMU read
   mpu.readMotion7_start();

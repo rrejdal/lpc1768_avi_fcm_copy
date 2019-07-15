@@ -1321,6 +1321,8 @@ typedef struct
 
     byte soft_reset_counter;
 
+    float abort_flight_timer;
+
 } FlightControlData;
 
 

@@ -72,7 +72,8 @@ typedef enum {
 } AVI_CAN_NODE_TYPE;
 
 #define DEFAULT_NODE_ID 1
-#define MAX_NODE_ID     15
+#define BASE_NODE_ID 1
+#define MAX_NODE_ID     3
 
 typedef enum {
   AVI_MSGID_CTRL    = 0,

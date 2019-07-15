@@ -250,20 +250,23 @@ typedef enum {
 #define CONFIG_FAIL       (1 << 0)
 
 #define N1_NAV_FAIL       (1 << 1)
-#define N1_GPS0_FAIL      (1 << 2)
-#define N1_GPS1_FAIL      (1 << 3)
-#define N1_COMPASS0_FAIL  (1 << 4)
-#define N1_COMPASS1_FAIL  (1 << 5)
-#define N1_SERVO_FAIL     (1 << 6)
-#define N1_PWR_FAIL       (1 << 7)
+#define N2_NAV_FAIL       (1 << 2)
 
-#define N2_NAV_FAIL       (1 << 8)
-#define N2_GPS0_FAIL      (1 << 9)
-#define N2_GPS1_FAIL      (1 << 10)
-#define N2_COMPASS0_FAIL  (1 << 11)
-#define N2_COMPASS1_FAIL  (1 << 12)
-#define N2_SERVO_FAIL     (1 << 13)
-#define N2_PWR_FAIL       (1 << 14)
+#define N1_SERVO_FAIL     (1 << 3)
+#define N2_SERVO_FAIL     (1 << 4)
+
+#define N1_PWR_FAIL       (1 << 5)
+#define N2_PWR_FAIL       (1 << 6)
+
+#define N1_GPS0_FAIL      (1 << 7)
+#define N1_GPS1_FAIL      (1 << 8)
+#define N1_COMPASS0_FAIL  (1 << 9)
+#define N1_COMPASS1_FAIL  (1 << 10)
+
+#define N2_GPS0_FAIL      (1 << 11)
+#define N2_GPS1_FAIL      (1 << 12)
+#define N2_COMPASS0_FAIL  (1 << 13)
+#define N2_COMPASS1_FAIL  (1 << 14)
 
 #define IMU_FAIL          (1 << 15)
 #define IMU_WARN          (1 << 16)
