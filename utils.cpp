@@ -569,32 +569,7 @@ bool N1WithinPercentOfN2(float n1, float percentage, float n2)
 
 uint32_t GetResetReason(void)
 {
-  uint32_t reset_reason = LPC_SC->RSID;
-  uint32_t ret_mask = 0;
-
-  if (reset_reason & 0x1) {
-    ret_mask |= RESET_REASON_POR;
-  }
-
-  if (reset_reason & 0x4) {
-    ret_mask |= RESET_REASON_WD;
-    LPC_SC->RSID &= 0x3B;
-    LPC_WDT->WDMOD &= 0xB;
-  }
-
-  if (reset_reason & 0x8)
-  {
-    ret_mask |= RESET_REASON_BODR;
-    LPC_SC->RSID &= 0x37;
-  }
-
-  if (reset_reason & 0x10)
-  {
-    ret_mask |= RESET_REASON_SYS;
-    LPC_SC->RSID &= 0x2F;
-  }
-
-  return ret_mask;
+  return LPC_SC->RSID;
 }
 
 

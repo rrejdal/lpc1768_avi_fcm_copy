@@ -272,9 +272,11 @@ typedef enum {
 #define IMU_WARN          (1 << 16)
 #define BARO_FAIL         (1 << 17)
 
-#define RESET_REASON_WD   (1 << 0)
-#define RESET_REASON_POR  (1 << 1)
-#define RESET_REASON_SYS  (1 << 2)
+#define RESET_REASON_POR  (1 << 0)
+#define RESET_REASON_EXTR (1 << 1)
+#define RESET_REASON_WD   (1 << 2)
 #define RESET_REASON_BODR (1 << 3)
+#define RESET_REASON_SYS  (1 << 4)
+#define RESET_REASON_LOCK (1 << 5)
 
 #endif

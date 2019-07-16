@@ -84,8 +84,10 @@ typedef enum {
 } AVI_CANBUS_COMMON_MSG_IDS;
 
 typedef enum {
-  AVI_SYNC = 0,
-  AVI_ACK  = 7,
+  AVI_SYNC    = 0,
+  AVI_PDP_ON  = 1,
+  AVI_PDP_OFF = 2,
+  AVI_ACK     = 7,
 } AVI_CANBUS_SEQID_CTRL;
 
 typedef enum {
