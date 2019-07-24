@@ -56,6 +56,7 @@ public:
     void SetZeroSpeed(void);
     void SetPositionHold(void);
     void SetHome(void);
+    void SetTakeoffPosition(void);
     void Arm(void);
     void Disarm(void);
 

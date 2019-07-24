@@ -16,7 +16,7 @@ extern USBSerial   serial;
 #define usb_print(fmt, ...) \
             do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
 
-#define CONFIG_VERSION   12
+#define CONFIG_VERSION   14
 #define COMPASS_CAL_VERSION 1
 
 #define PC_BAUDRATE          115200
@@ -76,13 +76,14 @@ extern USBSerial   serial;
 #define ELEVGAIN            13  // Tandem mixer elevator gain channel
 
 /* modes */
-#define CCPM_NONE   0
-#define CCPM_120    1
-#define CCPM_140    2
-#define CCPM_QUAD   3
-#define CCPM_HEX    4
-#define CCPM_OCTO    5
-#define MIXERTANDEM 6
+#define CCPM_NONE              0
+#define CCPM_120               1
+#define CCPM_140               2
+#define CCPM_QUAD              3
+#define CCPM_HEX               4
+#define CCPM_OCTO              5
+#define MIXERTANDEM            6
+#define CCPM120TANDEMTESTBENCH 7
 
 #define PROP_FIXED_PITCH       0 // collective channel drives throttle, throttle lever gates it
 #define PROP_VARIABLE_PITCH    1 // lever drives throttle, collective channel drives blade pitch
@@ -100,6 +101,7 @@ extern USBSerial   serial;
 #define WAYPOINT_FLYTHROUGH     1   // fly-through waypoint
 #define WAYPOINT_TAKEOFF        2
 #define WAYPOINT_LANDING        3
+#define WAYPOINT_TOUCH_AND_GO   4
 
 #define TAKEOFF_HEIGHT_MIN      3   // Takeoff minimum height, to keep away from 2m lidar bumper
 #define TAKEOFF_HEIGHT_DEFAULT  10  // Default Takeoff height
@@ -195,6 +197,8 @@ extern USBSerial   serial;
 #define LOG_PARAM_TIME              25  // CPU time in ms (int)
 #define LOG_PARAM_POSITION          26  // heli position relative to home [horizontal distance in m / heading in deg / altitude difference in m] (f16)
 #define LOG_PARAM_TANDEM            27
+#define LOG_PARAM_DEBUG0_3          28
+#define LOG_PARAM_DEBUG4_7          29
 
 
 //#define LOG_PARAM_MOT_BAT_VOLT      7  // motor_bat_voltage (f16 hex)
@@ -245,5 +249,6 @@ typedef enum {
 
 #define DEFAULT_TAKEOFF_TIMEOUT 60000000  // 60 Seconds
 #define DEFAULT_LANDING_TIMEOUT 30000000  // 30 Seconds
+#define DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT 3000000 // 3 Seconds
 
 #endif

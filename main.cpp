@@ -129,6 +129,7 @@ const ConfigData *pConfig = NULL;
 #define MAX_NODE_NUM         15
 
 #define MAX_NUMBER_SERVO_NODES  2
+#define MAX_NUMBER_SERVO_OUTPUTS  8
 
 /* Passed in the GPS CANbus CFG Message, 1byte */
 #define GPS_SEL_CHIP_0          (1 << 0)
@@ -165,7 +166,7 @@ static int init_warning = 0;
 
 // Macros for controlling 'special' reserved FCM outputs
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6->pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
-#define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
+#define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
 
 static int can_node_found = 0;
 static int canbus_ack = 0;
@@ -549,12 +550,11 @@ static void WriteToServoNodeServos(int num_servo_nodes)
     float temp;
 
     for (int i=0; i < num_servo_nodes; i++) {
-        for (int j=0; j < 8; j++) {
+        for (int j=0; j < MAX_NUMBER_SERVO_OUTPUTS; j++) {
             temp = servo_node_pwm[i+1].servo_out[j];
-            if (i < 6) {
-                if (pConfig->servo_revert[i] & (1<<i)) {
-                    temp = -hfc.servos_out[i];
-                }
+
+            if (hfc.servo_reverse_mask & (1<<j)) {
+                temp = -servo_node_pwm[i+1].servo_out[j];
             }
             // debug_print("WriteToServos[%d][%d], temp=%f\r\n", i+1, j, temp);
             pwm_values[i][j] = (((SERVOMINMAX(temp) * 32767) * 500) /32768) + 1500;
@@ -603,14 +603,13 @@ static void WriteToPowerNodeServos()
     static int pwm_out = 0;
     float temp;
 
-    for (int i=0; i < 8; i++) {
+    for (int i=0; i < MAX_NUMBER_SERVO_OUTPUTS; i++) {
         temp = hfc.servos_out[i];
 
-        if (i < 6) {
-            if (pConfig->servo_revert[i] & (1<<i)) {
-                temp = -hfc.servos_out[i];
-            }
+        if (hfc.servo_reverse_mask & (1<<i)) {
+            temp = -hfc.servos_out[i];
         }
+
         pwm_values[0][i] = (((SERVOMINMAX(temp) * 32767) * 500) /32768) + 1500;
     }
 
@@ -647,13 +646,13 @@ static void WriteToFcmServos(void)
     float pwm_values[8];
     float temp;
 
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < MAX_NUMBER_SERVO_OUTPUTS; i++) {
         temp = hfc.servos_out[i];
-        if (i < 6) {
-            if (pConfig->servo_revert[i] & (1<<i)) {
-                temp = -hfc.servos_out[i];
-            }
+
+        if (hfc.servo_reverse_mask & (1<<i) ) {
+            temp = -hfc.servos_out[i];
         }
+
         // clip servo values to +/-150%
         pwm_values[i] = SERVOMINMAX(temp);
     }
@@ -804,7 +803,7 @@ static void Display_CtrlMode(unsigned char line, unsigned char channel, const in
 
 static void SetAgsControls(void)
 {
-  if (hfc.waypoint_type == WAYPOINT_TAKEOFF) {
+  if ((hfc.waypoint_type == WAYPOINT_TAKEOFF) || hfc.touch_and_go_takeoff) {
 
     if (hfc.waypoint_stage == FM_TAKEOFF_COMPLETE) {
       // Land, home, point and fly active once we have reached Takeoff.
@@ -814,7 +813,8 @@ static void SetAgsControls(void)
       hfc.controlStatus = CONTROL_STATUS_LAND;
     }
   }
-  else if ((hfc.waypoint_type == WAYPOINT_LANDING) && (hfc.waypoint_stage >= FM_LANDING_WAYPOINT)) {
+  else if ((hfc.waypoint_type == WAYPOINT_LANDING) || hfc.touch_and_go_landing) {
+    if (hfc.waypoint_stage >= FM_LANDING_WAYPOINT) {
 
       hfc.controlStatus = CONTROL_STATUS_HOME | CONTROL_STATUS_LAND;
 
@@ -827,6 +827,7 @@ static void SetAgsControls(void)
       else {
         hfc.controlStatus |= CONTROL_STATUS_ABORT;
       }
+    }
   }
   else if ((hfc.waypoint_type == WAYPOINT_GOTO) && (hfc.playlist_status != PLAYLIST_PLAYING)) {
     hfc.controlStatus = CONTROL_STATUS_LAND | CONTROL_STATUS_HOME | CONTROL_STATUS_POINTFLY | CONTROL_STATUS_ABORT;
@@ -949,7 +950,8 @@ static void SetRCRadioControl(void)
         // if we're flying, or taking off or landing
         if (   IN_THE_AIR(hfc.altitude_lidar)
             || (hfc.waypoint_type == WAYPOINT_TAKEOFF)
-            || (hfc.waypoint_type == WAYPOINT_LANDING)  ) {
+            || (hfc.waypoint_type == WAYPOINT_LANDING)
+            || (hfc.waypoint_type == WAYPOINT_TOUCH_AND_GO)   ) {
 
             // When in AUTOPILOT, if the throttle lever is not UP, and we are
             // in the air, then STAY in AUTOPILOT and send message to ground station.
@@ -986,7 +988,7 @@ static void SetRCRadioControl(void)
 
                // if we are doing a take off, then don't send this dialog to AGS
                // since the user was just asked to throttle up with the RC lever.
-               if (hfc.waypoint_type != WAYPOINT_TAKEOFF) {
+               if ((hfc.waypoint_type != WAYPOINT_TAKEOFF) && (hfc.waypoint_type != WAYPOINT_TOUCH_AND_GO)) {
                  telem.SendMsgToGround(MSG2GROUND_THROTTLE_LEVER_HIGH);
                }
             }
@@ -1001,7 +1003,7 @@ static void SetRCRadioControl(void)
             telem.SelectCtrlSource(CTRL_SOURCE_RCRADIO);
             hfc.waypoint_type = WAYPOINT_NONE;
         }
-        else if ( ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_ARM))
+        else if (   ((hfc.waypoint_type == WAYPOINT_TAKEOFF) && (hfc.waypoint_stage >= FM_TAKEOFF_ARM))
                  || (hfc.waypoint_type != WAYPOINT_TAKEOFF) ){
           // In the case of take off with the RC radio in the loop,
           // hfc.rc_ctrl_request = true even though hfc.ctrl_source = AUTOPILOT.
@@ -1097,6 +1099,35 @@ static void CCPM120mix(void)
     hfc.servos_out[CCPM_A] = A;
     hfc.servos_out[CCPM_B] = B;
     hfc.servos_out[CCPM_C] = C;
+}
+
+static void CCPM120TandemTestBench(ServoNodeOutputs *servo_node_pwm) {
+
+  /* collective */
+  float A = hfc.mixer_in[COLL]*pConfig->CollRange;
+  float B = -hfc.mixer_in[COLL]*pConfig->CollRange;
+  float C = hfc.mixer_in[COLL]*pConfig->CollRange;
+
+  /* roll */
+  B += hfc.mixer_in[ROLL] * 0.8660254038f; //cos(30);
+  C += hfc.mixer_in[ROLL] * 0.8660254038f; //cos(30);
+
+  /* pitch */
+  A -= hfc.mixer_in[PITCH];
+  B -= hfc.mixer_in[PITCH] * 0.5f; //sin(30);
+  C += hfc.mixer_in[PITCH] * 0.5f; //sin(30);
+
+  servo_node_pwm[1].servo_out[1] = A;
+  servo_node_pwm[1].servo_out[2] = B;
+  servo_node_pwm[1].servo_out[3] = C;
+  servo_node_pwm[1].servo_out[4] = -hfc.mixer_in[YAW];
+
+  servo_node_pwm[2].servo_out[1] = servo_node_pwm[1].servo_out[1];
+  servo_node_pwm[2].servo_out[2] = servo_node_pwm[1].servo_out[2];
+  servo_node_pwm[2].servo_out[3] = servo_node_pwm[1].servo_out[3];
+  servo_node_pwm[2].servo_out[4] = servo_node_pwm[1].servo_out[4];
+
+
 }
 
 /* CCPM 140deg mixer ==========================================================
@@ -1414,6 +1445,26 @@ static void ServoMixer(void)
                 servo_node_pwm[1].servo_out[7] = hfc.throttle_armed ? 1 : -1;
                 servo_node_pwm[2].servo_out[7] = servo_node_pwm[1].servo_out[7];
             break;
+
+        case CCPM120TANDEMTESTBENCH:
+                // Link Live Throttle on Front Servo output 0
+                if (hfc.throttle_value > 0.5f) {
+                    servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO] * pConfig->throttle_gain;
+                }
+                else {
+                    servo_node_pwm[1].servo_out[0] = hfc.mixer_in[THRO];
+                }
+
+                // Link Live Throttle on Rear Servo output 0
+                servo_node_pwm[2].servo_out[0] = servo_node_pwm[1].servo_out[0];
+
+                CCPM120TandemTestBench(&servo_node_pwm[0]);
+
+                // Drive PWM Ch5 on front back servos for Fan Control
+                servo_node_pwm[1].servo_out[7] = hfc.throttle_armed ? 1 : -1;
+                servo_node_pwm[2].servo_out[7] = servo_node_pwm[1].servo_out[7];
+            break;
+
         default:
             break;
     }
@@ -1938,6 +1989,34 @@ static void Playlist_ProcessTop()
             telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, hfc.landingWPHeight);
           }
         }
+        else
+        if (item->data[0]==WAYPOINT_TOUCH_AND_GO)
+        {
+          if (hfc.waypoint_type != WAYPOINT_TOUCH_AND_GO)
+          {
+            float lat = item->value1.i/10000000.0f;
+            float lon = item->value2.i/10000000.0f;
+            float alt_ground = hfc.altitude_WPnext;
+
+            telem.CommandLandingWP(lat, lon, alt_ground);
+
+            hfc.waypoint_type = WAYPOINT_TOUCH_AND_GO;
+            hfc.waypoint_stage = FM_LANDING_WAYPOINT;
+
+            hfc.touch_and_go_wait = item->data[1] + item->data[2]; //set the wait time
+            hfc.touch_and_go_do_the_thing_cnt = item->data[2];//set "do the thing" count down
+
+            if (hfc.touch_and_go_do_the_thing_cnt == 0) {
+              hfc.touch_and_go_do_the_thing = false;
+            }
+            else {
+              hfc.touch_and_go_do_the_thing = true;
+            }
+
+            hfc.touch_and_go_landing = true;
+            hfc.touch_and_go_takeoff = false;
+          }
+        }
     }
     else
     if (item->type==PL_ITEM_PARAM)
@@ -2091,6 +2170,13 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
                 hfc->playlist_position++;
             }
         }
+        else if (item->data[0]==WAYPOINT_TOUCH_AND_GO) {
+            if (hfc->waypoint_stage == FM_TAKEOFF_COMPLETE)
+            {
+                hfc->waypoint_type  = WAYPOINT_NONE;
+                hfc->playlist_position++;
+            }
+        }
         else
         {
             /* if WP is blocking, wait for the retire flag */
@@ -2144,7 +2230,7 @@ static void AbortFlight(void)
   // Ensure we are in AutoPilot
   SetRCRadioControl();  // This will set Autopilot on loss of RcLink
 
-  if (hfc.waypoint_type != WAYPOINT_LANDING) {
+  if ((hfc.waypoint_type != WAYPOINT_LANDING) && !hfc.touch_and_go_landing) {
     if (IN_THE_AIR(hfc.altitude_lidar)) {
       float lat;
       float lon;
@@ -2228,6 +2314,428 @@ static int rpm_threshold_check(float dT)
   return 1;
 }
 
+static void ProcessTakeoff(float dT, bool touch_and_go)
+{
+    if (    (hfc.waypoint_stage == FM_TAKEOFF_WAIT)
+         && (    (hfc.message_from_ground>0)
+              || (hfc.message_timeout<=0)
+              ||  hfc.afsi_takeoff_enable         ) )
+    {
+
+      /* cancel and disarmed */
+      if (hfc.message_from_ground!=CMD_MSG_TAKEOFF_OK || hfc.message_timeout<=0)
+      {
+          hfc.inhibitRCswitches = false;
+          /* send message that takeoff has timed out */
+          if (hfc.message_timeout<=0)
+              telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+
+          telem.Disarm();
+          return;
+      }
+
+      hfc.waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
+
+    }
+    else if (   (hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
+             && (   (hfc.message_from_ground>0)
+                 || (hfc.message_timeout<=0)
+                 ||  hfc.afsi_takeoff_enable                ) )
+    {
+        if (hfc.afsi_takeoff_enable) {
+            hfc.message_from_ground = CMD_MSG_TAKEOFF_OK;
+        }
+
+        /* cancel and disarmed */
+        if (hfc.message_from_ground!=CMD_MSG_TAKEOFF_OK || hfc.message_timeout<=0)
+        {
+            hfc.inhibitRCswitches = false;
+            /* send message that takeoff has timed out */
+            if (hfc.message_timeout<=0)
+                telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+
+            telem.Disarm();
+            return;
+        }
+
+        /* set the throttle value to spool */
+        hfc.throttle_value = pConfig->Stick100range;
+
+        if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+          initRpmThresholdCheck();
+          hfc.waypoint_stage = FM_TAKEOFF_RPM_CHECK;
+        }
+        else {
+          if (hfc.afsi_takeoff_enable || touch_and_go) {
+            hfc.message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
+            hfc.afsi_takeoff_enable = 0;
+          }
+          else {
+            telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
+            hfc.message_from_ground = 0;   // reset it so we can wait for the message from ground
+          }
+
+          hfc.message_timeout = DEFAULT_TAKEOFF_TIMEOUT;    // 60 seconds
+          hfc.waypoint_stage  = FM_TAKEOFF_ARM;
+        }
+    }
+    else if (hfc.waypoint_stage == FM_TAKEOFF_RPM_CHECK) {
+
+      int rpm_check = rpm_threshold_check(dT);
+      if (rpm_check == 0) {
+        // rpm reached - continue with takeoff
+
+        if (hfc.afsi_takeoff_enable || touch_and_go) {
+          hfc.message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
+          hfc.afsi_takeoff_enable = 0;
+        }
+        else {
+          telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
+          hfc.message_from_ground = 0;   // reset it so we can wait for the message from ground
+        }
+
+        hfc.message_timeout = DEFAULT_TAKEOFF_TIMEOUT;    // 60 seconds
+        hfc.waypoint_stage  = FM_TAKEOFF_ARM;
+      }
+      else if (rpm_check < 0) {
+        // Cancel and disarm
+        hfc.inhibitRCswitches = false;
+        /* send message that takeoff has timed out */
+        hfc.message_timeout = 0;
+        telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+        telem.Disarm();
+        return;
+      }
+    }
+    else if (   (hfc.waypoint_stage == FM_TAKEOFF_ARM)
+             && (   (hfc.message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
+                  || (hfc.message_from_ground==CMD_MSG_TAKEOFF_ABORT)
+                  || (hfc.message_timeout<=0)                          ) )
+    {
+        hfc.inhibitRCswitches = false;
+        /* cancel and disarmed */
+        if (   (hfc.message_from_ground!=CMD_MSG_TAKEOFF_ALLOWED)
+            || (GetMotorsState() == 0)
+            || (hfc.message_timeout<=0))
+        {
+            /* send message that takeoff has timed out */
+            if (hfc.message_timeout <= 0) {
+                telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+            }
+            telem.Disarm();
+            return;
+        }
+
+        if (!touch_and_go) {
+          telem.SendMsgToGround(MSG2GROUND_TAKEOFF);
+        }
+
+        telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
+        telem.SaveValuesForAbort();
+
+        /* set PRY controls to Angle mode, coll to manual */
+        SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
+        SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
+        SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+
+        /* initialize PRY angles to the current orientation */
+        hfc.ctrl_out[ANGLE][PITCH] = hfc.IMUorient[PITCH]*R2D;
+        hfc.ctrl_out[ANGLE][ROLL]  = hfc.IMUorient[ROLL]*R2D;
+        hfc.ctrl_out[ANGLE][YAW]   = hfc.IMUorient[YAW]*R2D;
+        hfc.ctrl_angle_pitch_3d = hfc.ctrl_out[ANGLE][PITCH];
+        hfc.ctrl_angle_roll_3d  = hfc.ctrl_out[ANGLE][ROLL];
+
+        if (!touch_and_go) {
+          /* set home position */
+          telem.SetHome();
+        }
+
+        telem.SetTakeoffPosition();
+
+        /* set vspeed to the takeoff speed
+         * set target collective to max value and wait for the heli to clear ground*/
+        hfc.ctrl_collective_3d  = hfc.takeoff_vertical_speed; //hfc.pid_CollVspeed.COmax;
+        hfc.fixedThrottleMode = THROTTLE_FLY;                  // rvw
+        /* default PID values */
+        telem.ApplyDefaults();
+        /* slow max vspeed to make collective to move slowely */
+//          hfc.pid_CollAlt.COmax = pConfig->throttle_ctrl==PROP_VARIABLE_PITCH ? 0.1f : 0.5f;
+        hfc.waypoint_stage  = FM_TAKEOFF_START;
+    }
+    else
+    if (hfc.waypoint_stage == FM_TAKEOFF_START)
+    {
+        float thr = ClipMinMax(pConfig->CollThrAutoLevel, 0, 1);
+        float limit = (1-thr)*pConfig->CollZeroAngle + thr*hfc.pid_CollVspeed.COofs;
+        /* set pitch/roll angle to trim values once collective exceeds the set % of hover value */
+        if ((hfc.ctrl_collective_raw>limit) || (hfc.IMUspeedGroundENU[2]>0.2f))
+        {
+            hfc.ctrl_angle_pitch_3d = hfc.pid_PitchSpeed.COofs;
+            hfc.ctrl_angle_roll_3d  = hfc.pid_RollSpeed.COofs;
+
+            hfc.waypoint_stage = FM_TAKEOFF_LEVEL;
+        }
+    }
+    else
+    if (hfc.waypoint_stage == FM_TAKEOFF_LEVEL)
+    {
+        /* starting to take off, watch for the ENU speeds exceeding the threshold and switch to alt hold mode */
+        if ((ABS(hfc.IMUspeedGroundENU[0])>0.4f) || (ABS(hfc.IMUspeedGroundENU[1])>0.4f) || (hfc.IMUspeedGroundENU[2]>0.5f))
+        {
+            /* enable alt hold mode */
+            hfc.ctrl_out[RAW][COLL]  = hfc.ctrl_collective_raw;
+            hfc.ctrl_out[SPEED][COLL] = hfc.takeoff_vertical_speed;    // initialize to current vert speed
+            hfc.pid_CollAlt.COmax = hfc.takeoff_vertical_speed;
+
+            SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+            hfc.ctrl_out[POS][COLL] = hfc.takeoff_pos[2] + ClipMinMax(hfc.takeoff_height, TAKEOFF_HEIGHT_MIN, TAKEOFF_HEIGHT_MAX);
+            hfc.waypoint_pos[2] = hfc.ctrl_out[POS][COLL];    // needs to be initialized for further waypoint flying if altitude is not specified
+
+
+            /* enable horizontal speed control with zero speed */
+            SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
+            SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+            hfc.ctrl_out[SPEED][PITCH] = 0;
+            hfc.ctrl_out[SPEED][ROLL]  = 0;
+
+            hfc.waypoint_stage = FM_TAKEOFF_SPEED;
+        }
+    }
+    else
+    if (hfc.waypoint_stage == FM_TAKEOFF_SPEED)
+    {
+        /* once in horizontal speed mode, watch the altitude and switch to position and altitude hold at 0.3meters */
+        if (hfc.altitude > (hfc.takeoff_pos[2]+0.3f))
+        {
+          hfc.waypoint_pos[0] = hfc.takeoff_pos[0];
+          hfc.waypoint_pos[1] = hfc.takeoff_pos[1];
+
+          hfc.waypoint_retire = 0;
+          SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_POSITION);
+          SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
+          hfc.waypoint_stage = FM_TAKEOFF_HOLD;
+        }
+    }
+    else
+    if (hfc.waypoint_stage == FM_TAKEOFF_HOLD)
+    {
+      int retire_takeoff_height = hfc.waypoint_pos[2];
+
+      // if we are playing a playlist and the takeoff is not the last item in the playlist, then
+      // retire the takeoff TAKEOFF_HEIGHT_RETIRE_OFFSET meters earlier.
+      if ( (hfc.playlist_status > PLAYLIST_STOPPED) && (hfc.playlist_position < (hfc.playlist_items - 1)) ){
+        retire_takeoff_height = max(hfc.takeoff_pos[2]+TAKEOFF_HEIGHT_MIN, hfc.waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
+      }
+
+      // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
+      if (hfc.altitude >= retire_takeoff_height) {
+        // make sure the next waypoint uses the intended takeoff height
+        hfc.altitude_WPnext = hfc.waypoint_pos[2] - hfc.altitude_base;
+        hfc.waypoint_stage = FM_TAKEOFF_COMPLETE;
+      }
+    }
+}
+
+static void ProcessLanding(float dT, bool touch_and_go)
+{
+  if (hfc.waypoint_stage == FM_LANDING_STOP)
+  {
+      if ((hfc.setZeroSpeed == false) && (gps.gps_data_.HspeedC <= hfc.rw_cfg.GTWP_retire_speed))
+      {
+          /* send out message and setup timeout */
+          hfc.waypoint_stage = FM_LANDING_HOLD;
+          hfc.message_from_ground = 0;   // reset it so we can wait for the message from ground
+          hfc.message_timeout = DEFAULT_LANDING_TIMEOUT;
+          telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
+      }
+  }
+  else
+  if (hfc.waypoint_stage == FM_LANDING_WAYPOINT)
+  {
+      if (gps.gps_data_.HspeedC <= hfc.rw_cfg.GTWP_retire_speed && hfc.gps_to_waypoint[0] <= hfc.rw_cfg.GTWP_retire_radius)
+      {
+          /* send out message and setup timeout */
+          hfc.waypoint_stage = FM_LANDING_HOLD;
+          hfc.message_from_ground = 0;   // reset it so we can wait for the message from ground
+          hfc.message_timeout = DEFAULT_LANDING_TIMEOUT;
+
+          if(touch_and_go) {
+            hfc.message_timeout = DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT;    // 3 seconds
+            hfc.message_from_ground = CMD_MSG_LANDING_GO ;
+          }
+          else {
+            telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
+          }
+      }
+  }
+  else if (hfc.waypoint_stage == FM_LANDING_HOLD && (hfc.message_from_ground==CMD_MSG_LANDING_GO || hfc.message_timeout<=0))
+  {
+      /* check for incoming message or timeout */
+      telem.CommandLanding(false, false);
+  }
+  else if (hfc.waypoint_stage == FM_LANDING_HIGH_ALT)
+  {
+      if (hfc.altitude_lidar <= 3)
+          telem.CommandLanding(true, false);
+  }
+  else
+  if (hfc.waypoint_stage == FM_LANDING_LOW_ALT)
+  {
+      /* heli coming down, watch collective manual value, once below 80% of hover, switch to rate mode */
+//            float CO_thr = 0.7f*hfc.pid_CollVspeed.COofs + 0.3f*hfc.CollZeroAngle;
+//            if (hfc.pid_CollVspeed.COlast < CO_thr)
+      float landing_threshold;
+      if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+        landing_threshold = LANDING_THRESHOLD_HEIGHT_FIXED_PROP;
+      }
+      else {
+        landing_threshold = LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP;
+      }
+
+      /* touching down, switch to rate mode once below threshold */
+      if (hfc.altitude_lidar <= landing_threshold)
+      {
+          /* set PRY controls to rate */
+          SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_RATE);
+          SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_RATE);
+          SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_RATE);
+
+          hfc.ctrl_out[RATE][PITCH] = 0;
+          hfc.ctrl_out[RATE][ROLL]  = 0;
+          hfc.ctrl_out[RATE][YAW]   = 0;
+          /* double the vertical speed just before touchdown to reduce the jump
+           * and to reduce the time blades take to flatten */
+//                if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
+          hfc.ctrl_vspeed_3d = -pConfig->landing_vspeed*0.6f;
+          hfc.waypoint_stage = FM_LANDING_TOUCHDOWN;
+
+          if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+            hfc.landing_timeout = LANDING_THRESHOLD_HEIGHT_FIXED_PROP / hfc.ctrl_vspeed_3d; // in seconds
+          }
+      }
+  }
+  else
+  if (hfc.waypoint_stage == FM_LANDING_TOUCHDOWN)
+  {
+    if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
+      hfc.landing_timeout -= dT;
+
+      // wait for timeout to expire
+      if (hfc.landing_timeout <= 0) {
+        //Now decay the collective speed as fast as possible based on config
+        hfc.ctrl_vspeed_3d -= 2*pConfig->landing_vspeed_acc*dT;
+
+        if (hfc.ctrl_vspeed_3d <= hfc.pid_CollAlt.COmin) {
+          if (touch_and_go) {
+            /* stay spooled */
+            hfc.waypoint_stage = FM_TOUCH_AND_GO_WAIT;
+          }
+          else {
+            if (hfc.playlist_status == PLAYLIST_PLAYING) {
+              hfc.playlist_position++;
+              hfc.playlist_status = PLAYLIST_STOPPED;
+            }
+            telem.Disarm();
+          }
+        }
+      }
+    }
+    else {
+      /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
+      if (hfc.pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
+      {
+        SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+        hfc.ctrl_out[RAW][COLL] = hfc.pid_CollVspeed.COlast;
+        hfc.ctrl_collective_raw = hfc.pid_CollVspeed.COlast;
+        hfc.ctrl_collective_3d = hfc.pid_CollVspeed.COlast;
+
+        if (touch_and_go) {
+          /* stay spooled */
+          hfc.waypoint_stage = FM_TOUCH_AND_GO_WAIT;
+        }
+        else {
+          if (hfc.playlist_status == PLAYLIST_PLAYING) {
+            hfc.playlist_position++;
+            hfc.playlist_status = PLAYLIST_STOPPED;
+          }
+          telem.Disarm();
+        }
+      }
+    }
+  }
+}
+
+static void ProcessTouchAndGo(float dT)
+{
+  if(hfc.touch_and_go_landing) {
+    ProcessLanding(dT,true);
+  }
+
+  if(hfc.waypoint_stage == FM_TOUCH_AND_GO_WAIT) {
+
+    hfc.touch_and_go_landing = false;
+
+    hfc.inhibitRCswitches = true;
+
+    /* reset all I terms */
+    ResetIterms();
+
+    /* set PRY controls to rate mode, coll to manual while on ground*/
+    SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_RATE);
+    SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_RATE);
+    SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_RATE);
+    SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+
+    /* initialize PRY angles to the current orientation */
+    hfc.ctrl_out[RATE][PITCH] = 0;
+    hfc.ctrl_out[RATE][ROLL]  = 0;
+    hfc.ctrl_out[RATE][YAW]   = 0;
+
+    hfc.ctrl_collective_raw = hfc.collective_raw_curr;    // set to current position
+
+    //For Heli pConfig->CollZeroAngle = collective zero angle
+    //For fixed prop UAV pConfig->CollZeroAngle = idle/spool up motor speed
+    hfc.ctrl_collective_3d  = pConfig->CollZeroAngle;
+
+    telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
+
+    hfc.fixedThrottleMode = THROTTLE_IDLE;  // for fixed prop UAVs
+    hfc.throttle_value = pConfig->Stick100range;
+
+    hfc.rc_ctrl_request = false;
+
+    hfc.touch_and_go_wait -= dT;
+    hfc.touch_and_go_do_the_thing_cnt -= dT;
+
+    // hfc.touch_and_go_do_the_thing flag is set by message_from_ground
+    if ( (hfc.touch_and_go_do_the_thing_cnt <= 0) && hfc.touch_and_go_do_the_thing) {
+        hfc.touch_and_go_do_the_thing_cnt = 0;
+
+        //do the thing
+        hfc.box_dropper_  = (hfc.box_dropper_ == 0) ? 1 : 0;
+        FCM_DROP_BOX_CTRL(hfc.box_dropper_);
+        hfc.touch_and_go_do_the_thing = false;
+      }
+
+    if(hfc.touch_and_go_wait <= 0) {
+      hfc.touch_and_go_wait = 0;
+
+      hfc.message_timeout = DEFAULT_TAKEOFF_TIMEOUT;
+      hfc.message_from_ground = CMD_MSG_TAKEOFF_OK;
+
+      hfc.waypoint_stage = FM_TAKEOFF_AUTO_SPOOL;
+      hfc.touch_and_go_takeoff = true;
+    }
+  }
+
+  if(hfc.touch_and_go_takeoff) {
+    ProcessTakeoff(dT, true);
+    if(hfc.waypoint_stage == FM_TAKEOFF_COMPLETE) {
+      hfc.touch_and_go_takeoff = false;
+    }
+  }
+}
+
 /* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
@@ -2276,325 +2784,14 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         hfc->message_timeout -= hfc->ticks_curr;
     }
 
-    if (hfc->waypoint_type == WAYPOINT_TAKEOFF)
-    {
-        if (    (hfc->waypoint_stage == FM_TAKEOFF_WAIT)
-             && (    (hfc->message_from_ground>0)
-                  || (hfc->message_timeout<=0)
-                  ||  hfc->afsi_takeoff_enable         ) )
-        {
-
-          /* cancel and disarmed */
-          if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_OK || hfc->message_timeout<=0)
-          {
-              hfc->inhibitRCswitches = false;
-              /* send message that takeoff has timed out */
-              if (hfc->message_timeout<=0)
-                  telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-
-              telem.Disarm();
-              return;
-          }
-
-          hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
-
-        }
-        else if (   (hfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
-                 && (   (hfc->message_from_ground>0)
-                     || (hfc->message_timeout<=0)
-                     ||  hfc->afsi_takeoff_enable                ) )
-        {
-            if (hfc->afsi_takeoff_enable) {
-                hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
-            }
-
-            /* cancel and disarmed */
-            if (hfc->message_from_ground!=CMD_MSG_TAKEOFF_OK || hfc->message_timeout<=0)
-            {
-                hfc->inhibitRCswitches = false;
-                /* send message that takeoff has timed out */
-                if (hfc->message_timeout<=0)
-                    telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-
-                telem.Disarm();
-                return;
-            }
-
-            /* set the throttle value to spool */
-            hfc->throttle_value = pConfig->Stick100range;
-
-            if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
-              initRpmThresholdCheck();
-              hfc->waypoint_stage = FM_TAKEOFF_RPM_CHECK;
-            }
-            else {
-              if (!hfc->afsi_takeoff_enable) {
-                  telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
-              }
-              hfc->waypoint_stage  = FM_TAKEOFF_ARM;
-            }
-
-            hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
-            hfc->message_timeout = DEFAULT_TAKEOFF_TIMEOUT;
-        }
-        else if (hfc->waypoint_stage == FM_TAKEOFF_RPM_CHECK) {
-
-          int rpm_check = rpm_threshold_check(dT);
-          if (rpm_check == 0) {
-            // rpm reached - continue with takeoff
-            if (!hfc->afsi_takeoff_enable) {
-              telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
-            }
-
-            hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
-            hfc->message_timeout = DEFAULT_TAKEOFF_TIMEOUT;
-
-            hfc->waypoint_stage  = FM_TAKEOFF_ARM;
-          }
-          else if (rpm_check < 0) {
-            // Cancel and disarm
-            hfc->inhibitRCswitches = false;
-            /* send message that takeoff has timed out */
-            hfc->message_timeout = 0;
-            telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-            telem.Disarm();
-            return;
-          }
-        }
-        else if (   (hfc->waypoint_stage == FM_TAKEOFF_ARM)
-                 && (   (hfc->message_from_ground==CMD_MSG_TAKEOFF_ALLOWED)
-                      || (hfc->message_from_ground==CMD_MSG_TAKEOFF_ABORT)
-                      || (hfc->message_timeout<=0)
-                      || hfc->afsi_takeoff_enable          ) )
-        {
-            if (hfc->afsi_takeoff_enable) {
-                hfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
-                hfc->afsi_takeoff_enable = 0;
-            }
-
-            hfc->inhibitRCswitches = false;
-            /* cancel and disarmed */
-            if (   (hfc->message_from_ground!=CMD_MSG_TAKEOFF_ALLOWED)
-                || (GetMotorsState() == 0)
-                || (hfc->message_timeout<=0))
-            {
-                /* send message that takeoff has timed out */
-                if (hfc->message_timeout <= 0) {
-                    telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-                }
-                telem.Disarm();
-                return;
-            }
-
-            telem.SendMsgToGround(MSG2GROUND_TAKEOFF);
-            telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
-            telem.SaveValuesForAbort();
-            hfc->waypoint_type = WAYPOINT_TAKEOFF;
-
-            /* set PRY controls to Angle mode, coll to manual */
-            SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
-            SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-    //        SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
-
-            /* initialize PRY angles to the current orientation */
-            hfc->ctrl_out[ANGLE][PITCH] = hfc->IMUorient[PITCH]*R2D;
-            hfc->ctrl_out[ANGLE][ROLL]  = hfc->IMUorient[ROLL]*R2D;
-            hfc->ctrl_out[ANGLE][YAW]   = hfc->IMUorient[YAW]*R2D;
-            hfc->ctrl_angle_pitch_3d = hfc->ctrl_out[ANGLE][PITCH];
-            hfc->ctrl_angle_roll_3d  = hfc->ctrl_out[ANGLE][ROLL];
-            /* set home position */
-            telem.SetHome();
-
-            /* set vspeed to the takeoff speed */
-            hfc->ctrl_collective_3d  = hfc->pid_CollVspeed.COmax;   // set target collective to max value and wait for the heli to clear ground
-            hfc->fixedThrottleMode = THROTTLE_FLY;                  // rvw
-            /* default PID values */
-            telem.ApplyDefaults();
-            /* slow max vspeed to make collective to move slowely */
-//          hfc->pid_CollAlt.COmax = pConfig->throttle_ctrl==PROP_VARIABLE_PITCH ? 0.1f : 0.5f;
-            hfc->waypoint_stage  = FM_TAKEOFF_START;
-        }
-        else
-        if (hfc->waypoint_stage == FM_TAKEOFF_START)
-        {
-            float thr = ClipMinMax(pConfig->CollThrAutoLevel, 0, 1);
-            float limit = (1-thr)*pConfig->CollZeroAngle + thr*hfc->pid_CollVspeed.COofs;
-            /* set pitch/roll angle to trim values once collective exceeds the set % of hover value */
-            if ((hfc->ctrl_collective_raw>limit) || (hfc->IMUspeedGroundENU[2]>0.2f))
-            {
-                hfc->ctrl_angle_pitch_3d = hfc->pid_PitchSpeed.COofs;
-                hfc->ctrl_angle_roll_3d  = hfc->pid_RollSpeed.COofs;
-
-                hfc->waypoint_stage = FM_TAKEOFF_LEVEL;
-            }
-        }
-        else
-        if (hfc->waypoint_stage == FM_TAKEOFF_LEVEL)
-        {
-            /* starting to take off, watch for the ENU speeds exceeding the threshold and switch to alt hold mode */
-            if ((ABS(hfc->IMUspeedGroundENU[0])>0.4f) || (ABS(hfc->IMUspeedGroundENU[1])>0.4f) || (hfc->IMUspeedGroundENU[2]>0.5f))
-            {
-                /* enable alt hold mode */
-                hfc->ctrl_out[RAW][COLL]  = hfc->ctrl_collective_raw;
-                hfc->ctrl_out[SPEED][COLL] = hfc->takeoff_vertical_speed;    // initialize to current vert speed
-
-                SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_POSITION);
-                hfc->ctrl_out[POS][COLL] = hfc->home_pos[2] + ClipMinMax(hfc->takeoff_height, TAKEOFF_HEIGHT_MIN, TAKEOFF_HEIGHT_MAX);
-                hfc->waypoint_pos[2] = hfc->ctrl_out[POS][COLL];    // needs to be initialized for further waypoint flying if altitude is not specified
-
-
-                /* enable horizontal speed control with zero speed */
-                SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-                SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
-                hfc->ctrl_out[SPEED][PITCH] = 0;
-                hfc->ctrl_out[SPEED][ROLL]  = 0;
-                
-                hfc->waypoint_stage = FM_TAKEOFF_SPEED;
-            }
-        }
-        else
-        if (hfc->waypoint_stage == FM_TAKEOFF_SPEED)
-        {
-            /* once in horizontal speed mode, watch the altitude and switch to position and altitude hold at 0.3meters */
-            if (hfc->altitude > (hfc->home_pos[2]+0.3f))
-            {
-                hfc->waypoint_pos[0] = hfc->home_pos[0];
-                hfc->waypoint_pos[1] = hfc->home_pos[1];
-                hfc->waypoint_retire = 0;
-                SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_POSITION);
-                SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
-                hfc->waypoint_stage = FM_TAKEOFF_HOLD;
-            }
-        }
-        else
-        if (hfc->waypoint_stage == FM_TAKEOFF_HOLD)
-        {
-          int retire_takeoff_height = hfc->waypoint_pos[2];
-
-          // if we are playing a playlist and the takeoff is not the last item in the playlist, then
-          // retire the takeoff TAKEOFF_HEIGHT_RETIRE_OFFSET meters earlier.
-          if ( (hfc->playlist_status > PLAYLIST_STOPPED) && (hfc->playlist_position < (hfc->playlist_items - 1)) ){
-            retire_takeoff_height = max(hfc->home_pos[2]+TAKEOFF_HEIGHT_MIN, hfc->waypoint_pos[2]-TAKEOFF_HEIGHT_RETIRE_OFFSET);
-          }
-
-          // Once altitude reaches the requested waypoint altitude within TAKEOFF_HEIGHT_RETIRE_OFFSET, Takeoff is complete
-          if (hfc->altitude >= retire_takeoff_height) {
-            // make sure the next waypoint uses the intended takeoff height
-            hfc->altitude_WPnext = hfc->waypoint_pos[2] - hfc->altitude_base;
-            hfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
-          }
-        }
+    if (hfc->waypoint_type == WAYPOINT_TAKEOFF) {
+      ProcessTakeoff(dT,false);
     }
-    else
-    if (hfc->waypoint_type == WAYPOINT_LANDING)
-    {
-        if (hfc->waypoint_stage == FM_LANDING_STOP)
-        {
-            if ((hfc->setZeroSpeed == false) && (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed))
-            {
-                /* send out message and setup timeout */
-                hfc->waypoint_stage = FM_LANDING_HOLD;
-                hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
-                hfc->message_timeout = DEFAULT_LANDING_TIMEOUT;
-                telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
-            }
-        }
-        else
-        if (hfc->waypoint_stage == FM_LANDING_WAYPOINT)
-        {
-            if (gps.gps_data_.HspeedC <= hfc->rw_cfg.GTWP_retire_speed && hfc->gps_to_waypoint[0] <= hfc->rw_cfg.GTWP_retire_radius)
-            {
-                /* send out message and setup timeout */
-                hfc->waypoint_stage = FM_LANDING_HOLD;
-                hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
-                hfc->message_timeout = DEFAULT_LANDING_TIMEOUT;
-                telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
-            }
-        }
-        else if (hfc->waypoint_stage == FM_LANDING_HOLD && (hfc->message_from_ground==CMD_MSG_LANDING_GO || hfc->message_timeout<=0))
-        {
-            /* check for incoming message or timeout */
-            telem.CommandLanding(false, false);
-        }
-        else if (hfc->waypoint_stage == FM_LANDING_HIGH_ALT)
-        {
-            if (hfc->altitude_lidar <= 3)
-                telem.CommandLanding(true, false);
-        }
-        else
-        if (hfc->waypoint_stage == FM_LANDING_LOW_ALT)
-        {
-            /* heli coming down, watch collective manual value, once below 80% of hover, switch to rate mode */
-//            float CO_thr = 0.7f*hfc->pid_CollVspeed.COofs + 0.3f*hfc->CollZeroAngle;
-//            if (hfc->pid_CollVspeed.COlast < CO_thr)
-            float landing_threshold;
-            if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
-              landing_threshold = LANDING_THRESHOLD_HEIGHT_FIXED_PROP;
-            }
-            else {
-              landing_threshold = LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP;
-            }
-
-            /* touching down, switch to rate mode once below threshold */
-            if (hfc->altitude_lidar <= landing_threshold)
-            {
-                /* set PRY controls to rate */
-                SetCtrlMode(hfc, pConfig, PITCH, CTRL_MODE_RATE);
-                SetCtrlMode(hfc, pConfig, ROLL,  CTRL_MODE_RATE);
-                SetCtrlMode(hfc, pConfig, YAW,   CTRL_MODE_RATE);
-                
-                hfc->ctrl_out[RATE][PITCH] = 0;
-                hfc->ctrl_out[RATE][ROLL]  = 0;
-                hfc->ctrl_out[RATE][YAW]   = 0;
-                /* double the vertical speed just before touchdown to reduce the jump
-                 * and to reduce the time blades take to flatten */
-//                if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH)
-                hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed*0.6f;
-                hfc->waypoint_stage = FM_LANDING_TOUCHDOWN;
-
-                if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
-                  hfc->landing_timeout = LANDING_THRESHOLD_HEIGHT_FIXED_PROP / hfc->ctrl_vspeed_3d; // in seconds
-                }
-            }
-        }
-        else
-        if (hfc->waypoint_stage == FM_LANDING_TOUCHDOWN)
-        {
-          if (pConfig->throttle_ctrl==PROP_FIXED_PITCH) {
-            hfc->landing_timeout -= dT;
-
-            // wait for timeout to expire
-            if (hfc->landing_timeout <= 0) {
-              //Now decay the collective speed as fast as possible based on config
-              hfc->ctrl_vspeed_3d -= 2*pConfig->landing_vspeed_acc*dT;
-
-              if (hfc->ctrl_vspeed_3d <= hfc->pid_CollAlt.COmin) {
-                if (hfc->playlist_status == PLAYLIST_PLAYING) {
-                  hfc->playlist_position++;
-                  hfc->playlist_status = PLAYLIST_STOPPED;
-                }
-                telem.Disarm();
-              }
-            }
-          }
-          else {
-            /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
-            if (hfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
-            {
-              SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
-              hfc->ctrl_out[RAW][COLL] = hfc->pid_CollVspeed.COlast;
-              hfc->ctrl_collective_raw = hfc->pid_CollVspeed.COlast;
-              hfc->ctrl_collective_3d = hfc->pid_CollVspeed.COlast;
-
-              if (hfc->playlist_status == PLAYLIST_PLAYING) {
-                hfc->playlist_position++;
-                hfc->playlist_status = PLAYLIST_STOPPED;
-              }
-              telem.Disarm();
-            }
-          }
-        }
+    else if (hfc->waypoint_type == WAYPOINT_LANDING) {
+      ProcessLanding(dT,false);
+    }
+    else if (hfc->waypoint_type == WAYPOINT_TOUCH_AND_GO) {
+      ProcessTouchAndGo(dT);
     }
 }
 
@@ -2672,6 +2869,28 @@ static void ServoUpdateRAW(float dT)
         debug_print("\r\n\r\n");
     }
 #endif
+
+    float AngleCompensation = COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
+                                      * sqrt(1 / (COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) + COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))
+                                      - COSfD(min(45, ABS(hfc.IMUorient[PITCH]*R2D))) * COSfD(min(45, ABS(hfc.IMUorient[ROLL]*R2D)))));
+
+//    float throttle_prev = hfc.ctrl_out[RAW][THRO];
+
+    // Always default to using lidar node 0.
+    // This is either a single or the front lidar for tandems.
+    if (hfc.lidar_online_mask & 0x1) {
+      hfc.altitude_lidar = (hfc.altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX] - pConfig->lidar_offset/1000.0f) * AngleCompensation;
+    }
+    else if (hfc.lidar_online_mask & 0x2) {
+      // Rear Lidar (for Tandems)
+      hfc.altitude_lidar = (hfc.altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX] - pConfig->lidar_offset/1000.0f) * AngleCompensation;
+    }
+    else {
+      // since we have lost all available lidar data, replace with imu fusion altitude
+      // This at least will give a fighting chance ;-)
+      // TODO::SP: Validate this.....
+      hfc.altitude_lidar = hfc.gps_to_home[2]; //hfc.altitude;
+    }
 
     hfc.fixedThrottleMode = THROTTLE_IDLE;
     hfc.throttle_value = -pConfig->Stick100range; // Throttle off
@@ -2769,7 +2988,7 @@ static void ServoUpdateRAW(float dT)
 
     ServoMixer();
 
-    if (pConfig->ccpm_type == MIXERTANDEM) {
+    if ((pConfig->ccpm_type == MIXERTANDEM) || (pConfig->ccpm_type == CCPM120TANDEMTESTBENCH)) {
         WriteToServoNodeServos(pConfig->num_servo_nodes);
     }
     else {
@@ -3256,7 +3475,7 @@ static void ServoUpdate(float dT)
       
       /* altitude control - interpolation between waypoints */
       if (    ( (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) || (hfc.ctrl_source == CTRL_SOURCE_AFSI) )
-           && hfc.waypoint_type != WAYPOINT_TAKEOFF)
+           && (hfc.waypoint_type != WAYPOINT_TAKEOFF) && !hfc.touch_and_go_takeoff)
       {
         if (hfc.waypoint_STdist>2)
         {
@@ -3407,6 +3626,11 @@ static void ServoUpdate(float dT)
               speedR = speedR * bank / ctrl_speed;
               hfc.bankRoll =  speedP;
               hfc.bankPitch = -speedR;
+
+              hfc.Debug[0] = hfc.ctrl_yaw_rate;
+              hfc.Debug[1] = hfc.bankPitch;
+              hfc.Debug[2] = hfc.bankRoll;
+
               hfc.ctrl_out[ANGLE][PITCH] -= hfc.bankPitch;
               hfc.ctrl_out[ANGLE][ROLL]  += hfc.bankRoll;
               hfc.ctrl_out[ANGLE][PITCH] = ClipMinMax(hfc.ctrl_out[ANGLE][PITCH], hfc.pid_PitchSpeed.COmin, hfc.pid_PitchSpeed.COmax);
@@ -3491,7 +3715,7 @@ static void ServoUpdate(float dT)
         PID_SetForEnable(&hfc.pid_YawAngle, hfc.ctrl_out[ANGLE][YAW], hfc.ctrl_out[ANGLE][YAW], hfc.ctrl_out[RATE][YAW]);
       }  
       hfc.ctrl_out[RATE][YAW] = PID_P_Acc(&hfc.pid_YawAngle, hfc.ctrl_out[ANGLE][YAW], hfc.IMUorient[YAW]*R2D, dT, false, double_angle_acc);
-    }  
+    }
 
     if (hfc.control_mode[YAW] >= CTRL_MODE_RATE) {
         if (control_mode_prev[YAW] < CTRL_MODE_RATE) {
@@ -3523,7 +3747,7 @@ static void ServoUpdate(float dT)
           {
             /* if lidar alt dips below the min limit, switch to lidat ctrl mode.
              * Never do this for takeoff since it needs to get above LidarMinAlt first */
-            if ((hfc.altitude_lidar < LidarMinAlt) && (hfc.waypoint_type != WAYPOINT_TAKEOFF)) {
+            if ((hfc.altitude_lidar < LidarMinAlt) && (hfc.waypoint_type != WAYPOINT_TAKEOFF) && !hfc.touch_and_go_takeoff) {
                 hfc.LidarCtrlMode = true;
             }
           }
@@ -3556,12 +3780,18 @@ static void ServoUpdate(float dT)
         if (control_mode_prev[COLL]<CTRL_MODE_POSITION)
         {
             hfc.LidarCtrlMode = false;            
-            if (hfc.waypoint_type != WAYPOINT_TAKEOFF)
+            if ((hfc.waypoint_type != WAYPOINT_TAKEOFF) && !hfc.touch_and_go_takeoff) {
                 hfc.ctrl_out[POS][COLL] = hfc.altitude;
-                             PID_SetForEnable(&hfc.pid_CollAlt, CtrlAltitude, CurrAltitude, hfc.ctrl_out[SPEED][COLL]);
+                PID_SetForEnable(&hfc.pid_CollAlt, CtrlAltitude, CurrAltitude, hfc.ctrl_out[SPEED][COLL]);
+            }
         }
         e_alt = CtrlAltitude - CurrAltitude;
         hfc.ctrl_out[SPEED][COLL] = PID_P_Acc(&hfc.pid_CollAlt, CtrlAltitude, CurrAltitude, dT, hfc.LidarCtrlMode && (e_alt>=0), double_acc);  // in lidar mode, ignore acc up
+
+        if ( ABS(CtrlAltitude - CurrAltitude) <= 1) {
+          // change the vertical speed of UAV from takeoff mode to normal mode
+          hfc.pid_CollAlt.COmax = hfc.rw_cfg.VspeedMax;
+        }
     }
     else {
         hfc.ctrl_out[POS][COLL] = hfc.altitude;
@@ -3608,10 +3838,10 @@ static void ServoUpdate(float dT)
         // if lever is low, set throttle to minimum and everything else to 0
         // to prevent any prop from accidental spinning because of PIDs
         if (hfc.throttle_value < -0.50f || !hfc.throttle_armed || (hfc.control_mode[COLL] < CTRL_MODE_SPEED && hfc.collective_value < -0.50f)
-                || (hfc.waypoint_type == WAYPOINT_TAKEOFF && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))) {
+                || (((hfc.waypoint_type == WAYPOINT_TAKEOFF) || hfc.touch_and_go_takeoff)&& (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL))) {
 
             float throttle = pConfig->throttle_values[0];
-            if (hfc.throttle_armed && hfc.throttle_value > -0.5f && hfc.waypoint_type == WAYPOINT_TAKEOFF
+            if (hfc.throttle_armed && hfc.throttle_value > -0.5f && ((hfc.waypoint_type == WAYPOINT_TAKEOFF) || hfc.touch_and_go_takeoff)
                     && (hfc.waypoint_stage == FM_TAKEOFF_ARM || hfc.waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
                 throttle = -0.5;
             }
@@ -3660,7 +3890,7 @@ static void ServoUpdate(float dT)
 
     ServoMixer();
 
-    if (pConfig->ccpm_type == MIXERTANDEM) {
+    if ((pConfig->ccpm_type == MIXERTANDEM) || (pConfig->ccpm_type == CCPM120TANDEMTESTBENCH)) {
         WriteToServoNodeServos(pConfig->num_servo_nodes);
     }
     else {
@@ -4118,14 +4348,31 @@ static void UpdateCastleLiveLink(int node_id, int message_id, unsigned char *pda
             Iesc     += castle_link_live[i].current;
             Vmain    += castle_link_live[i].battery_voltage;
             Vbec     += castle_link_live[i].bec_voltage;
-            RPM      += castle_link_live[i].rpm;
-            esc_temp += castle_link_live[node_id].temperature;
+
+            if (pConfig->ccpm_type == MIXERTANDEM) {
+              RPM      += castle_link_live[i].rpm;
+              esc_temp += castle_link_live[i].temperature;
+            }
+            else {
+              // Case for ccpm120 TANDEM test bench heli:
+              // This heli only has one motor even though it has two servo nodes and
+              // two speed controls. Only the speed control on Servo Node #1 is connected
+              // to the motor and so we are only concerned with the rpm and temperature
+              // reported by castle link for servo node #1.
+              if (i == 0) {
+                RPM      = castle_link_live[i].rpm;
+                esc_temp = castle_link_live[i].temperature;
+              }
+            }
         }
 
         Vmain    /= MAX_NUM_CASTLE_LINKS;
         Vbec     /= MAX_NUM_CASTLE_LINKS;
-        RPM      /= MAX_NUM_CASTLE_LINKS;
-        esc_temp /= MAX_NUM_CASTLE_LINKS;
+
+        if (pConfig->ccpm_type == MIXERTANDEM) {
+          RPM      /= MAX_NUM_CASTLE_LINKS;
+          esc_temp /= MAX_NUM_CASTLE_LINKS;
+        }
 
         // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
         hfc.power.Iaux   = Iaux;
@@ -5704,9 +5951,18 @@ int ConfigureCanServoNodes(int num_servo_nodes)
     for (int i = 0; i < num_servo_nodes; i++) {
         canbus_ack = 0;
         can_tx_message.len = 2;
-        // Activates Channels for Castle Link/Throttle, A, B, C, PWM Fan control
+
         // TODO::SP: This will ultimately come from configuration file
-        can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+        if (pConfig->ccpm_type == MIXERTANDEM) {
+          // Activates Channels for servos A, B, C, PWM and Fan control
+          // CHANNEL 1 is Castle Link/Throttle which is always activated by default
+          can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+        }
+        else if (pConfig->ccpm_type == CCPM120TANDEMTESTBENCH) {
+          // Activates Channels for servos A, B, C, and tail rotor PWM and Fan control
+          // CHANNEL 1 is Castle Link/Throttle which is always activated by default
+          can_tx_message.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_5 | PWM_CHANNEL_8;
+        }
         can_tx_message.data[1] = LIDAR_ACTIVE; /* Link Live is automatically enabled on Tandem Servos */
 
         can_tx_message.id = AVIDRONE_CAN_ID(AVIDRONE_SERVO_NODETYPE,
@@ -6033,7 +6289,7 @@ void InitializeRuntimeData(void)
         }
     }
 
-    hfc.box_dropper_ = 0;
+    hfc.box_dropper_ = pConfig->aux_pwm_default;
 
     hfc.heading_offset = 0; //pConfig->heading_offset;
 
@@ -6041,7 +6297,7 @@ void InitializeRuntimeData(void)
 
     // Configure number of lidars based on airframe type.
     // TODO::SP should really do this at confguration stage.
-    if (pConfig->ccpm_type == MIXERTANDEM) {
+    if ((pConfig->ccpm_type == MIXERTANDEM) || (pConfig->ccpm_type == CCPM120TANDEMTESTBENCH)) {
       num_lidars = 2;
     }
     else {
@@ -6059,6 +6315,16 @@ void InitializeRuntimeData(void)
     }
 
     hfc.enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
+
+    hfc.servo_reverse_mask = 0;
+    for (int i=0; i < MAX_NUMBER_SERVO_OUTPUTS; i++) {
+      if ( i < 6 ) {
+        hfc.servo_reverse_mask |= pConfig->servo_revert[i] << i;
+      }
+      else {
+        hfc.servo_reverse_mask |= pConfig->servo_revert_ch7_ch8[i-6] << i;
+      }
+    }
 }
 
 /**

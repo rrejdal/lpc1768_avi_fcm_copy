@@ -153,8 +153,8 @@ class MPU6050
         double Ca[3][3];
         double aofs[3];
 
-		double Cg[3][3];
-		double gofs[3];
+		    double Cg[3][3];
+	    	double gofs[3];
         double gyroP_temp_coeffs[3];
         double gyroR_temp_coeffs[3];
         double gyroY_temp_coeffs[3];

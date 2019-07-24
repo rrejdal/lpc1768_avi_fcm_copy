@@ -257,7 +257,9 @@ enum TELEM_PARAMS_AIRFRAME {
 #define FM_TAKEOFF_SPEED        7   // speed ground, 25% vspeed threshold
 #define FM_TAKEOFF_ALTITUDE     8   // set target altitude once above 4m
 #define FM_TAKEOFF_HOLD         9   // position+alt hold at +5m, 50% vspeed threshold or +1m altitude
-#define FM_TAKEOFF_COMPLETE     10   // within 0.2m
+#define FM_TAKEOFF_COMPLETE     10  // within 0.2m
+
+#define FM_TOUCH_AND_GO_WAIT    101 // delay during Touch and Go
 
 /* landing states */
 #define FM_LANDING_NONE         0
@@ -956,6 +958,12 @@ typedef struct ConfigurationData {
 
     float takeoff_vertical_speed;
 
+    int aux_pwm_min;
+    int aux_pwm_max;
+    int aux_pwm_default;
+
+    int servo_revert_ch7_ch8[2];
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
@@ -1151,6 +1159,7 @@ typedef struct
     int   waypoint_retire;     // when true, waypoint retire logic is activated
     
     float home_pos[3];                  // home position [lat/long/alt] in meters
+    float takeoff_pos[3];               // takeoff position [lat/long/alt] in meters
     float  altitude_base;				// reference value for altitude control
     double waypoint_pos[3];             // waypoint position [lat/long/alt] in meters
     double waypoint_pos_prev[3];        // starting waypoint position [lat/long/alt] in meters
@@ -1317,6 +1326,16 @@ typedef struct
     bool setZeroSpeed;
 
     uint32 OdometerReading;
+
+    float touch_and_go_wait; // total time delay in seconds while on the ground during touch and go
+    float touch_and_go_do_the_thing_cnt;  // time in seconds after landing and before doing the thing
+    bool  touch_and_go_do_the_thing;
+    bool  touch_and_go_landing;
+    bool  touch_and_go_takeoff;
+
+    float Debug[8];   // placeholder for various user defined debug values to be sent when streaming
+
+    uint32_t servo_reverse_mask;
 
 } FlightControlData;
 

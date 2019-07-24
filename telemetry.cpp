@@ -950,7 +950,12 @@ void TelemSerial::CalcDynYawRate(void)
    AI = min(AI, (1-MinBlend)*AImax/max(1, MaxSpeed)*hfc->gps_speed+MinBlend*AImax);
    hfc->acc_dyn_turns = AI;
 
-   if (hfc->gps_speed<1) {
+   if(((hfc->waypoint_type == WAYPOINT_LANDING) || hfc->touch_and_go_landing) && (hfc->waypoint_stage > FM_LANDING_WAYPOINT) ) {
+     // During landing, reduce the angular rate at which the UAV turns
+     // into the wind to 70% the maximum yaw rate defined in the config.
+     hfc->dyn_yaw_rate = 0.7f*MYR;
+   }
+   else if (hfc->gps_speed<1) {
      hfc->dyn_yaw_rate = MYR;
    }
    else {
@@ -1766,6 +1771,15 @@ void TelemSerial::SetHome(void)
     hfc->altitude_base = hfc->home_pos[2];
 }
 
+void TelemSerial::SetTakeoffPosition(void)
+{
+    GpsData gps_data = gps.GetGpsData();
+
+    hfc->takeoff_pos[0] = gps_data.latF;
+    hfc->takeoff_pos[1] = gps_data.lonF;
+    hfc->takeoff_pos[2] = hfc->altitude;
+}
+
 void TelemSerial::SendMsgToGround(int msg_id)
 {
     hfc->msg2ground_id = msg_id;
@@ -1947,6 +1961,7 @@ void TelemSerial::CommandTakeoffArm(void)
 
     if (hfc->afsi_takeoff_enable) {
       hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
+      hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
     }
     else {
       if (!hfc->rc_ctrl_request) {
@@ -2004,7 +2019,6 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
 
         SetCtrlMode(hfc, pConfig, COLL,  CTRL_MODE_SPEED);
         hfc->ctrl_vspeed_3d = max(-2*pConfig->landing_vspeed, hfc->pid_CollAlt.COmin);
-        hfc->waypoint_type  = WAYPOINT_LANDING;
         hfc->waypoint_stage = FM_LANDING_HIGH_ALT;
     }
     else
@@ -2025,7 +2039,6 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
         hfc->ctrl_vspeed_3d = -pConfig->landing_vspeed;
         SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
 
-        hfc->waypoint_type  = WAYPOINT_LANDING;
         hfc->waypoint_stage = FM_LANDING_LOW_ALT;
     }
 }
@@ -2039,6 +2052,8 @@ void TelemSerial::Disarm(void)
 	hfc->playlist_status = PLAYLIST_NONE;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
+	hfc->touch_and_go_landing = false;
+	hfc->touch_and_go_takeoff = false;
 
 	// TODO::SP: Error handling on Flash write error??
   UpdateFlashConfig(hfc);
@@ -2358,6 +2373,7 @@ void TelemSerial::ProcessCommands(void)
       }
       else if (sub_cmd == LANDING_CURRENT)
       {
+        hfc->waypoint_type = WAYPOINT_LANDING;
         CommandLanding(false, true);
       }
       else if (sub_cmd == LANDING_WAYPOINT)
@@ -2476,7 +2492,6 @@ int TelemSerial::Accelerate(float acceleration, float time)
       return 0;
     }
 }
-
 
 void TelemSerial::SetZeroSpeed(void)
 {

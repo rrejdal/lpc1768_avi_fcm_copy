@@ -226,40 +226,40 @@ static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
     
     switch (param)
     {
-case LOG_PARAM_XBUS_INPUT0_3:
+      case LOG_PARAM_XBUS_INPUT0_3:
         value = Float32toFloat16(xbus.valuesf[index]);
         break;
-case LOG_PARAM_XBUS_INPUT4_7:
+      case LOG_PARAM_XBUS_INPUT4_7:
         value = Float32toFloat16(xbus.valuesf[index+4]);
         break;
-case LOG_PARAM_XBUS_INPUT8_11:
+      case LOG_PARAM_XBUS_INPUT8_11:
         value = Float32toFloat16(xbus.valuesf[index+8]);
         break;
-case LOG_PARAM_JOY_INPUT:
+      case LOG_PARAM_JOY_INPUT:
         value = Float32toFloat16(hfc->joy_values[index]);
         break;
-case LOG_PARAM_GYRO_RAW:
+      case LOG_PARAM_GYRO_RAW:
         value = Float32toFloat16(hfc->gyroRaw[Min(2, index)]);
         break;
-case LOG_PARAM_GYRO_LP:
+      case LOG_PARAM_GYRO_LP:
         value = Float32toFloat16(hfc->gyro[Min(2, index)]);
         break;
-case LOG_PARAM_ACC_RAW:
+      case LOG_PARAM_ACC_RAW:
         value = Float32toFloat16(hfc->accRaw[Min(2, index)]);
         break;
-case LOG_PARAM_ACC_LP:
+      case LOG_PARAM_ACC_LP:
         value = Float32toFloat16(hfc->acc[Min(2, index)]);
         break;
-case LOG_PARAM_COMPASS:
+      case LOG_PARAM_COMPASS:
         if (index==0)
             value = Float32toFloat16(hfc->compass_heading);
         else
             value = Float32toFloat16(compass.dataXYZcalib[index-1]);
         break;
-case LOG_PARAM_ORIENT:
+      case LOG_PARAM_ORIENT:
         value = Float32toFloat16(hfc->IMUorient[Min(2, index)]*R2D);
         break;
-case LOG_PARAM_BARO:
+      case LOG_PARAM_BARO:
         if (index==0)
             value = Float32toFloat16(hfc->baro_altitude_raw_lp);
         else if (index==1)
@@ -267,38 +267,38 @@ case LOG_PARAM_BARO:
         else
             value = Float32toFloat16(hfc->baro_temperature);
         break;
-case LOG_PARAM_PITOT:             // pitot [pressure in kPA / speed in m/s / temp in deg C] (f16)
+      case LOG_PARAM_PITOT:             // pitot [pressure in kPA / speed in m/s / temp in deg C] (f16)
         value = 0;
         break;
         // TODO::SP: Need to account for multiple servo nodes
-case LOG_PARAM_SERVOS0_3:
+      case LOG_PARAM_SERVOS0_3:
         value = Float32toFloat16(hfc->servos_out[index]);
         break;
-case LOG_PARAM_SERVOS4_7:
+      case LOG_PARAM_SERVOS4_7:
         value = Float32toFloat16(hfc->servos_out[index+4]);
         break;
-case LOG_PARAM_CTRL_MODE:
+      case LOG_PARAM_CTRL_MODE:
         for (i=0; i<5; i++) value |= (hfc->control_mode[(int)i] & 0x7) << (i*3);
         break;
-case LOG_PARAM_CTRL_RAW0:
+      case LOG_PARAM_CTRL_RAW0:
         value = Float32toFloat16(hfc->ctrl_out[RAW][index]);
         break;
-case LOG_PARAM_CTRL_RAW1:
+      case LOG_PARAM_CTRL_RAW1:
         value = Float32toFloat16(hfc->ctrl_out[RAW][4]);
         break;
-case LOG_PARAM_CTRL_RATE:           // ctrl_rate [P/R/Y] in deg/s (f16)
+      case LOG_PARAM_CTRL_RATE:           // ctrl_rate [P/R/Y] in deg/s (f16)
         value = Float32toFloat16(hfc->ctrl_out[RATE][Min(2, index)]);
         break;
-case LOG_PARAM_CTRL_ANGLE:          // ctrl_angle [P/R/Y] in deg (f16)
+      case LOG_PARAM_CTRL_ANGLE:          // ctrl_angle [P/R/Y] in deg (f16)
         value = Float32toFloat16(hfc->ctrl_out[ANGLE][Min(2, index)]);
         break;
-case LOG_PARAM_CTRL_SPEED:          // ctrl_speed in m/s [F/R/U] (f16)
+      case LOG_PARAM_CTRL_SPEED:          // ctrl_speed in m/s [F/R/U] (f16)
         if (index==2)
             value = Float32toFloat16(hfc->ctrl_out[SPEED][COLL]);
         else
             value = Float32toFloat16(hfc->ctrl_out[SPEED][Min(1, index)]);
         break;
-case LOG_PARAM_ALTITUDE:            // altitude [CTRL / current IMU / lidar] in m (f16)
+      case LOG_PARAM_ALTITUDE:            // altitude [CTRL / current IMU / lidar] in m (f16)
         if (index==0)
             value = Float32toFloat16(hfc->ctrl_out[POS][COLL]);
         else if (index==1)
@@ -308,25 +308,25 @@ case LOG_PARAM_ALTITUDE:            // altitude [CTRL / current IMU / lidar] in 
         else
             value = Float32toFloat16(hfc->altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX]);
         break;
-case LOG_PARAM_GROUND_SPEED:        // ground speed in m/s [total/E/N/U] (f16)
+      case LOG_PARAM_GROUND_SPEED:        // ground speed in m/s [total/E/N/U] (f16)
         if (index==0)
             value = Float32toFloat16(hfc->gps_speed);
         else
             value = Float32toFloat16(hfc->IMUspeedGroundENU[index-1]);
         break;
-case LOG_PARAM_HELI_SPEED:          // heli speed in m/s [R/F/U] (f16)
+      case LOG_PARAM_HELI_SPEED:          // heli speed in m/s [R/F/U] (f16)
         value = Float32toFloat16(hfc->speedHeliRFU[index]);
         break;
-case LOG_PARAM_CPU:                 // CPU stats [process_period in uS int / utilization in % f16]
+      case LOG_PARAM_CPU:                 // CPU stats [process_period in uS int / utilization in % f16]
         if (index==0)
             value = hfc->ticks_curr;
         else
             value = Float32toFloat16(hfc->cpu_utilization_curr);
         break;
-case LOG_PARAM_TIME:                // CPU time in ms (int)
+      case LOG_PARAM_TIME:                // CPU time in ms (int)
         value = hfc->time_ms;
         break;
-case LOG_PARAM_POSITION:            // heli position relative to home [horizontal distance / altitude difference] in m (f16)
+      case LOG_PARAM_POSITION:            // heli position relative to home [horizontal distance / altitude difference] in m (f16)
         if (index==2)
             value = Float32toFloat16(hfc->gps_to_home[2]);     // 0-distance/1-heading/2-altitude difference
         else
@@ -339,22 +339,28 @@ case LOG_PARAM_POSITION:            // heli position relative to home [horizonta
                 value = Float32toFloat16(course);
         }
         break;
-case LOG_PARAM_TANDEM:
-    if (index == 0) {
-        value = Float32toFloat16(hfc->rw_cfg.dcp_gain);
-    }
-    else if (index == 1) {
-        value = Float32toFloat16(hfc->rw_cfg.elevator_gain);
-    }
-    else if (index == 2) {
-      value = Float32toFloat16(hfc->altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX]);
-    }
-    else {
-      value = Float32toFloat16(hfc->altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX]);
-    }
-    break;
+      case LOG_PARAM_TANDEM:
+          if (index == 0) {
+            value = Float32toFloat16(hfc->rw_cfg.dcp_gain);
+          }
+          else if (index == 1) {
+            value = Float32toFloat16(hfc->rw_cfg.elevator_gain);
+          }
+          else if (index == 2) {
+            value = Float32toFloat16(hfc->altitude_lidar_raw[SINGLE_FRONT_LIDAR_INDEX]);
+          }
+          else {
+            value = Float32toFloat16(hfc->altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX]);
+          }
+          break;
 
-    }
+case LOG_PARAM_DEBUG0_3:
+    value = Float32toFloat16(hfc->Debug[index]);
+    break;
+case LOG_PARAM_DEBUG4_7:
+    value = Float32toFloat16(hfc->Debug[index+4]);
+    break;
+}
     return value;
 }
 
