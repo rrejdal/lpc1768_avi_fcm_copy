@@ -4110,11 +4110,14 @@ static void CanbusISRHandler(void)
 
     case AVI_MSGID_GPS:
       {
-        if (seq_id == AVI_COMPASS) {
+        if (seq_id <= AVI_GPS4) {
+          gps.AddGpsData(node_id, seq_id, (char *)pdata);
+        }
+        else if (seq_id == AVI_COMPASS) {
           UpdateCompassData(node_id, pdata);
         }
         else {
-          gps.AddGpsData(node_id, seq_id, (char *)pdata);
+          unkown_message = true;
         }
       }
       break;
@@ -4133,7 +4136,7 @@ static void CanbusISRHandler(void)
     case AVI_MSGID_SDP:
       {
         if(seq_id == AVI_BOARDINFO_0) {
-          SetFcmLedState(0x1);
+          //SetFcmLedState(0x1);
           UpdateBoardInfo(node_id, pdata);
         }
         else if(seq_id == AVI_BOARDINFO_1) {
@@ -5386,11 +5389,12 @@ uint32_t EnableCanbusPDPs()
 
   can_tx_message.len = 0;
 
-  //for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
-  //    can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
-  //    Canbus->write(can_tx_message);
-  //}
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+      can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
+      Canbus->write(can_tx_message);
+  }
 
+#if 0
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     can_tx_message.id = AVI_CAN_ID(AVI_SERVO_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
     Canbus->write(can_tx_message);
@@ -5400,6 +5404,7 @@ uint32_t EnableCanbusPDPs()
       can_tx_message.id = AVI_CAN_ID(AVI_PWR_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
       Canbus->write(can_tx_message);
   }
+#endif
 
   return ret;
 }
@@ -5436,6 +5441,7 @@ void InitializeRuntimeData(void)
   // keep running under a warm reset.
   if (last_reset != (RESET_REASON_POR | RESET_REASON_BODR)) {
     phfc->system_reset_reason = last_reset;
+    phfc->system_status_mask = 0;
     phfc->soft_reset_counter++;
 
     // initialize incoming command to None, to ensure we don't process an old
@@ -5694,7 +5700,7 @@ uint32_t InitializeSystemData()
 static uint32_t InitCanbus(void)
 {
   int error = 0;
-  uint32_t ret_mask = 0;
+  volatile uint32_t ret_mask = 0;
   CANMessage node_cfg_data;
 
   // Create New Canbus Client
@@ -5716,11 +5722,12 @@ static uint32_t InitCanbus(void)
     }
 
     if (error) {
-      if (node_id == 0) {ret_mask |= N1_NAV_FAIL;}
-      if (node_id == 1) {ret_mask |= N2_NAV_FAIL;}
+      if (node_id == 1) {ret_mask |= N1_NAV_FAIL;}
+      if (node_id == 2) {ret_mask |= N2_NAV_FAIL;}
     }
   }
 
+#if 0
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
@@ -5733,8 +5740,8 @@ static uint32_t InitCanbus(void)
     }
 
     if (error) {
-      if (node_id == 0) {ret_mask |= N1_SERVO_FAIL;}
-      if (node_id == 1) {ret_mask |= N2_SERVO_FAIL;}
+      if (node_id == 1) {ret_mask |= N1_SERVO_FAIL;}
+      if (node_id == 2) {ret_mask |= N2_SERVO_FAIL;}
     }
   }
 
@@ -5750,17 +5757,18 @@ static uint32_t InitCanbus(void)
     }
 
     if (error) {
-      if (node_id == 0) {ret_mask |= N1_PWR_FAIL;}
-      if (node_id == 1) {ret_mask |= N2_PWR_FAIL;}
+      if (node_id == 1) {ret_mask |= N1_PWR_FAIL;}
+      if (node_id == 2) {ret_mask |= N2_PWR_FAIL;}
     }
   }
+#endif
 
   if (error)
-    SetFcmLedState(0xf);
+    //SetFcmLedState(0xf);
 
   // Enable Canbus Reporting - Broadcast to ALL nodes on system
+  wait_ms(100);
   EnableCanbusPDPs();
-
   return ret_mask;
 }
 
@@ -5797,9 +5805,11 @@ int main()
 
   phfc->system_status_mask |= baro.Init(pConfig);
 
+  //compass.Init(pConfig);
+
   SysTick_Run();
 
-  SetFcmLedState(phfc->system_reset_reason);
+  //SetFcmLedState(phfc->system_reset_reason);
 
   // Initialize FCM local IO
   InitFcmIO();
@@ -5815,6 +5825,7 @@ int main()
 
   // Loop Forever, processing control
   while(1) {
+
     DoFlightControl();
 
     // Process Serial commands if USB is available

@@ -120,6 +120,7 @@ HMC5883L::HMC5883L(I2Ci *m_i2c)
     chip = CHIP_NONE;
     new_data_ = 0;
     pConfigData = NULL;
+    lsb_per_mga_ = 4.0; // This value is for the MMC5883MA device!
 }
 
 bool HMC5883L::Init(const ConfigData *pConfig)
