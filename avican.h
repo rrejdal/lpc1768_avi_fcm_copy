@@ -93,7 +93,7 @@ typedef enum {
   AVI_SYNC    = 0,
   AVI_PDP_ON  = 1,
   AVI_PDP_OFF = 2,
-  AVI_RSVD0   = 3,
+  AVI_FAILSAFE = 3,
   AVI_RSVD1   = 4,
   AVI_RSVD2   = 5,
   AVI_RSVD3   = 6,

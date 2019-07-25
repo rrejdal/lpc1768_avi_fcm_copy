@@ -142,7 +142,7 @@ BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
 CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
 double heading[MAX_NUM_GPS];
 
-static void CanbusSync(int num_nodes, int node_type);
+static void CanbusSync(void);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
 
@@ -4095,11 +4095,10 @@ static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
 static void CanbusISRHandler(void)
 {
   CANMessage can_rx_message;
-  bool can_msg_avail = true;
+  bool unknown_msg = false;
 
-  while(Canbus->read(can_rx_message) && can_msg_avail) {
+  while(Canbus->read(can_rx_message) && !unknown_msg) {
 
-    can_msg_avail = true;
     int node_type = AVI_CAN_NODETYPE(can_rx_message.id);
     int node_id = (AVI_CAN_NODEID(can_rx_message.id) -1);
     int seq_id = AVI_CAN_SEQID(can_rx_message.id);
@@ -4119,7 +4118,7 @@ static void CanbusISRHandler(void)
           UpdateCastleLiveLink(node_id, seq_id, pdata);
         }
         else {
-          can_msg_avail = false;
+          unknown_msg = true;
         }
       }
       break;
@@ -4133,7 +4132,7 @@ static void CanbusISRHandler(void)
           UpdateCompassData(node_id, pdata);
         }
         else {
-          can_msg_avail = false;
+          unknown_msg = true;
         }
       }
       break;
@@ -4144,7 +4143,7 @@ static void CanbusISRHandler(void)
           canbus_ack = 1;
         }
         else {
-          can_msg_avail = false;
+          unknown_msg = true;
         }
       }
       break;
@@ -4156,7 +4155,7 @@ static void CanbusISRHandler(void)
           UpdateHwIdLow(node_id, pdata);
         }
         else if(seq_id == AVI_HWID_HIGH) {
-          SetFcmLedState(0x4);
+          //SetFcmLedState(0x4);
           UpdateHwIdHigh(node_id, node_type, pdata);
           can_node_found = 1;
         }
@@ -4164,18 +4163,18 @@ static void CanbusISRHandler(void)
           UpdateHardwareStatus(node_id, node_type, pdata);
         }
         else {
-          can_msg_avail = false;
+          unknown_msg = true;
         }
       }
       break;
 
     default:
       phfc->stats.canbus_error_count++;
-      can_msg_avail = false;
+      unknown_msg = true;
       break;
     }
 
-    if(can_msg_avail) {
+    if(!unknown_msg) {
       phfc->stats.can_rx_msg_count[node_type][node_id]++;
     }
   }
@@ -4199,7 +4198,7 @@ static void ProcessStats(void)
     }
 }
 
-#define CAN_NODE_TIMEOUT 1.0f
+#define CAN_NODE_TIMEOUT 0.5f
 static void CanbusNodeMonitor(float dT)
 {
   static unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM] = {0};
@@ -4211,37 +4210,39 @@ static void CanbusNodeMonitor(float dT)
   if (can_timeout <= 0) {
 
     // Check GPS
-    for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+    for (int node_id = 0; node_id < pConfig->num_gps_nodes; node_id++) {
       if ((phfc->stats.can_rx_msg_count[AVI_GPS_NODETYPE][node_id] - can_rx_msg_count[AVI_GPS_NODETYPE][node_id]) == 0) {
         // This device has gone offline
-        phfc->system_status_mask |= (NAV_NODE_FAIL << --node_id);
+        phfc->system_status_mask |= (NAV_NODE_FAIL << node_id);
+        SetFcmLedState(0xf);
       }
       else {
-        phfc->system_status_mask &= ~(NAV_NODE_FAIL << --node_id);
+        phfc->system_status_mask &= ~(NAV_NODE_FAIL << node_id);
       }
       can_rx_msg_count[AVI_GPS_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_GPS_NODETYPE][node_id];
     }
 
     // Check servo nodes
-    for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
+    for (int node_id = 0; node_id < pConfig->num_servo_nodes; node_id++) {
       if ((phfc->stats.can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] - can_rx_msg_count[AVI_SERVO_NODETYPE][node_id]) == 0) {
         // This device has gone offline
-        phfc->system_status_mask |= (SERVO_NODE_FAIL << --node_id);
+        phfc->system_status_mask |= (SERVO_NODE_FAIL << node_id);
+        //SetFcmLedState(0xf);
       }
       else {
-        phfc->system_status_mask &= ~(SERVO_NODE_FAIL << --node_id);
+        phfc->system_status_mask &= ~(SERVO_NODE_FAIL << node_id);
       }
       can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_SERVO_NODETYPE][node_id];
     }
 
     // check power nodes
-    for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_power_nodes; node_id++) {
+    for (int node_id = 0; node_id < pConfig->num_power_nodes; node_id++) {
       if ((phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id] - can_rx_msg_count[AVI_SERVO_NODETYPE][node_id]) == 0) {
         // This device has gone offline
-        phfc->system_status_mask |= (PWR_NODE_FAIL << --node_id);
+        phfc->system_status_mask |= (PWR_NODE_FAIL << node_id);
       }
       else {
-        phfc->system_status_mask &= ~(PWR_NODE_FAIL << --node_id);
+        phfc->system_status_mask &= ~(PWR_NODE_FAIL << node_id);
       }
       can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id];
     }
@@ -4931,13 +4932,7 @@ void DoFlightControl()
 
     AutoReset();
 
-    if (pConfig->num_gps_nodes > 0) {
-      CanbusSync(pConfig->num_gps_nodes, AVI_GPS_NODETYPE);
-    }
-
-    if (pConfig->num_power_nodes > 0) {
-      CanbusSync(pConfig->num_power_nodes, AVI_PWR_NODETYPE);
-    }
+    CanbusSync();
 
     phfc->power.dT += dT;
 
@@ -5459,34 +5454,40 @@ uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage 
 uint32_t EnableCanbusPDPs()
 {
   CANMessage can_tx_message;
-  uint32_t ret = 0;
+  uint32_t ret_mask = 0;
 
   can_tx_message.len = 0;
 
-  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
-      can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
-      Canbus->write(can_tx_message);
-  }
-
-#if 1
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     can_tx_message.id = AVI_CAN_ID(AVI_SERVO_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
-    Canbus->write(can_tx_message);
+    if (Canbus->write(can_tx_message) == 0) {
+      ret_mask |= (SERVO_NODE_FAIL << (node_id-1));
+    }
   }
 
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_power_nodes; node_id++) {
-      can_tx_message.id = AVI_CAN_ID(AVI_PWR_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
-      Canbus->write(can_tx_message);
+    can_tx_message.id = AVI_CAN_ID(AVI_PWR_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
+    if (Canbus->write(can_tx_message) == 0) {
+      ret_mask |= (PWR_NODE_FAIL << (node_id-1));
+    }
   }
-#endif
 
-  return ret;
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+    can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
+    if (Canbus->write(can_tx_message) == 0) {
+      ret_mask |= (NAV_NODE_FAIL << (node_id-1));
+    }
+  }
+
+  return ret_mask;
 }
 
 //
-// - Send a Canbus Sync(Heartbeat) request to either GPS or Power nodes.
+// - Send a Canbus Sync(Heartbeat) request to GPS
+//   Servo and Pwr Nodes dont require this since we send
+//   servo data to them at a 1ms interval (which acts as the heartbeat)
 //
-static void CanbusSync(int num_nodes, int node_type)
+static void CanbusSync()
 {
   CANMessage can_tx_message;
 
@@ -5494,8 +5495,9 @@ static void CanbusSync(int num_nodes, int node_type)
   can_tx_message.format = CANStandard;
   can_tx_message.len    = 0;
 
-  for (int i = 0; i < num_nodes; i++) {
-    can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SYNC, AVI_MSGID_CTRL);
+  // Send Sync heartbeat to GPS nodes
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+    can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_SYNC, AVI_MSGID_CTRL);
     if (!Canbus->write(can_tx_message)) {
       ++write_canbus_error;
     }
@@ -5781,23 +5783,7 @@ static uint32_t InitCanbus(void)
   Canbus = new CAN(CAN_RXD1, CAN_TXD1, (pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
-  wait_ms(200);
-
-  // Initialize and configure any GPS nodes...
-  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
-    if ((error = InitCanbusNode(AVI_GPS_NODETYPE, node_id)) == 0) {
-
-      // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
-      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
-      node_cfg_data.len = 1;
-      wait_ms(10);
-      error = ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
-    }
-
-    if (error) {
-      ret_mask |= (NAV_NODE_FAIL << --node_id);
-    }
-  }
+  wait_ms(500);
 
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
@@ -5812,12 +5798,12 @@ static uint32_t InitCanbus(void)
       short int* failsafe;
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
-        failsafe = &node_cfg_data.data[0];
+        failsafe = (short int *)&node_cfg_data.data[0];
         // TODO::SP - these values will come from config
-        *failsafe++ = 1100;
-        *failsafe++ = 1200;
-        *failsafe++ = 1300;
-        *failsafe = 1400;
+        *failsafe++ = 1000;
+        *failsafe++ = 1500;
+        *failsafe++ = 1500;
+        *failsafe = 1500;
         node_cfg_data.len = 8;
         wait_ms(10);
         error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, seq_id, &node_cfg_data);
@@ -5826,7 +5812,7 @@ static uint32_t InitCanbus(void)
     }
 
     if (error) {
-      ret_mask |= (SERVO_NODE_FAIL << --node_id);
+      ret_mask |= (SERVO_NODE_FAIL << (node_id-1));
     }
   }
 
@@ -5843,30 +5829,44 @@ static uint32_t InitCanbus(void)
       short int* failsafe;
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
-        failsafe = &node_cfg_data.data[0];
+        failsafe = (short int *)&node_cfg_data.data[0];
         // TODO::SP - these values will come from config
-        *failsafe++ = 1100;
-        *failsafe++ = 1200;
-        *failsafe++ = 1300;
-        *failsafe = 1400;
+        *failsafe++ = 1000;
+        *failsafe++ = 1500;
+        *failsafe++ = 1500;
+        *failsafe = 1500;
         node_cfg_data.len = 8;
         wait_ms(10);
-        error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, seq_id, &node_cfg_data);
+        error = ConfigureCanbusNode(AVI_PWR_NODETYPE, node_id, seq_id, &node_cfg_data);
         seq_id = AVI_FAILSAFE_4_7;
       }
     }
 
     if (error) {
-      ret_mask |= (PWR_NODE_FAIL << --node_id);
+      ret_mask |= (PWR_NODE_FAIL << (node_id-1));
     }
   }
 
-  if (error)
-    //SetFcmLedState(0xf);
+  // Initialize and configure any GPS nodes...
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_GPS_NODETYPE, node_id)) == 0) {
+
+      // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
+      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
+      node_cfg_data.len = 1;
+      wait_ms(10);
+      error = ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
+    }
+
+    if (error) {
+      ret_mask |= (NAV_NODE_FAIL << (node_id-1));
+    }
+  }
 
   // Enable Canbus Reporting - Broadcast to ALL nodes on system
   wait_ms(100);
-  EnableCanbusPDPs();
+  ret_mask |= EnableCanbusPDPs();
+
   return ret_mask;
 }
 
@@ -5879,6 +5879,8 @@ int main()
 #if defined (CRP_LOCK)
   SetJtag(LOCK_JTAG);
 #endif
+
+  SetFcmLedState(0);
 
   SysTick_Run();
 
@@ -5902,6 +5904,11 @@ int main()
   phfc->system_status_mask |= mpu.init(pConfig, MPU6050_DLPF_BW_188, &phfc->imu_serial_num);
 
   phfc->system_status_mask |= baro.Init(pConfig);
+
+  if (phfc->system_status_mask)
+    SetFcmLedState(0xf);
+  else
+    SetFcmLedState(0x1);
 
   // need to recall this to ensure RICOUNTER is re-initialized before commencing control loop
   SysTick_Run();
