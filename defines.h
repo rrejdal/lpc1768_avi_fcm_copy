@@ -255,14 +255,14 @@ typedef enum {
 // System Failure Status flags
 #define CONFIG_FAIL       (1 << 0)
 
-#define N1_NAV_FAIL       (1 << 1)
-#define N2_NAV_FAIL       (1 << 2)
+#define NAV_NODE_FAIL       (1 << 1)
+#define N2_NAV_NODE_FAIL    (1 << 2)
 
-#define N1_SERVO_FAIL     (1 << 3)
-#define N2_SERVO_FAIL     (1 << 4)
+#define SERVO_NODE_FAIL     (1 << 3)
+#define N2_SERVO_NODE_FAIL  (1 << 4)
 
-#define N1_PWR_FAIL       (1 << 5)
-#define N2_PWR_FAIL       (1 << 6)
+#define PWR_NODE_FAIL       (1 << 5)
+#define N2_PWR_NODE_FAIL    (1 << 6)
 
 #define N1_GPS0_FAIL      (1 << 7)
 #define N1_GPS1_FAIL      (1 << 8)
