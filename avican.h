@@ -60,6 +60,7 @@
 #define AVI_CAN_SEQID(__MSG__) (((__MSG__) & AVI_CAN_SEQ_MASK) >> AVI_CAN_SEQ_SHIFT)
 #define AVI_CAN_MSGID(__MSG__) ((__MSG__) & AVI_CAN_MSGID_MASK)
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
     AVI_NODETYPE_NONE  = 0,
     AVI_FCM_NODETYPE   = 1,
@@ -75,34 +76,55 @@ typedef enum {
 #define BASE_NODE_ID 1
 #define MAX_NODE_ID     3
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
   AVI_MSGID_CTRL    = 0,
   AVI_MSGID_SDP     = 1,  // Setup Data Packet
   AVI_MSGID_CDP     = 2,  // Control Data Packet (From FCM)
   AVI_MSGID_PDP     = 3,  // Process Data Packet (To FCM)
   AVI_MSGID_GPS     = 4,
+  AVI_MSGID_RSVD0   = 5,
+  AVI_MSGID_RSVD1   = 6,
+  AVI_MSGID_RSVD2   = 7,
 } AVI_CANBUS_COMMON_MSG_IDS;
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
   AVI_SYNC    = 0,
   AVI_PDP_ON  = 1,
   AVI_PDP_OFF = 2,
+  AVI_RSVD0   = 3,
+  AVI_RSVD1   = 4,
+  AVI_RSVD2   = 5,
+  AVI_RSVD3   = 6,
   AVI_ACK     = 7,
 } AVI_CANBUS_SEQID_CTRL;
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
   AVI_CFG          = 0,
-  AVI_BOARDINFO_0  = 1,
-  AVI_BOARDINFO_1  = 2,
+  AVI_HWID_LOW     = 1,
+  AVI_HWID_HIGH    = 2,
   AVI_FAILSAFE_0_3 = 3,
   AVI_FAILSAFE_4_7 = 4,
+  AVI_HW_STATUS = 5,
+  AVI_SDP_RSVD1 = 6,
+  AVI_SDP_RSVD2 = 7,
 } AVI_CANBUS_SEQID_SDP;
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
   AVI_SERVOS_0_3  = 0,
   AVI_SERVOS_4_7  = 1,
+  AVI_CDP_RSVD0 = 2,
+  AVI_CDP_RSVD1 = 3,
+  AVI_CDP_RSVD2 = 4,
+  AVI_CDP_RSVD3 = 5,
+  AVI_CDP_RSVD4 = 6,
+  AVI_CDP_RSVD5 = 7,
 } AVI_CANBUS_SEQID_CDP;
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
   AVI_LIDAR  = 0,
   AVI_CL0  = 1,
@@ -111,8 +133,10 @@ typedef enum {
   AVI_CL3  = 4,
   AVI_CL4  = 5,
   AVI_VI   = 6,
+  AVI_PDP_RSVD0 = 7,
 } AVI_CANBUS_SEQID_PDP;
 
+/* 3 bits total giving range 0-7 */
 typedef enum {
   AVI_GPS0  = 0,
   AVI_GPS1  = 1,
@@ -120,6 +144,8 @@ typedef enum {
   AVI_GPS3  = 3,
   AVI_GPS4  = 4,
   AVI_COMPASS = 5,
+  AVI_GPS_RSVD0 = 6,
+  AVI_GPS_RSVD1 = 7,
 } AVI_CANBUS_SEQID_GPS;
 
 #if 0

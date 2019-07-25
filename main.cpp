@@ -3846,7 +3846,7 @@ static void UpdateBatteryStatus(float dT)
     p->initialized = true;
 }
 
-static void UpdateBoardInfo(int node_id, unsigned char *pdata)
+static void UpdateHwIdLow(int node_id, unsigned char *pdata)
 {
     int board_type = pdata[0];
 
@@ -3862,7 +3862,7 @@ static void UpdateBoardInfo(int node_id, unsigned char *pdata)
     }
 }
 
-static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata)
+static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata)
 {
     if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
         board_info[board_type][node_id].serial_number1 = pdata[0] << 24;
@@ -3875,6 +3875,26 @@ static void UpdateBoardPartNum(int node_id, int board_type, unsigned char *pdata
         board_info[board_type][node_id].serial_number0 |= (pdata[6] << 8);
         board_info[board_type][node_id].serial_number0 |= (pdata[7]);
     }
+}
+
+static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdata)
+{
+  uint8_t hardware_status;
+  if (node_type == AVI_GPS_NODETYPE) {
+    hardware_status = pdata[0];
+
+    if ((hardware_status & 0x1) == 0)
+      phfc->system_status_mask |= N1_GPS0_FAIL;
+
+    if ((hardware_status & 0x2) == 0)
+      phfc->system_status_mask |= N1_GPS1_FAIL;
+
+    if ((hardware_status & 0x10) == 0)
+      phfc->system_status_mask |= N1_COMPASS0_FAIL;
+
+    if ((hardware_status & 0x20) == 0)
+      phfc->system_status_mask |= N1_COMPASS1_FAIL;
+  }
 }
 
 bool LidarOnline(void)
@@ -4092,7 +4112,6 @@ static void CanbusISRHandler(void)
     int message_id = AVI_CAN_MSGID(can_rx_message.id);
     unsigned char *pdata = &can_rx_message.data[0];
 
-
     switch(message_id) {
     case AVI_MSGID_PDP:
       {
@@ -4135,14 +4154,17 @@ static void CanbusISRHandler(void)
 
     case AVI_MSGID_SDP:
       {
-        if(seq_id == AVI_BOARDINFO_0) {
+        if(seq_id == AVI_HWID_LOW) {
           //SetFcmLedState(0x1);
-          UpdateBoardInfo(node_id, pdata);
+          UpdateHwIdLow(node_id, pdata);
         }
-        else if(seq_id == AVI_BOARDINFO_1) {
+        else if(seq_id == AVI_HWID_HIGH) {
           SetFcmLedState(0x4);
-          UpdateBoardPartNum(node_id, node_type, pdata);
+          UpdateHwIdHigh(node_id, node_type, pdata);
           can_node_found = 1;
+        }
+        else if (seq_id == AVI_HW_STATUS) {
+          UpdateHardwareStatus(node_id, node_type, pdata);
         }
         else {
           unkown_message = true;
@@ -4499,9 +4521,7 @@ void DoFlightControl()
 
     if (pConfig->sensor_mode == FLY_ALL_SENSORS) {
 
-        int new_values = (pConfig->num_gps_nodes == 0) ? compass.getRawValues(dT): compass.HaveNewData();
-
-        if (new_values) {
+        if (compass.HaveNewData()) {
             phfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, phfc->compass_cal.comp_ofs, phfc->compass_cal.comp_gains,
                                                             pConfig->fcm_orient, pConfig->comp_declination_offset,
                                                             phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
@@ -5331,11 +5351,11 @@ uint32_t InitCanbusNode(int node_type, int node_id)
   can_node_found = 0;
 
   can_tx_message.len = 0;
-  can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_BOARDINFO_0, AVI_MSGID_SDP);
+  can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_LOW, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
   wait_ms(10);
-  can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_BOARDINFO_1, AVI_MSGID_SDP);
+  can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_HIGH, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
   int wait_timeout = 100;
@@ -5394,7 +5414,7 @@ uint32_t EnableCanbusPDPs()
       Canbus->write(can_tx_message);
   }
 
-#if 0
+#if 1
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     can_tx_message.id = AVI_CAN_ID(AVI_SERVO_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
     Canbus->write(can_tx_message);
@@ -5708,6 +5728,7 @@ static uint32_t InitCanbus(void)
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
 
+  wait_ms(200);
   // TODO::SP - Add message to configure failsafe operation.
 
   // Initialize and configure any GPS nodes...
@@ -5727,7 +5748,7 @@ static uint32_t InitCanbus(void)
     }
   }
 
-#if 0
+#if 1
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
