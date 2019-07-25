@@ -26,6 +26,12 @@ extern USBSerial   serial;
 
 #define LOOP_PERIOD     1000    // 1000Hz   830 // in mS
 
+#define MAX_NUM_CASTLE_LINKS 2
+#define MAX_NUM_GPS          1
+#define MAX_NUMBER_SERVO_NODES  2
+#define MAX_BOARD_TYPES      5
+#define MAX_NODE_NUM         2
+
 
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
 

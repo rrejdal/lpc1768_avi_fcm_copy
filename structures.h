@@ -736,6 +736,7 @@ typedef struct
     uint16  can_servo_tx_errors;
     uint16  can_power_tx_errors;
     uint16  canbus_error_count;
+    unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM];
 } T_Stats;
 
 typedef struct {

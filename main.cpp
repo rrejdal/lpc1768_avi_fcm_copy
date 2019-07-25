@@ -122,13 +122,6 @@ const ConfigData *pConfig = NULL;
 #define AVIDRONE_SPLASH "== AVIDRONE =="
 #define AVIDRONE_FCM_SPLASH "    AVI-FCM      "
 
-#define MAX_NUM_CASTLE_LINKS 2
-#define MAX_NUM_GPS          1
-#define MAX_BOARD_TYPES      7
-#define MAX_NODE_NUM         15
-
-#define MAX_NUMBER_SERVO_NODES  2
-
 /* Passed in the GPS CANbus CFG Message, 1byte */
 #define GPS_SEL_CHIP_0          (1 << 0)
 #define GPS_SEL_CHIP_1          (1 << 1)
@@ -4102,10 +4095,11 @@ static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
 static void CanbusISRHandler(void)
 {
   CANMessage can_rx_message;
-  bool unkown_message = false;
+  bool can_msg_avail = true;
 
-  while(Canbus->read(can_rx_message) && !unkown_message) {
+  while(Canbus->read(can_rx_message) && can_msg_avail) {
 
+    can_msg_avail = true;
     int node_type = AVI_CAN_NODETYPE(can_rx_message.id);
     int node_id = (AVI_CAN_NODEID(can_rx_message.id) -1);
     int seq_id = AVI_CAN_SEQID(can_rx_message.id);
@@ -4121,8 +4115,11 @@ static void CanbusISRHandler(void)
         else if (seq_id == AVI_VI) {
           UpdatePowerNodeVI(node_id, pdata);
         }
-        else {
+        else if ((seq_id >= AVI_CL0) && (seq_id <= AVI_CL4)) {
           UpdateCastleLiveLink(node_id, seq_id, pdata);
+        }
+        else {
+          can_msg_avail = false;
         }
       }
       break;
@@ -4136,7 +4133,7 @@ static void CanbusISRHandler(void)
           UpdateCompassData(node_id, pdata);
         }
         else {
-          unkown_message = true;
+          can_msg_avail = false;
         }
       }
       break;
@@ -4147,7 +4144,7 @@ static void CanbusISRHandler(void)
           canbus_ack = 1;
         }
         else {
-          unkown_message = true;
+          can_msg_avail = false;
         }
       }
       break;
@@ -4167,15 +4164,19 @@ static void CanbusISRHandler(void)
           UpdateHardwareStatus(node_id, node_type, pdata);
         }
         else {
-          unkown_message = true;
+          can_msg_avail = false;
         }
       }
       break;
 
     default:
       phfc->stats.canbus_error_count++;
-      unkown_message = true;
+      can_msg_avail = false;
       break;
+    }
+
+    if(can_msg_avail) {
+      phfc->stats.can_rx_msg_count[node_type][node_id]++;
     }
   }
 }
@@ -4196,6 +4197,57 @@ static void ProcessStats(void)
             phfc->stats.can_servo_tx_errors = write_canbus_error;
         }
     }
+}
+
+#define CAN_NODE_TIMEOUT 1
+static void CanbusNodeMonitor(float dT)
+{
+  static unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM] = {0};
+  static float can_timeout = CAN_NODE_TIMEOUT;
+
+  can_timeout -= dT;
+
+  // For each configured node, ensure we are receiving canbus transactions
+  if (can_timeout <= 0.0f ) {
+
+    // Check GPS
+    for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+      if ((phfc->stats.can_rx_msg_count[AVI_GPS_NODETYPE][node_id] - can_rx_msg_count[AVI_GPS_NODETYPE][node_id]) == 0) {
+        // This device has gone offline
+        phfc->system_status_mask |= N1_NAV_FAIL;
+      }
+      else {
+        phfc->system_status_mask &= ~N1_NAV_FAIL;
+      }
+      can_rx_msg_count[AVI_GPS_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_GPS_NODETYPE][node_id];
+    }
+
+    // Check servo nodes
+    for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
+      if ((phfc->stats.can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] - can_rx_msg_count[AVI_SERVO_NODETYPE][node_id]) == 0) {
+        // This device has gone offline
+        phfc->system_status_mask |= N1_SERVO_FAIL;
+      }
+      else {
+        phfc->system_status_mask &= ~N1_SERVO_FAIL;
+      }
+      can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_SERVO_NODETYPE][node_id];
+    }
+
+    // check power nodes
+    for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_power_nodes; node_id++) {
+      if ((phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id] - can_rx_msg_count[AVI_SERVO_NODETYPE][node_id]) == 0) {
+        // This device has gone offline
+        phfc->system_status_mask |= N1_PWR_FAIL;
+      }
+      else {
+        phfc->system_status_mask &= ~N1_PWR_FAIL;
+      }
+      can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id];
+    }
+
+    can_timeout = CAN_NODE_TIMEOUT;
+  }
 }
 
 // TODO::SP - Need to update lidar handling when only using an FCM
@@ -4903,6 +4955,8 @@ void DoFlightControl()
         phfc->debug_flags[0] = 0;
     }
 #endif
+
+    CanbusNodeMonitor(dT);
 
     phfc->gps_new_data = false;
     phfc->print_counter++;
