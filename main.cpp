@@ -143,6 +143,8 @@ CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
 double heading[MAX_NUM_GPS];
 
 static void CanbusSync(void);
+static void CanbusFailsafe(int node_type, int node_id);
+static uint32_t EnableCanbusPDPs(void);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
 
@@ -4198,6 +4200,39 @@ static void ProcessStats(void)
     }
 }
 
+int CanbusNodeTypeStatus(int node_type)
+{
+  int state_mask = 0;
+
+  switch (node_type) {
+  case AVI_SERVO_NODETYPE:
+    for (int node_id = 0; node_id < pConfig->num_servo_nodes; node_id++) {
+      if (phfc->system_status_mask & (SERVO_NODE_FAIL << node_id)) {
+        state_mask |= (1 << node_id);
+      }
+    }
+    break;
+  case AVI_PWR_NODETYPE:
+    for (int node_id = 0; node_id < pConfig->num_power_nodes; node_id++) {
+      if (phfc->system_status_mask & (PWR_NODE_FAIL << node_id)) {
+        state_mask |= (1 << node_id);
+      }
+    }
+    break;
+  case AVI_GPS_NODETYPE:
+    for (int node_id = 0; node_id < pConfig->num_gps_nodes; node_id++) {
+      if (phfc->system_status_mask & (NAV_NODE_FAIL << node_id)) {
+        state_mask |= (1 << node_id);
+      }
+    }
+    break;
+  default:
+    break;
+  }
+
+  return state_mask;
+}
+
 #define CAN_NODE_TIMEOUT 0.5f
 static void CanbusNodeMonitor(float dT)
 {
@@ -4237,17 +4272,38 @@ static void CanbusNodeMonitor(float dT)
 
     // check power nodes
     for (int node_id = 0; node_id < pConfig->num_power_nodes; node_id++) {
-      if ((phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id] - can_rx_msg_count[AVI_SERVO_NODETYPE][node_id]) == 0) {
+      if ((phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id] - can_rx_msg_count[AVI_PWR_NODETYPE][node_id]) == 0) {
         // This device has gone offline
         phfc->system_status_mask |= (PWR_NODE_FAIL << node_id);
       }
       else {
         phfc->system_status_mask &= ~(PWR_NODE_FAIL << node_id);
       }
-      can_rx_msg_count[AVI_SERVO_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id];
+      can_rx_msg_count[AVI_PWR_NODETYPE][node_id] = phfc->stats.can_rx_msg_count[AVI_PWR_NODETYPE][node_id];
     }
-
     can_timeout = CAN_NODE_TIMEOUT;
+  }
+
+  // If we have multiple servo/power nodes AND only one of those nodes is offline, we need to
+  // tell the other node to go Failsafe
+  int node_offline_mask;
+
+  if ((node_offline_mask = CanbusNodeTypeStatus(AVI_SERVO_NODETYPE)) > 0) {
+    for (int node_id = 0; node_id < pConfig->num_servo_nodes; node_id++) {
+     if((node_offline_mask & (1 << node_id)) == 0) {
+       // This node must be told to go failsafe.
+       CanbusFailsafe(AVI_SERVO_NODETYPE, node_id);
+     }
+    }
+  }
+
+  if ((node_offline_mask = CanbusNodeTypeStatus(AVI_PWR_NODETYPE)) > 0) {
+    for (int node_id = 0; node_id < pConfig->num_servo_nodes; node_id++) {
+     if((node_offline_mask & (1 << node_id)) == 0) {
+       // This node must be told to go failsafe.
+       CanbusFailsafe(AVI_PWR_NODETYPE, node_id);
+     }
+    }
   }
 }
 
@@ -5451,7 +5507,7 @@ uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage 
 //
 // - Enable Canbus Node(s)
 //
-uint32_t EnableCanbusPDPs()
+static uint32_t EnableCanbusPDPs(void)
 {
   CANMessage can_tx_message;
   uint32_t ret_mask = 0;
@@ -5487,13 +5543,11 @@ uint32_t EnableCanbusPDPs()
 //   Servo and Pwr Nodes dont require this since we send
 //   servo data to them at a 1ms interval (which acts as the heartbeat)
 //
-static void CanbusSync()
+static void CanbusSync(void)
 {
   CANMessage can_tx_message;
 
-  can_tx_message.type   = CANData;
-  can_tx_message.format = CANStandard;
-  can_tx_message.len    = 0;
+  can_tx_message.len = 0;
 
   // Send Sync heartbeat to GPS nodes
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
@@ -5501,6 +5555,23 @@ static void CanbusSync()
     if (!Canbus->write(can_tx_message)) {
       ++write_canbus_error;
     }
+  }
+}
+
+//
+// - Send a Canbus Sync(Heartbeat) request to GPS
+//   Servo and Pwr Nodes dont require this since we send
+//   servo data to them at a 1ms interval (which acts as the heartbeat)
+//
+static void CanbusFailsafe(int node_type, int node_id)
+{
+  CANMessage can_tx_message;
+
+  can_tx_message.len = 0;
+
+  can_tx_message.id = AVI_CAN_ID(node_type, BASE_NODE_ID + node_id, AVI_FAILSAFE, AVI_MSGID_CTRL);
+  if (!Canbus->write(can_tx_message)) {
+    ++write_canbus_error;
   }
 }
 
@@ -5769,6 +5840,8 @@ uint32_t InitializeSystemData()
   return ret_value;
 }
 
+static int SendCanbusNodeFailsafe();
+
 /**
   * @brief  InitCanbus.
   * @retval 0 if success, < 0 on failure
@@ -5799,11 +5872,17 @@ static uint32_t InitCanbus(void)
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
         failsafe = (short int *)&node_cfg_data.data[0];
-        // TODO::SP - these values will come from config
+
+        for (int j=0; j < 4; j++) {
+          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+        }
+        // SP::TODO - until config values are available, override with these defaults.
+        failsafe = (short int *)&node_cfg_data.data[0];
         *failsafe++ = 1000;
         *failsafe++ = 1500;
         *failsafe++ = 1500;
         *failsafe = 1500;
+
         node_cfg_data.len = 8;
         wait_ms(10);
         error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, seq_id, &node_cfg_data);
@@ -5830,11 +5909,18 @@ static uint32_t InitCanbus(void)
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
         failsafe = (short int *)&node_cfg_data.data[0];
-        // TODO::SP - these values will come from config
+
+        for (int j=0; j < 4; j++) {
+          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+        }
+
+        // SP::TODO - until config values are available, override with these defaults.
+        failsafe = (short int *)&node_cfg_data.data[0];
         *failsafe++ = 1000;
         *failsafe++ = 1500;
         *failsafe++ = 1500;
         *failsafe = 1500;
+
         node_cfg_data.len = 8;
         wait_ms(10);
         error = ConfigureCanbusNode(AVI_PWR_NODETYPE, node_id, seq_id, &node_cfg_data);

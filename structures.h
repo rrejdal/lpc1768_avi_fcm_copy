@@ -956,6 +956,8 @@ typedef struct ConfigurationData {
 
     float takeoff_vertical_speed;
 
+    int servo_failsafe_pwm[8];
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
