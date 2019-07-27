@@ -379,6 +379,7 @@ typedef struct
     f16     lidar_raw_rear;
     int     controlStatus;  // bit mask denoting the last control command made.
     int     lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
+    int     raw_heading;
 } T_Telem_Ctrl0;
 
 /* Telemetry - GPS 1       sent the GPS update rate, typically 5-10Hz, 42bytes */
@@ -1325,6 +1326,8 @@ typedef struct
     byte soft_reset_counter;
 
     float abort_flight_timer;
+
+    signed short raw_heading;
 
 } FlightControlData;
 

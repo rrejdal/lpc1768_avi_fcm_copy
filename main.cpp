@@ -145,6 +145,8 @@ double heading[MAX_NUM_GPS];
 static void CanbusSync(void);
 static void CanbusFailsafe(int node_type, int node_id);
 static uint32_t EnableCanbusPDPs(void);
+static uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage *can_tx_message, int timeout = 100);
+static uint32_t InitCanbusNode(int node_type, int node_id, int timeout = 100);
 
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
 
@@ -247,6 +249,7 @@ inline int maxSortUp(Mediator* m, int i)
 //mallocs single block of memory, caller must free.
 Mediator* MediatorNew(int nItems)
 {
+   KICK_WATCHDOG();
    int size = sizeof(Mediator)+nItems*(sizeof(Item)+sizeof(int)*2);
    Mediator* m =  ( Mediator*)malloc(size);
    m->data= (Item*)(m+1);
@@ -1102,7 +1105,7 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
     float TcollectFront,TcollectRear;
     float ROLL_TaileronFront, ROLL_TaileronRear;
 
-    // gain calculation 0 to .571 maximum.  Todo could x 1.7512f for full 0 to 1 range
+    // gain calculation 0 to .571 maximum, could x 1.7512f for full 0 to 1 range
     // gain is set usually by digital levers on the transmitter for in flight adjustment
 
     ROLL_Taileron  = phfc->mixer_in[ROLL]  * pConfig->AilRange;
@@ -1991,7 +1994,7 @@ static void Playlist_ProcessTop()
             {
                 float value;
                 if (CheckRangeAndSetF(&value, item->value1.f, -180, 180))
-                    // TODO::MRI: What is this being used for
+                    // NOTE::MRI: What is this being used for
                     HeadingUpdate(value, 1);
             }
             else
@@ -3066,7 +3069,7 @@ static void ServoUpdate(float dT)
 
         yaw_rate_ctrl = ClipMinMax(yaw_rate_ctrl, phfc->pid_YawAngle.COmin, phfc->pid_YawAngle.COmax);
 
-        // TODO::MMRI: What are these used for?
+        // NOTE::MRI: What are these used for?
         HeadingUpdate(yaw_rate_ctrl, dT);
         AltitudeUpdate(phfc->ctrl_out[RAW][COLL]*phfc->Stick_Vspeed, dT);
         
@@ -4031,6 +4034,9 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
   raw_x = pdata[0] | (pdata[1] << 8);
   raw_y = pdata[2] | (pdata[3] << 8);
   raw_z = pdata[4] | (pdata[5] << 8);
+
+  phfc->raw_heading = pdata[6] | (pdata[7] << 8);
+
   compass.UpdateRawData(raw_x, raw_y, raw_z);
 #endif
 }
@@ -4153,11 +4159,9 @@ static void CanbusISRHandler(void)
     case AVI_MSGID_SDP:
       {
         if(seq_id == AVI_HWID_LOW) {
-          //SetFcmLedState(0x1);
           UpdateHwIdLow(node_id, pdata);
         }
         else if(seq_id == AVI_HWID_HIGH) {
-          //SetFcmLedState(0x4);
           UpdateHwIdHigh(node_id, node_type, pdata);
           can_node_found = 1;
         }
@@ -4238,6 +4242,8 @@ static void CanbusNodeMonitor(float dT)
 {
   static unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM] = {0};
   static float can_timeout = CAN_NODE_TIMEOUT;
+  static int gps_reconfig_active = 0;
+  static int gps_reconfigure_timeout = 0;
 
   can_timeout -= dT;
 
@@ -4249,7 +4255,7 @@ static void CanbusNodeMonitor(float dT)
       if ((phfc->stats.can_rx_msg_count[AVI_GPS_NODETYPE][node_id] - can_rx_msg_count[AVI_GPS_NODETYPE][node_id]) == 0) {
         // This device has gone offline
         phfc->system_status_mask |= (NAV_NODE_FAIL << node_id);
-        SetFcmLedState(0xf);
+        //SetFcmLedState(0xf);
       }
       else {
         phfc->system_status_mask &= ~(NAV_NODE_FAIL << node_id);
@@ -4305,6 +4311,27 @@ static void CanbusNodeMonitor(float dT)
      }
     }
   }
+
+  // IF GPS is offline, we can make an attempt to being it back up.
+  CANMessage can_tx_message;
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+    // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
+    if (!gps_reconfig_active) {
+      can_tx_message.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
+      can_tx_message.len = 1;
+      ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &can_tx_message, 0);
+      gps_reconfigure_timeout = 100;
+      gps_reconfig_active = 1;
+    }
+
+    if(--gps_reconfigure_timeout == 0) {
+      can_tx_message.len = 0;
+      can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_PDP_ON, AVI_MSGID_CTRL);
+      Canbus->write(can_tx_message);
+      gps_reconfig_active = 0;
+    }
+  }
+
 }
 
 // TODO::SP - Need to update lidar handling when only using an FCM
@@ -4588,12 +4615,14 @@ void DoFlightControl()
 #endif
 
     if (!mpu.readMotion7f_finish(phfc->accRaw, phfc->gyroRaw, &phfc->gyro_temperature)) {
-        //debug_print("MPU timeout\n");
+      phfc->system_status_mask |= IMU_FAIL;
     }
 
     ticks = Ticks_us_minT(LOOP_PERIOD, &utilization);   // defines loop time in uS
 
-    mpu.readMotion7_start();
+    if (!(phfc->system_status_mask & IMU_FAIL)) {
+      mpu.readMotion7_start();
+    }
 
     time_ms = GetTime_ms();
     dT = ticks*0.000001f;
@@ -4897,7 +4926,7 @@ void DoFlightControl()
 
 
     if (pConfig->servo_raw) {
-        ServoUpdateRAW(dT);
+      ServoUpdateRAW(dT);
     }
     else {
       ServoUpdate(dT);
@@ -5092,12 +5121,11 @@ volatile static bool have_config = false;
   */
 static void ConfigRx(void)
 {
+  while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
+    pRamConfigData[rx_in++] = serial._getc();
+  }
 
-    while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
-        pRamConfigData[rx_in++] = serial._getc();
-    }
-
-    have_config = true;
+  have_config = true;
 }
 
 /**
@@ -5445,10 +5473,11 @@ static void PrintOrient()
 //
 // - Initialize Canbus Node(s)
 //
-uint32_t InitCanbusNode(int node_type, int node_id)
+static uint32_t InitCanbusNode(int node_type, int node_id, int timeout)
 {
   CANMessage can_tx_message;
   uint32_t ret = 0;
+  int wait_timeout = timeout;
 
   // ping the board to determine -
   //  - a) Is the board connected and
@@ -5463,16 +5492,18 @@ uint32_t InitCanbusNode(int node_type, int node_id)
   can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_HIGH, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
-  int wait_timeout = 100;
-  while(--wait_timeout) {
-    wait_ms(1);
-    if(can_node_found) {
-      break;
+  if (wait_timeout) {
+    KICK_WATCHDOG();
+    while(--wait_timeout) {
+      wait_ms(1);
+      if(can_node_found) {
+        break;
+      }
     }
-  }
 
-  if (!can_node_found) {
-    ret = 1;
+    if (!can_node_found) {
+      ret = 1;
+    }
   }
   return ret;
 }
@@ -5480,9 +5511,10 @@ uint32_t InitCanbusNode(int node_type, int node_id)
 //
 // - Configure operation of a particular type of Canbus Node.
 //
-uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage *can_tx_message)
+static uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage *can_tx_message, int timeout)
 {
   uint32_t ret = 0;
+  int wait_timeout = timeout;
 
   // Configure Node. Board will 'ACK' message to indicate success.
   canbus_ack = 0;
@@ -5490,16 +5522,19 @@ uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage 
   can_tx_message->id = AVI_CAN_ID(node_type, node_id, seq_id, AVI_MSGID_SDP);
   Canbus->write(*can_tx_message);
 
-  int wait_timeout = 100;
-  while(--wait_timeout) {
-    wait_ms(1);
-    if(canbus_ack) {
-      break;
-    }
-  }
+  if (wait_timeout) {
+    KICK_WATCHDOG();
 
-  if (!canbus_ack) {
-    ret = 1;
+    while(--wait_timeout) {
+      wait_ms(1);
+      if(canbus_ack) {
+        break;
+      }
+    }
+
+    if (!canbus_ack) {
+      ret = 1;
+    }
   }
   return ret;
 }
@@ -5840,8 +5875,6 @@ uint32_t InitializeSystemData()
   return ret_value;
 }
 
-static int SendCanbusNodeFailsafe();
-
 /**
   * @brief  InitCanbus.
   * @retval 0 if success, < 0 on failure
@@ -5856,7 +5889,15 @@ static uint32_t InitCanbus(void)
   Canbus = new CAN(CAN_RXD1, CAN_TXD1, (pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
-  wait_ms(500);
+
+  if (phfc->system_reset_reason != (RESET_REASON_POR | RESET_REASON_BODR)) {
+    return ret_mask;
+  }
+
+  for (int i=0; i < 5; i++) {
+    KICK_WATCHDOG();
+    wait_ms(100);
+  }
 
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
@@ -5950,6 +5991,7 @@ static uint32_t InitCanbus(void)
   }
 
   // Enable Canbus Reporting - Broadcast to ALL nodes on system
+  KICK_WATCHDOG();
   wait_ms(100);
   ret_mask |= EnableCanbusPDPs();
 
@@ -5970,7 +6012,7 @@ int main()
 
   SysTick_Run();
 
-  //InitializeWatchdog(0.25f);  // 250ms
+  InitializeWatchdog(0.25f);  // 250ms
 
 #ifdef LCD_ENABLED
   spi.frequency(4000000);
@@ -5991,15 +6033,15 @@ int main()
 
   phfc->system_status_mask |= baro.Init(pConfig);
 
-  if (phfc->system_status_mask)
-    SetFcmLedState(0xf);
-  else
-    SetFcmLedState(0x1);
+  //if (phfc->system_status_mask)
+  //  SetFcmLedState(0xf);
+  //else
+  //  SetFcmLedState(0x1);
 
   // need to recall this to ensure RICOUNTER is re-initialized before commencing control loop
   SysTick_Run();
 
-  //SetFcmLedState(phfc->system_reset_reason);
+  SetFcmLedState(phfc->system_reset_reason);
 
   // Initialize FCM local IO
   InitFcmIO();
