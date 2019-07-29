@@ -1117,7 +1117,7 @@ typedef struct
     float esc_temp;
     float ctrl_out[NUM_CTRL_MODES][5]; // output signals from the controller [raw, rate, angle, speed, pos][P, R, Y, C, T];
     float mixer_in[5];			// input values to the mixer
-    float servos_out[8];        // values going to servos (P(A), R(B), Y, C, T)
+    float servos_out[3][8];        // values going to servos (P(A), R(B), Y, C, T)
     float ctrl_yaw_rate;        // stores actual yaw rate for auto banking
     float dyn_yaw_rate;			// yaw rate during playlist turns in heli mode
     float ctrl_vspeed_3d;		// set vspeed in AUTOPILOT mode when collective is in vspeed mode, for auto takeoff/landing
@@ -1399,9 +1399,5 @@ typedef struct {
     float   temperature;
     int     new_data_mask;
 } CastleLinkLive;
-
-typedef struct {
-    float servo_out[8];
-} ServoNodeOutputs;
 
 #endif

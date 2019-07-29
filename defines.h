@@ -26,10 +26,10 @@ extern USBSerial   serial;
 
 #define MAX_NUM_CASTLE_LINKS 2
 #define MAX_NUM_GPS          1
-#define MAX_NUMBER_SERVO_NODES  2
+#define MAX_CAN_SERVO_NODES  2
 #define MAX_BOARD_TYPES      7
 #define MAX_NODE_NUM         7
-#define MAX_NUMBER_SERVO_OUTPUTS  8
+#define MAX_SERVO_OUTPUTS  8
 
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
 
@@ -86,11 +86,14 @@ extern USBSerial   serial;
 #define CCPM_QUAD              3
 #define CCPM_HEX               4
 #define CCPM_OCTO              5
-#define MIXERTANDEM            6
-#define CCPM120TANDEMTESTBENCH 7
+#define CCPM_TANDEM            6
 
 #define PROP_FIXED_PITCH       0 // collective channel drives throttle, throttle lever gates it
 #define PROP_VARIABLE_PITCH    1 // lever drives throttle, collective channel drives blade pitch
+
+#define TANDEM_210TL     0
+#define TANDEM_E6        1   // No longer Supported
+#define TANDEM_COPYCAT   2   // Single Rotar Heli, built with 210TL hardware for testing
 
 // control modes
 #define CTRL_MODE_INHIBIT       0   // inhibit servo control, set to mid pos, or min for throttle
@@ -263,6 +266,8 @@ typedef enum {
 #define IMU_FAIL          (1 << 15)
 #define IMU_WARN          (1 << 16)
 #define BARO_FAIL         (1 << 17)
+
+#define COMPASS_CAL_WARN  (1 << 18)
 
 #define RESET_REASON_POR  (1 << 0)
 #define RESET_REASON_EXTR (1 << 1)

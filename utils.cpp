@@ -290,10 +290,10 @@ static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
         break;
         // TODO::SP: Need to account for multiple servo nodes
       case LOG_PARAM_SERVOS0_3:
-        value = Float32toFloat16(hfc->servos_out[index]);
+        value = Float32toFloat16(hfc->servos_out[0][index]);
         break;
       case LOG_PARAM_SERVOS4_7:
-        value = Float32toFloat16(hfc->servos_out[index+4]);
+        value = Float32toFloat16(hfc->servos_out[0][index+4]);
         break;
       case LOG_PARAM_CTRL_MODE:
         for (i=0; i<5; i++) value |= (hfc->control_mode[(int)i] & 0x7) << (i*3);
