@@ -162,7 +162,7 @@ ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so 
 #define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
 
 // Macros for controlling 'special' reserved FCM outputs
-#define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6->pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
+#define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
 
 static int can_node_found = 0;
@@ -705,7 +705,7 @@ static void ProcessFcmLinkLive(void)
             }
 
             // debug_print("Iesc %5.1f Iaux %4.1f Vmain %5.2f Vesc %5.2f Vaux %5.2f RPM %4.0f Temp %4.1f\n",
-            //                  hfc->power.Iesc, hfc->power.Iaux, hfc->power.Vmain, hfc->power.Vesc, hfc->power.Vaux, hfc->RPM, hfc->esc_temp);
+            //                  phfc->power.Iesc, phfc->power.Iaux, phfc->power.Vmain, phfc->power.Vesc, phfc->power.Vaux, phfc->RPM, phfc->esc_temp);
 
             UpdateBatteryStatus(delta_us * 0.000001f);
         }
@@ -720,7 +720,7 @@ static void ProcessFcmLinkLive(void)
 
         if ((phfc->linklive_item > 2) && (phfc->linklive_item < 13)) {
             phfc->linklive_values[phfc->linklive_item] = ((delta * phfc->linklive_calib) - 500.0f) * LINKLIVE_SCALES[phfc->linklive_item];
-            // debug_print("%02d %4d %4.2f\n", hfc->linklive_item, delta, hfc->linklive_values[hfc->linklive_item]);
+            // debug_print("%02d %4d %4.2f\n", phfc->linklive_item, delta, phfc->linklive_values[phfc->linklive_item]);
         }
     }
 }
@@ -1443,23 +1443,23 @@ static void ServoMixer(void)
     }
 }
 
-static inline void ProcessStickInputs(FlightControlData *hfc, float dT)
+static inline void ProcessStickInputs(FlightControlData *phfc, float dT)
 {
     int channel;
     
     /* process P, R, Y, C */
     for (channel=0; channel<4; channel++)
     {
-        unsigned char mode = hfc->control_mode[channel];
+        unsigned char mode = phfc->control_mode[channel];
         if (mode>0)
         {
-            float db = hfc->StickDeadband[channel];
+            float db = phfc->StickDeadband[channel];
             /* no deadband for manual collective */
             if (channel==3 && mode==CTRL_MODE_MANUAL)
                 db = 0;
             if (db)
             {
-                float v = hfc->ctrl_out[RAW][channel];
+                float v = phfc->ctrl_out[RAW][channel];
                 if (v<0)
                 {
                     if (v<=-db)
@@ -1474,7 +1474,7 @@ static inline void ProcessStickInputs(FlightControlData *hfc, float dT)
                     else
                         v = 0;
                 }
-                hfc->ctrl_out[RAW][channel] = v;
+                phfc->ctrl_out[RAW][channel] = v;
             }
         }
     }
@@ -1512,7 +1512,7 @@ static char GetModeChar(FlightControlData *hfc, byte channel)
     if (pConfig->ctrl_mode_inhibit[channel])
         return CTRL_MODES[0];
     else
-        return CTRL_MODES[hfc->control_mode[channel]];
+        return CTRL_MODES[phfc->control_mode[channel]];
 }
 #endif
 
@@ -1521,9 +1521,9 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
 {
     char str[40];
 
-    if(hfc->display_mode == DISPLAY_SPLASH)
+    if(phfc->display_mode == DISPLAY_SPLASH)
     {
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             myLcd.SetLine(0, AVIDRONE_SPLASH, false);
             myLcd.SetLine(1, AVIDRONE_FCM_SPLASH, false);
@@ -1538,7 +1538,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                     myLcd.RefreshError();
                 }
 
-                if(!hfc->throttle_armed) {
+                if(!phfc->throttle_armed) {
                     PRINTs(str, (char*)"NEXT       ARM");
                     myLcd.SetLine(5, str, 0);
                 }
@@ -1549,14 +1549,14 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             }
         }
     }
-    else if (hfc->display_mode == DISPLAY_STATUS)
+    else if (phfc->display_mode == DISPLAY_STATUS)
     {
         //GpsData gps_data = gps.GetGpsData();
 
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             // Loop    us
-            sPRINTdd(str, (char*)"Loop %duS %d%%", hfc->ticks_max/*(hfc->ticks_lp+32)>>6*/, (int)hfc->cpu_utilization_lp);
+            sPRINTdd(str, (char*)"Loop %duS %d%%", phfc->ticks_max/*(phfc->ticks_lp+32)>>6*/, (int)phfc->cpu_utilization_lp);
             myLcd.SetLine(0, str, 0);
             // GPS     hdop
             if (gps.gps_data_.fix>0)
@@ -1565,14 +1565,14 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 PRINTs(str, (char*)"GPS  ----");
             myLcd.SetLine(1, str, 0);
             // Bat     %
-            sPRINTdf(str, (char*)"Bat  %d%% %4.2fV", (int)hfc->power.battery_level, hfc->power.Vmain/pConfig->battery_cells);
+            sPRINTdf(str, (char*)"Bat  %d%% %4.2fV", (int)phfc->power.battery_level, phfc->power.Vmain/pConfig->battery_cells);
             myLcd.SetLine(2, str, 0);
             // Xbus
             if(pConfig->SbusEnable == 0)
             {
             if (!xbus.RcLinkOnline())
                 PRINTs(str, (char*)"Xbus ----");
-            else if (hfc->full_auto)
+            else if (phfc->full_auto)
                 PRINTs(str, (char*)"Xbus FullAuto");
             else
                 PRINTs(str, (char*)"Xbus Good");
@@ -1581,7 +1581,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             {
             if (!xbus.RcLinkOnline())
                 PRINTs(str, (char*)"Sbus ----");
-            else if (hfc->full_auto)
+            else if (phfc->full_auto)
                 PRINTs(str, (char*)"Sbus FullAuto");
             else
                 PRINTs(str, (char*)"Sbus Good");
@@ -1597,37 +1597,37 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_POWER)
+    else if (phfc->display_mode == DISPLAY_POWER)
     {
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
-            sPRINTfd(str, (char*)"BAT %4.2fV %dC", hfc->power.Vmain, pConfig->battery_cells);
+            sPRINTfd(str, (char*)"BAT %4.2fV %dC", phfc->power.Vmain, pConfig->battery_cells);
             myLcd.SetLine(0, str, 0);
-            sPRINTff(str, (char*)"ESC %3.1fV %3.1fA", hfc->power.Vesc, hfc->power.Iesc);
+            sPRINTff(str, (char*)"ESC %3.1fV %3.1fA", phfc->power.Vesc, phfc->power.Iesc);
             myLcd.SetLine(1, str, 0);
-            sPRINTff(str, (char*)"S/A %3.1fV %3.1fV", hfc->power.Vservo, hfc->power.Vaux);
+            sPRINTff(str, (char*)"S/A %3.1fV %3.1fV", phfc->power.Vservo, phfc->power.Vaux);
             myLcd.SetLine(2, str, 0);
-            sPRINTff(str, (char*)"CAP %3.1f %3.1fAh", hfc->power.capacity_used/3600.0f, hfc->power.capacity_total/3600.0f);
+            sPRINTff(str, (char*)"CAP %3.1f %3.1fAh", phfc->power.capacity_used/3600.0f, phfc->power.capacity_total/3600.0f);
             myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"FT  %02d:%02dS %d%%", hfc->power.flight_time_left/60, hfc->power.flight_time_left%60, (int)hfc->power.battery_level);
+            sPRINTddd(str, (char*)"FT  %02d:%02dS %d%%", phfc->power.flight_time_left/60, phfc->power.flight_time_left%60, (int)phfc->power.battery_level);
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_CONTROLS)
+    else if (phfc->display_mode == DISPLAY_CONTROLS)
     {
         if (xbus_new_values)
         {
-            float thr1 = (hfc->ctrl_out[RAW][THRO] + pConfig->Stick100range)*0.5f;
-            Display_CtrlMode(0, THRO,  pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // throttle
-            Display_CtrlMode(1, ROLL,  pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // roll
-            Display_CtrlMode(2, PITCH, pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // pitch
-            Display_CtrlMode(3, YAW,   pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // yaw
-            Display_CtrlMode(4, COLL,  pConfig->ctrl_mode_inhibit, hfc->control_mode, hfc->ctrl_out, thr1);   // collective
+            float thr1 = (phfc->ctrl_out[RAW][THRO] + pConfig->Stick100range)*0.5f;
+            Display_CtrlMode(0, THRO,  pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // throttle
+            Display_CtrlMode(1, ROLL,  pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // roll
+            Display_CtrlMode(2, PITCH, pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // pitch
+            Display_CtrlMode(3, YAW,   pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // yaw
+            Display_CtrlMode(4, COLL,  pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // collective
         }
     }
-    else if (hfc->display_mode == DISPLAY_XBUS)
+    else if (phfc->display_mode == DISPLAY_XBUS)
     {
-        if ((hfc->print_counter&0x7f)==2)
+        if ((phfc->print_counter&0x7f)==2)
         {
             sPRINTdd(str, (char*)"1:%4d  2:%4d", (int)(xbus.valuesf[0]*1000+0.5),(int)(xbus.valuesf[1]*1000+0.5));
             myLcd.SetLine(0, str, 0);
@@ -1641,12 +1641,12 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.SetLineX(0, 4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_GPS1)
+    else if (phfc->display_mode == DISPLAY_GPS1)
     {
         //GpsData gps_data = gps.GetGpsData();
 
-//        if (hfc->gps_new_data)
-        if ((hfc->print_counter&0x7f)==2)
+//        if (phfc->gps_new_data)
+        if ((phfc->print_counter&0x7f)==2)
         {
             sPRINTf(str, (char*)"LAT %+9.6f", gps.gps_data_.latF);
             myLcd.SetLine(0, str, 0);
@@ -1660,18 +1660,18 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_GPS2)
+    else if (phfc->display_mode == DISPLAY_GPS2)
     {
-//        if (hfc->gps_new_data)
-        if ((hfc->print_counter&0x7f)==2)
+//        if (phfc->gps_new_data)
+        if ((phfc->print_counter&0x7f)==2)
         {
-          float distance = hfc->gps_to_home[0];
-          float course   = hfc->gps_to_home[1];
-          float dAlt     = hfc->gps_to_home[2];
+          float distance = phfc->gps_to_home[0];
+          float course   = phfc->gps_to_home[1];
+          float dAlt     = phfc->gps_to_home[2];
           
-          sPRINTf(str, (char*)"SPEED %3.1fm/s", hfc->gps_speed);
+          sPRINTf(str, (char*)"SPEED %3.1fm/s", phfc->gps_speed);
           myLcd.SetLine(0, str, 0);
-          sPRINTf(str, (char*)"HEAD %+3.1fdeg", hfc->gps_heading);
+          sPRINTf(str, (char*)"HEAD %+3.1fdeg", phfc->gps_heading);
           myLcd.SetLine(1, str, 0);
           sPRINTf(str, (char*)"DIST  %3.1fm", distance);
           myLcd.SetLine(2, str, 0);
@@ -1681,11 +1681,11 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
           myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_GPS3)
+    else if (phfc->display_mode == DISPLAY_GPS3)
     {
         //GpsData gps_data = gps.GetGpsData();
 
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             char fix = gps.gps_data_.fix;
             unsigned long date = gps.gps_data_.date;
@@ -1709,45 +1709,45 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_BARO)
+    else if (phfc->display_mode == DISPLAY_BARO)
     {
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             float dAlt = 0;
-            sPRINTd(str, (char*)"BaroP %dPa", (int)hfc->baro_pressure);
+            sPRINTd(str, (char*)"BaroP %dPa", (int)phfc->baro_pressure);
             myLcd.SetLine(0, str, 0);
-            sPRINTf(str, (char*)"Temp   %+3.1fdeg", hfc->baro_temperature);
+            sPRINTf(str, (char*)"Temp   %+3.1fdeg", phfc->baro_temperature);
             myLcd.SetLine(1, str, 0);
-            sPRINTf(str, (char*)"AltB   %+3.1fm", hfc->baro_altitude_raw);
+            sPRINTf(str, (char*)"AltB   %+3.1fm", phfc->baro_altitude_raw);
             myLcd.SetLine(2, str, 0);
-            sPRINTf(str, (char*)"AltIMU %+3.1fm", hfc->altitude);
-//            sPRINTf(str, "VSPD %+3.1fd", hfc->baro_vspeed);
+            sPRINTf(str, (char*)"AltIMU %+3.1fm", phfc->altitude);
+//            sPRINTf(str, "VSPD %+3.1fd", phfc->baro_vspeed);
             myLcd.SetLine(3, str, 0);
             sPRINTf(str, (char*)"dALT   %+4.2fm", dAlt);
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_COMPASS)
+    else if (phfc->display_mode == DISPLAY_COMPASS)
     {
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             int compR = (int)compass.dataXYZcalib[0];
             int compF = (int)compass.dataXYZcalib[1];
             int compU = (int)compass.dataXYZcalib[2];
             myLcd.SetLine(0, (char*)"COMPASS", 0);
-            if(hfc->comp_calibrate == COMP_CALIBRATING)
+            if(phfc->comp_calibrate == COMP_CALIBRATING)
             {
                 int i_pitch = -1;
                 int i_roll = -1;
                 for(int j = 0; j < ROLL_COMP_LIMIT; j++) {
                     if( (j < PITCH_COMP_LIMIT)  &&
-                        (hfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS) ){
+                        (phfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS) ){
                         i_pitch = j;
                         break;
                     }
                     else
                     if( (j < ROLL_COMP_LIMIT)  &&
-                        (hfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) ){
+                        (phfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) ){
                         i_roll = j;
                         break;
                     }
@@ -1771,33 +1771,33 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
                 compF = (int)compass.dataXYZ[1];
                 compU = (int)compass.dataXYZ[2];
             }
-            else if(hfc->comp_calibrate == COMP_CALIBRATE_DONE)
+            else if(phfc->comp_calibrate == COMP_CALIBRATE_DONE)
             {
                 myLcd.SetLine(1, (char*)"DONE COMP CAL!", 0);
             }
             else
             {
-                sPRINTf(str, (char*)"HEAD %+3.1fdeg  ", hfc->compass_heading_lp);
+                sPRINTf(str, (char*)"HEAD %+3.1fdeg  ", phfc->compass_heading_lp);
                 myLcd.SetLine(1, str, 0);
             }
-            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, hfc->compass_cal.compassMin[0], hfc->compass_cal.compassMax[0]);
+            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, phfc->compass_cal.compassMin[0], phfc->compass_cal.compassMax[0]);
             myLcd.SetLine(2, str, 0);
-            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, hfc->compass_cal.compassMin[1], hfc->compass_cal.compassMax[1]);
+            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, phfc->compass_cal.compassMin[1], phfc->compass_cal.compassMax[1]);
             myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, hfc->compass_cal.compassMin[2], hfc->compass_cal.compassMax[2]);
+            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, phfc->compass_cal.compassMin[2], phfc->compass_cal.compassMax[2]);
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_CALIB)
+    else if (phfc->display_mode == DISPLAY_CALIB)
     {
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             char *pstr = str;
-            sPRINTf(str, (char*)"GYRO %+3.1fdeg", hfc->gyro_temp_lp);
+            sPRINTf(str, (char*)"GYRO %+3.1fdeg", phfc->gyro_temp_lp);
             myLcd.SetLine(0, str, 0);
-            pstr+= PRINTd(pstr, (int)(hfc->gyro_lp_disp[0]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(hfc->gyro_lp_disp[1]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(hfc->gyro_lp_disp[2]*1000), 3, 0, 1); *pstr++ = ' ';
+            pstr+= PRINTd(pstr, (int)(phfc->gyro_lp_disp[0]*1000), 3, 0, 1); *pstr++ = ' ';
+            pstr+= PRINTd(pstr, (int)(phfc->gyro_lp_disp[1]*1000), 3, 0, 1); *pstr++ = ' ';
+            pstr+= PRINTd(pstr, (int)(phfc->gyro_lp_disp[2]*1000), 3, 0, 1); *pstr++ = ' ';
             *pstr++ = ' ';
             *pstr++ = 0;
             str[14] = 0;
@@ -1805,51 +1805,51 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
 
             pstr = str;
 
-            pstr+= PRINTd(pstr, (int)(hfc->gyroOfs[0]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(hfc->gyroOfs[1]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(hfc->gyroOfs[2]*1000), 3, 0, 1); *pstr++ = ' ';
+            pstr+= PRINTd(pstr, (int)(phfc->gyroOfs[0]*1000), 3, 0, 1); *pstr++ = ' ';
+            pstr+= PRINTd(pstr, (int)(phfc->gyroOfs[1]*1000), 3, 0, 1); *pstr++ = ' ';
+            pstr+= PRINTd(pstr, (int)(phfc->gyroOfs[2]*1000), 3, 0, 1); *pstr++ = ' ';
             *pstr++ = ' ';
             *pstr++ = 0;
             str[14] = 0;
             myLcd.SetLine(2, str, 0);
 
-            sPRINTf(str, (char*)"LIDAR %4.2fm", hfc->altitude_lidar);
+            sPRINTf(str, (char*)"LIDAR %4.2fm", phfc->altitude_lidar);
             myLcd.SetLine(3, str, 0);
-            sPRINTdd(str, (char*)"TIME  %02d:%02ds", (hfc->time_ms/1000)/60, (hfc->time_ms/1000)%60);
+            sPRINTdd(str, (char*)"TIME  %02d:%02ds", (phfc->time_ms/1000)/60, (phfc->time_ms/1000)%60);
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_WAYPOINT)
+    else if (phfc->display_mode == DISPLAY_WAYPOINT)
     {
-        if ((hfc->print_counter&0x7f)==2)
+        if ((phfc->print_counter&0x7f)==2)
         {
-            float head = hfc->gps_to_waypoint[1] - hfc->IMUorient[2]*R2D;
+            float head = phfc->gps_to_waypoint[1] - phfc->IMUorient[2]*R2D;
             short int se = head*182.044444f+0.5f;
             head = se*0.0054931640625f;
             
             myLcd.SetLine(0, (char*)"PLAYLIST", 0);
-            if (hfc->playlist_status==PLAYLIST_PLAYING)
+            if (phfc->playlist_status==PLAYLIST_PLAYING)
                 myLcd.SetLine(1, (char*)"PLAYING", 0);
-            else if (hfc->playlist_status==PLAYLIST_PAUSED)
+            else if (phfc->playlist_status==PLAYLIST_PAUSED)
                 myLcd.SetLine(1, (char*)"PAUSED", 0);
             else
                 myLcd.SetLine(1, (char*)"STOPPED", 0);
-            sPRINTdd(str, (char*)"%d / %d", hfc->playlist_position, hfc->playlist_items);
+            sPRINTdd(str, (char*)"%d / %d", phfc->playlist_position, phfc->playlist_items);
             myLcd.SetLine(2, str, 0);
-            sPRINTf(str, (char*)"Dist: %5.1fm", hfc->gps_to_waypoint[0]);
+            sPRINTf(str, (char*)"Dist: %5.1fm", phfc->gps_to_waypoint[0]);
             myLcd.SetLine(3, str, 0);
             sPRINTd(str, (char*)"Cour: %ddeg", (int)head);
             myLcd.SetLine(4, str, 0);
         }
     }
-    else if (hfc->display_mode == DISPLAY_ENG)
+    else if (phfc->display_mode == DISPLAY_ENG)
     {
         // Misc LCD Display page for Engineering purposes
-        if ((hfc->print_counter & 0xff) == 2) {
-            sPRINTf(str, (char*)"EleG:%+1.4f", hfc->rw_cfg.elevator_gain);
+        if ((phfc->print_counter & 0xff) == 2) {
+            sPRINTf(str, (char*)"EleG:%+1.4f", phfc->rw_cfg.elevator_gain);
             myLcd.SetLine(0, str, 0);
 
-            sPRINTf(str, (char*)"DcpG:%+1.4f", hfc->rw_cfg.dcp_gain);
+            sPRINTf(str, (char*)"DcpG:%+1.4f", phfc->rw_cfg.dcp_gain);
             myLcd.SetLine(1, str, 0);
 
             myLcd.SetLine(2, "", 0);
@@ -1859,7 +1859,7 @@ static void Display_Process(FlightControlData *hfc, char xbus_new_values, float 
     }
     else
     {
-        if ((hfc->print_counter&0xff)==2)
+        if ((phfc->print_counter&0xff)==2)
         {
             myLcd.SetLine(0, (char*)"UNKNOWN", 0);
             myLcd.SetLine(1, NULL, 0);
@@ -2118,36 +2118,36 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     T_PlaylistItem *item;
     
     /* single waypoint mode handling - waypoint retire logic */
-    if ((hfc->ctrl_source==CTRL_SOURCE_AUTOPILOT) && (hfc->playlist_status!=PLAYLIST_PLAYING))
+    if ((phfc->ctrl_source==CTRL_SOURCE_AUTOPILOT) && (phfc->playlist_status!=PLAYLIST_PLAYING))
     {
         if (retire_waypoint) {
             telem.SelectCtrlSource(CTRL_SOURCE_AUTOPILOT);
-            hfc->waypoint_type = WAYPOINT_NONE;
+            phfc->waypoint_type = WAYPOINT_NONE;
         }
         return;
     }
     
     /* process only running playlist mode */
-    if (hfc->playlist_status!=PLAYLIST_PLAYING)
+    if (phfc->playlist_status!=PLAYLIST_PLAYING)
         return;
         
-    item = &hfc->playlist[hfc->playlist_position];
+    item = &phfc->playlist[phfc->playlist_position];
 
     if (item->type == PL_ITEM_WP)
     {
         if (item->data[0]==WAYPOINT_TAKEOFF)
         {
-            if (hfc->waypoint_stage == FM_TAKEOFF_COMPLETE)
+            if (phfc->waypoint_stage == FM_TAKEOFF_COMPLETE)
             {
-                hfc->waypoint_type  = WAYPOINT_NONE;
-                hfc->playlist_position++;
+                phfc->waypoint_type  = WAYPOINT_NONE;
+                phfc->playlist_position++;
             }
         }
         else if (item->data[0]==WAYPOINT_TOUCH_AND_GO) {
-            if (hfc->waypoint_stage == FM_TAKEOFF_COMPLETE)
+            if (phfc->waypoint_stage == FM_TAKEOFF_COMPLETE)
             {
-                hfc->waypoint_type  = WAYPOINT_NONE;
-                hfc->playlist_position++;
+                phfc->waypoint_type  = WAYPOINT_NONE;
+                phfc->playlist_position++;
             }
         }
         else
@@ -2155,44 +2155,44 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
             /* if WP is blocking, wait for the retire flag */
             if (!item->data[1] || retire_waypoint)  // WP completion flag
             {
-                hfc->playlist_position++;
-                hfc->pl_wp_initialized = false;
+                phfc->playlist_position++;
+                phfc->pl_wp_initialized = false;
             }
         }
     }    
     else if (item->type == PL_ITEM_PARAM)
     {
-        hfc->playlist_position++;
+        phfc->playlist_position++;
     }
     else if (item->type == PL_ITEM_GOTO)
     {
         /* handle other types of GOTOs */
         /* sanity check is done below */
-        hfc->playlist_position = item->value1.i;
+        phfc->playlist_position = item->value1.i;
     }
     else if (item->type == PL_ITEM_DELAY)
     {
-        hfc->delay_counter -= hfc->ticks_curr;
-        if (hfc->delay_counter<=0)
-            hfc->playlist_position++;
+        phfc->delay_counter -= phfc->ticks_curr;
+        if (phfc->delay_counter<=0)
+            phfc->playlist_position++;
     }
     else if (item->type == PL_ITEM_HOLD)
     {
-        hfc->playlist_position++;
+        phfc->playlist_position++;
     }
     else    // PL_ITEM_END and every thing else will stop playlist
-        hfc->playlist_position = hfc->playlist_items;
+        phfc->playlist_position = phfc->playlist_items;
         
     
     /* check for end of the playlist or errors */
-    if ((hfc->playlist_status > PLAYLIST_STOPPED) && (hfc->playlist_position >= hfc->playlist_items))
+    if ((phfc->playlist_status > PLAYLIST_STOPPED) && (phfc->playlist_position >= phfc->playlist_items))
     {
         /* stop playlist and waypoint mode */
-        hfc->playlist_status = PLAYLIST_STOPPED;
-        hfc->playlist_position = hfc->playlist_items;
+        phfc->playlist_status = PLAYLIST_STOPPED;
+        phfc->playlist_position = phfc->playlist_items;
 
         /* if in flight, put a waypoint at the current position, else do nothing */
-        if (hfc->throttle_armed) {
+        if (phfc->throttle_armed) {
             telem.SetZeroSpeed();
         }
     }
@@ -2407,9 +2407,9 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
         telem.SaveValuesForAbort();
 
         /* set PRY controls to Angle mode, coll to manual */
-        SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_ANGLE);
-        SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
-        SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+        SetCtrlMode(phfc, pConfig, PITCH, CTRL_MODE_ANGLE);
+        SetCtrlMode(phfc, pConfig, ROLL,  CTRL_MODE_ANGLE);
+        SetCtrlMode(phfc, pConfig, YAW,   CTRL_MODE_ANGLE);
 
         /* initialize PRY angles to the current orientation */
         phfc->ctrl_out[ANGLE][PITCH] = phfc->IMUorient[PITCH]*R2D;
@@ -2460,14 +2460,14 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
             phfc->ctrl_out[SPEED][COLL] = phfc->takeoff_vertical_speed;    // initialize to current vert speed
             phfc->pid_CollAlt.COmax = phfc->takeoff_vertical_speed;
 
-            SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+            SetCtrlMode(phfc, pConfig, COLL,  CTRL_MODE_POSITION);
             phfc->ctrl_out[POS][COLL] = phfc->takeoff_pos[2] + ClipMinMax(phfc->takeoff_height, TAKEOFF_HEIGHT_MIN, TAKEOFF_HEIGHT_MAX);
             phfc->waypoint_pos[2] = phfc->ctrl_out[POS][COLL];    // needs to be initialized for further waypoint flying if altitude is not specified
 
 
             /* enable horizontal speed control with zero speed */
-            SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-            SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+            SetCtrlMode(phfc, pConfig, PITCH, CTRL_MODE_SPEED);
+            SetCtrlMode(phfc, pConfig, ROLL,  CTRL_MODE_SPEED);
             phfc->ctrl_out[SPEED][PITCH] = 0;
             phfc->ctrl_out[SPEED][ROLL]  = 0;
 
@@ -2484,8 +2484,8 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
           phfc->waypoint_pos[1] = phfc->takeoff_pos[1];
 
           phfc->waypoint_retire = 0;
-          SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_POSITION);
-          SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_POSITION);
+          SetCtrlMode(phfc, pConfig, PITCH, CTRL_MODE_POSITION);
+          SetCtrlMode(phfc, pConfig, ROLL,  CTRL_MODE_POSITION);
           phfc->waypoint_stage = FM_TAKEOFF_HOLD;
         }
     }
@@ -2569,9 +2569,9 @@ static void ProcessLanding(float dT, bool touch_and_go)
       if (phfc->altitude_lidar <= landing_threshold)
       {
           /* set PRY controls to rate */
-          SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_RATE);
-          SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_RATE);
-          SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_RATE);
+          SetCtrlMode(phfc, pConfig, PITCH, CTRL_MODE_RATE);
+          SetCtrlMode(phfc, pConfig, ROLL,  CTRL_MODE_RATE);
+          SetCtrlMode(phfc, pConfig, YAW,   CTRL_MODE_RATE);
 
           phfc->ctrl_out[RATE][PITCH] = 0;
           phfc->ctrl_out[RATE][ROLL]  = 0;
@@ -2617,7 +2617,7 @@ static void ProcessLanding(float dT, bool touch_and_go)
       /* on the ground in rate mode, wait till coll is at zero angle and then shut down */
       if (phfc->pid_CollVspeed.COlast <= pConfig->CollZeroAngle)
       {
-        SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+        SetCtrlMode(phfc, pConfig, COLL,  CTRL_MODE_MANUAL);
         phfc->ctrl_out[RAW][COLL] = phfc->pid_CollVspeed.COlast;
         phfc->ctrl_collective_raw = phfc->pid_CollVspeed.COlast;
         phfc->ctrl_collective_3d = phfc->pid_CollVspeed.COlast;
@@ -2654,10 +2654,10 @@ static void ProcessTouchAndGo(float dT)
     ResetIterms();
 
     /* set PRY controls to rate mode, coll to manual while on ground*/
-    SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_RATE);
-    SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_RATE);
-    SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_RATE);
-    SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_MANUAL);
+    SetCtrlMode(phfc, pConfig, PITCH, CTRL_MODE_RATE);
+    SetCtrlMode(phfc, pConfig, ROLL,  CTRL_MODE_RATE);
+    SetCtrlMode(phfc, pConfig, YAW,   CTRL_MODE_RATE);
+    SetCtrlMode(phfc, pConfig, COLL,  CTRL_MODE_MANUAL);
 
     /* initialize PRY angles to the current orientation */
     phfc->ctrl_out[RATE][PITCH] = 0;
@@ -2719,11 +2719,11 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
     // If all these conditions are true for Abort_timeout time,
     // then we decide we no longer have any way to receive instructions and we
     // make the decision to return nearest safe landing point
-    if (hfc->throttle_armed
+    if (phfc->throttle_armed
           && !telem.IsOnline()
           && !xbus.RcLinkOnline()
-          && (hfc->playlist_status != PLAYLIST_PLAYING)
-          && (hfc->ctrl_source != CTRL_SOURCE_AFSI)) {
+          && (phfc->playlist_status != PLAYLIST_PLAYING)
+          && (phfc->ctrl_source != CTRL_SOURCE_AFSI)) {
 
       if (abortTimer <= 0) {
 
@@ -2749,21 +2749,21 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
       // Process FCM reserved LEDS.
       // PWM_5 reserved for FCM box dropper
       // PWM_6 reserved for ARM led
-      FCM_SET_ARM_LED(hfc->throttle_armed);
-      FCM_DROP_BOX_CTRL(hfc->box_dropper_);
+      FCM_SET_ARM_LED(phfc->throttle_armed);
+      FCM_DROP_BOX_CTRL(phfc->box_dropper_);
     }
 
-    if (hfc->message_timeout>0) {
-        hfc->message_timeout -= hfc->ticks_curr;
+    if (phfc->message_timeout>0) {
+        phfc->message_timeout -= phfc->ticks_curr;
     }
 
-    if (hfc->waypoint_type == WAYPOINT_TAKEOFF) {
+    if (phfc->waypoint_type == WAYPOINT_TAKEOFF) {
       ProcessTakeoff(dT,false);
     }
-    else if (hfc->waypoint_type == WAYPOINT_LANDING) {
+    else if (phfc->waypoint_type == WAYPOINT_LANDING) {
       ProcessLanding(dT,false);
     }
-    else if (hfc->waypoint_type == WAYPOINT_TOUCH_AND_GO) {
+    else if (phfc->waypoint_type == WAYPOINT_TOUCH_AND_GO) {
       ProcessTouchAndGo(dT);
     }
 }
@@ -4169,6 +4169,7 @@ static void UpdateLidar(int node_id, int pulse_us)
 //
 static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
 {
+#if 0
   float *data= (float *)pdata;
   int new_data = 1;
 
@@ -4244,6 +4245,9 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
     phfc->power.Vservo = Vbec;
     phfc->power.Vservo = ClipMinMax(phfc->power.Vservo, 0, phfc->power.Vservo);
 
+    for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
+      castle_link_live[i].new_data_mask = 0;
+
             Iaux     += castle_link_live[i].bec_current;
             Iesc     += castle_link_live[i].current;
             Vmain    += castle_link_live[i].battery_voltage;
@@ -4298,6 +4302,7 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
     }
     canbus_livelink_avail = 1;
   }
+#endif
 }
 
 //
@@ -4620,12 +4625,12 @@ static void CanbusNodeMonitor(float dT)
 static void Lidar_Process(FlightControlData *hfc)
 {
     int node_id = num_lidars - 1;
-    if (!hfc->lidar_pulse)
+    if (!phfc->lidar_pulse)
         return;
 
     /* 1us/mm */
-    unsigned int time = hfc->lidar_fall;
-    unsigned int d = time - hfc->lidar_rise;
+    unsigned int time = phfc->lidar_fall;
+    unsigned int d = time - phfc->lidar_rise;
 
     // in this case the octo runs using power node and FCM.
     // FCM will use a node_id = 2 - 1 = 1, while
@@ -4636,7 +4641,7 @@ static void Lidar_Process(FlightControlData *hfc)
       //UpdateLidarAltitude(node_id,filtered_data);
       // TODO::SP - replace with new lidar handling.
     }
-    hfc->lidar_pulse = false;
+    phfc->lidar_pulse = false;
 
     return;
 }
@@ -5935,7 +5940,7 @@ void InitializeRuntimeData(void)
   phfc->Stick_Vspeed  = pConfig->StickVspeed / pConfig->Stick100range;
   phfc->Stick_Hspeed  = pConfig->StickHspeed / pConfig->Stick100range;
 
-  phfc->num_lidars = (pConfig->ccpm_type == MIXERTANDEM) ? 2 : 1; // TODO::SP - this should come from configuration
+  phfc->num_lidars = (pConfig->ccpm_type == MIXERTANDEM || pConfig->ccpm_type == CCPM120TANDEMTESTBENCH) ? 2 : 1; // TODO::SP - this should come from configuration
 
   // convert dead band values in % to servo range
   for (int i = 0; i < 4; i++) {
@@ -6099,13 +6104,7 @@ void InitializeRuntimeData(void)
       phfc->compass_cal.comp_ofs[i] = 0;
     }
 
-    // Configure number of lidars based on airframe type.
-    // TODO::SP should really do this at confguration stage.
-    if ((pConfig->ccpm_type == MIXERTANDEM) || (pConfig->ccpm_type == CCPM120TANDEMTESTBENCH)) {
-      num_lidars = 2;
-    }
-
-    for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 3; i++) {
       phfc->compass_cal.compassMin[i] = 9999;
     }
 
