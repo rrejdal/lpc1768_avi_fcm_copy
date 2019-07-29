@@ -4169,7 +4169,7 @@ static void UpdateLidar(int node_id, int pulse_us)
 //
 static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
 {
-#if 0
+
   float *data= (float *)pdata;
   int new_data = 1;
 
@@ -4203,10 +4203,10 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
   }
 
   for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
-      if (castle_link_live[i].new_data_mask < 0x1F) {
-          new_data = 0;
-          break;
-      }
+    if (castle_link_live[i].new_data_mask < 0x1F) {
+      new_data = 0;
+      break;
+    }
   }
 
   if (new_data == 1) {
@@ -4222,87 +4222,58 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
     for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
       castle_link_live[i].new_data_mask = 0;
 
-      Iaux += castle_link_live[i].bec_current;
-      Iesc += castle_link_live[i].current;
-      Vmain += castle_link_live[i].battery_voltage;
-      Vbec += castle_link_live[i].bec_voltage;
-      RPM += castle_link_live[i].rpm;
-      esc_temp += castle_link_live[node_id].temperature;
+      Iaux     += castle_link_live[i].bec_current;
+      Iesc     += castle_link_live[i].current;
+      Vmain    += castle_link_live[i].battery_voltage;
+      Vbec     += castle_link_live[i].bec_voltage;
+
+      if (pConfig->ccpm_type == MIXERTANDEM) {
+        RPM      += castle_link_live[i].rpm;
+        esc_temp += castle_link_live[i].temperature;
+      }
+      else {
+        // Case for ccpm120 TANDEM test bench heli:
+        // This heli only has one motor even though it has two servo nodes and
+        // two speed controls. Only the speed control on Servo Node #1 is connected
+        // to the motor and so we are only concerned with the rpm and temperature
+        // reported by castle link for servo node #1.
+        if (i == 0) {
+          RPM      = castle_link_live[i].rpm;
+          esc_temp = castle_link_live[i].temperature;
+        }
+      }
     }
 
-    Vmain /= MAX_NUM_CASTLE_LINKS;
-    Vbec /= MAX_NUM_CASTLE_LINKS;
-    RPM /= MAX_NUM_CASTLE_LINKS;
-    esc_temp /= MAX_NUM_CASTLE_LINKS;
+    Vmain    /= MAX_NUM_CASTLE_LINKS;
+    Vbec     /= MAX_NUM_CASTLE_LINKS;
 
-    phfc->power.Iaux = Iaux;
-    phfc->power.Iesc = (Iesc + 3* phfc->power.Iesc ) * 0.25f;
-    phfc->power.Iesc = ClipMinMax(phfc->power.Iesc, 0, phfc->power.Iesc);
+    if (pConfig->ccpm_type == MIXERTANDEM) {
+      RPM      /= MAX_NUM_CASTLE_LINKS;
+      esc_temp /= MAX_NUM_CASTLE_LINKS;
+    }
 
-    phfc->power.Vmain = (Vmain + 3* phfc->power.Vmain) * 0.25f;
-    phfc->power.Vesc = phfc->power.Vmain;
+    // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
+    phfc->power.Iaux   = Iaux;
+    phfc->power.Iesc   = (Iesc + 3* phfc->power.Iesc ) * 0.25f;
+    phfc->power.Iesc   = ClipMinMax(phfc->power.Iesc, 0, phfc->power.Iesc);
+
+    phfc->power.Vmain  = (Vmain + 3* phfc->power.Vmain) * 0.25f;
+    phfc->power.Vesc   = phfc->power.Vmain;
 
     phfc->power.Vservo = Vbec;
     phfc->power.Vservo = ClipMinMax(phfc->power.Vservo, 0, phfc->power.Vservo);
 
-    for (int i = 0; i < MAX_NUM_CASTLE_LINKS; i++) {
-      castle_link_live[i].new_data_mask = 0;
+    phfc->power.Vaux   = Vbec;
+    phfc->power.Vaux   = ClipMinMax(phfc->power.Vaux, 0, phfc->power.Vaux);
 
-            Iaux     += castle_link_live[i].bec_current;
-            Iesc     += castle_link_live[i].current;
-            Vmain    += castle_link_live[i].battery_voltage;
-            Vbec     += castle_link_live[i].bec_voltage;
+    phfc->esc_temp    = esc_temp;
 
-            if (pConfig->ccpm_type == MIXERTANDEM) {
-              RPM      += castle_link_live[i].rpm;
-              esc_temp += castle_link_live[i].temperature;
-            }
-            else {
-              // Case for ccpm120 TANDEM test bench heli:
-              // This heli only has one motor even though it has two servo nodes and
-              // two speed controls. Only the speed control on Servo Node #1 is connected
-              // to the motor and so we are only concerned with the rpm and temperature
-              // reported by castle link for servo node #1.
-              if (i == 0) {
-                RPM      = castle_link_live[i].rpm;
-                esc_temp = castle_link_live[i].temperature;
-              }
-            }
-        }
-
-        Vmain    /= MAX_NUM_CASTLE_LINKS;
-        Vbec     /= MAX_NUM_CASTLE_LINKS;
-
-        if (pConfig->ccpm_type == MIXERTANDEM) {
-          RPM      /= MAX_NUM_CASTLE_LINKS;
-          esc_temp /= MAX_NUM_CASTLE_LINKS;
-        }
-
-        // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
-        phfc->power.Iaux   = Iaux;
-        phfc->power.Iesc   = (Iesc + 3* phfc->power.Iesc ) * 0.25f;
-        phfc->power.Iesc   = ClipMinMax(phfc->power.Iesc, 0, phfc->power.Iesc);
-
-        phfc->power.Vmain  = (Vmain + 3* phfc->power.Vmain) * 0.25f;
-        phfc->power.Vesc   = phfc->power.Vmain;
-
-        phfc->power.Vservo = Vbec;
-        phfc->power.Vservo = ClipMinMax(phfc->power.Vservo, 0, phfc->power.Vservo);
-
-        phfc->power.Vaux   = Vbec;
-        phfc->power.Vaux   = ClipMinMax(phfc->power.Vaux, 0, phfc->power.Vaux);
-
-        phfc->esc_temp    = esc_temp;
-
-        if (!pConfig->rpm_sensor) {
-            phfc->RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
-        }
-
-        canbus_livelink_avail = 1;
+    if (!pConfig->rpm_sensor) {
+      phfc->RPM = (RPM / pConfig->gear_ratio / pConfig->motor_poles);
     }
+
     canbus_livelink_avail = 1;
   }
-#endif
 }
 
 //
