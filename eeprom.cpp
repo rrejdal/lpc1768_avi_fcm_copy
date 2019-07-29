@@ -1,6 +1,5 @@
 #include "eeprom.h"
 #include <math.h>
-#include "version.h"
 #include "defines.h"
 #include "utils.h"
 

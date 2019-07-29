@@ -26,14 +26,8 @@
 #include "structures.h"
 #include "IAP.h"
 #include "utils.h"
-
-int LoadConfiguration(const ConfigData **pConfig);
-int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
-int SaveNewConfig(void);
-int UpdateFlashConfig(FlightControlData *fcm_data);
-int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
-int EraseFlash(void);
-int SetJtag(int state);
+#include "defines.h"
+#include "config.h"
 
 
 // Config Info
@@ -397,7 +391,6 @@ int EraseFlash(void)
 #define CRP_3       0x43218765
 #define CRP_UNLOCK  0xFFFFFFFF
 #define CRP_OFFSET  0x000002FC
-#define LOCK_JTAG   1
 
 int SetJtag(int state)
 {

@@ -29,7 +29,6 @@
 #include "MPU6050.h"
 #include "utils.h"
 #include "mymath.h"
-#include "NOKIA_5110.h"
 #include "IMU.h"
 #include "xbus.h"
 #include "PID.h"
@@ -40,273 +39,146 @@
 #include "avican.h"
 #include "USBSerial.h"
 #include "IAP.h"
-#include "version.h"
 #include "afsi.h"
 #include "main.h"
+#include "mediator.h"
+#include "config.h"
 
+// Linker defined sections. DO NOT ALTER
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
 static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
+int __attribute__((__section__(".hfcruntime"))) _hfc_runtime;
 
-int __attribute__((__section__(".hfcruntime"))) _hfc_runtime; // this is defined by the linker. DO NOT CHANGE!
-
-bool skip = false;
-
-void GenerateSpeed2AngleLUT(void);
-void ResetIterms(void);
-void AltitudeUpdate(float alt_rate, float dT);
-void HeadingUpdate(float heading_rate, float dT);
-
-extern int LoadConfiguration(const ConfigData **pConfig);
-extern int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
-extern int SaveNewConfig(void);
-extern int UpdateFlashConfig(FlightControlData *fcm_data);
-extern int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
-extern void InitializeOdometer(FlightControlData *hfc);
-extern int UpdateOdometerReading(uint32 OdometerCounter);
-
-extern int EraseFlash(void);
-extern int SetJtag(int state);
-int getNodeVersionNum(int type, int nodeId);
-void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
-
-void CompassCalDone(void);
-
-
-USBSerial   serial(0x0D28, 0x0204, 0x0001, false);
-
-#ifdef LCD_ENABLED
-SPI         spi(MC_SP1_MOSI, MC_SP1_MISO, MC_SP1_SCK);
-NokiaLcd    myLcd( &spi, MC_LCD_DC, MC_LCD_CS, MC_LCD_RST );
-DigitalIn   btnSelect(MC_BUTTON2);
-DigitalIn   btnMenu(MC_BUTTON1);
-#endif
-
-I2Ci        Li2c(I2C_SDA1, I2C_SCL1);
-MPU6050     mpu(&Li2c, -1, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
-HMC5883L    compass(&Li2c);
-BMPx80      baro(&Li2c);
-
+// Create required devices classes
+USBSerial serial(0x0D28, 0x0204, 0x0001, false);
+I2Ci Li2c(I2C_SDA1, I2C_SCL1);
+MPU6050 mpu(&Li2c, -1, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
+HMC5883L compass(&Li2c);
+BMPx80 baro(&Li2c);
 XBus xbus(XBUS_IN);
 CAN *Canbus = NULL;
 GPS gps;
 
-//Serial pc(TRGT_TXD, TRGT_RXD);  // Debug Serial Port
-//Serial pc(GPS_TX, GPS_RX);  // Debug Serial Port
-
+// Telemetry Serial connection
 RawSerial telemetry(TELEM_TX, TELEM_RX);
 TelemSerial telem(&telemetry);
 
+// AFSI serial connection
 RawSerial afsi_serial(AFSI_TX,AFSI_RX, 38400);
 AFSI_Serial afsi(&afsi_serial,&telem);
 
-InterruptIn  lidar(LIDAR_PWM);
-InterruptIn  *rpm = NULL;
-
+// FCM PWM outputs
 PwmOut FCM_SERVO_CH6(CHANNEL_6);
 PwmOut FCM_SERVO_CH5(CHANNEL_5);
 PwmOut FCM_SERVO_CH4(CHANNEL_4);
 PwmOut FCM_SERVO_CH3(CHANNEL_3);
 PwmOut FCM_SERVO_CH2(CHANNEL_2);
-PwmOut *FCM_SERVO_CH1 = NULL;   // This can be re-purposed as LiveLink Input
+PwmOut FCM_SERVO_CH1(CHANNEL_1);
 
-DigitalInOut *FCMLinkLive = NULL;   // When re-purposed Ch1 for LiveLink
-InterruptIn  *linklive = NULL;      // When re-purposed Ch1 for LiveLink
-Ticker livelink_timer;
-
-//FlightControlData hfc;// = {0};
-
-FlightControlData *phfc = NULL;
-const ConfigData *pConfig = NULL;
-
-// Text displayed on ShowSplash
-#define AVIDRONE_SPLASH "== AVIDRONE =="
-#define AVIDRONE_FCM_SPLASH "    AVI-FCM      "
-
-#define MAX_NUM_CASTLE_LINKS 2
-#define MAX_NUM_GPS          1
-#define MAX_BOARD_TYPES      7
-#define MAX_NODE_NUM         15
-
-#define MAX_NUMBER_SERVO_NODES  2
-#define MAX_NUMBER_SERVO_OUTPUTS  8
-
-/* Passed in the GPS CANbus CFG Message, 1byte */
-#define GPS_SEL_CHIP_0          (1 << 0)
-#define GPS_SEL_CHIP_1          (1 << 1)
-#define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
-#define COMPASS_SEL_MASK(x)     ((x) << 2)
-
-typedef struct {
-    uint8_t major_version;
-    uint8_t minor_version;
-    uint8_t build_version;
-    uint32_t serial_number0;
-    uint32_t serial_number1;
-    uint32_t serial_number2;
-} BoardInfo;
-
-BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
-
-CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
-double heading[MAX_NUM_GPS];
-
+// ---- Local Prototypes ---- //
+static inline void UpdatePitchRateScalingFactor(float xbus_value);
+static inline void ApplyPidScaling(T_PID *pid_layer, const float params[6], float pid_scaling);
+static inline void ResetPidScaling(T_PID *pid_layer, const float params[6]);
+static void initRpmThresholdCheck(void);
+static int rpm_threshold_check(float dT);
+static void UpdateBatteryStatus(float dT);
+static float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale);
+static void AutoReset(void);
+static void OrientResetCounter();
+static void Get_Orientation(float *SmoothAcc, float *AccData, float dt);
 static void CanbusSync(void);
 static void CanbusFailsafe(int node_type, int node_id);
 static uint32_t EnableCanbusPDPs(void);
 static uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage *can_tx_message, int timeout = 100);
 static uint32_t InitCanbusNode(int node_type, int node_id, int timeout = 100);
+static void WriteToServoNodeServos(int num_servo_nodes);
+static void WriteToPowerNodeServos();
+static void WriteToFcmServos(void);
+static void SetAgsControls(void);
+static void SetRCRadioControl(void);
+static void CCPM120mix(void);
+static void MixerTandem(ServoNodeOutputs *servo_node_pwm);
+static void CCPM120TandemTestBench(ServoNodeOutputs *servo_node_pwm);
+static void CCPM140mix(void);
+static void MixerQuad(void);
+static void MixerHex(void);
+static void MixerOcto(void);
+static void ServoMixer(void);
+static inline void PreventMotorsOffInArmed(int num_motors);
+static inline void ProcessStickInputs(FlightControlData *phfc, float dT);
+static bool CheckRangeAndSetF(float *pvalue, float value, float vmin, float vmax);
+static void CheckRangeAndSetI(int *pvalue, int value, int vmin, int vmax);
+static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax);
+static void Playlist_ProcessTop();
+static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint);
+static void AbortFlight(void);
+static void ProcessTakeoff(float dT, bool touch_and_go);
+static void ProcessLanding(float dT, bool touch_and_go);
+static void ProcessTouchAndGo(float dT);
+static void ProcessFlightMode(FlightControlData *hfc, float dT);
+static void SetSpeedAcc(float *value, float speed, float acc, float dT);
+static float CalcMinAboveGroundAlt(float speed);
+static void ServoUpdateRAW(float dT);
+static inline void UpdatePitchRateScalingFactor(float xbus_value);
+static inline void ApplyPidScaling(T_PID *pid_layer, const float params[6], float pid_scaling);
+static inline void ResetPidScaling(T_PID *pid_layer, const float params[6]);
+static void ServoUpdate(float dT);
+static void SensorsRescale(float accIn[3], float gyroIn[3], float accOut[3], float gyroOut[3]);
+static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_SIZE]);
+static void UpdateBatteryStatus(float dT);
+static void UpdateHwIdLow(int node_id, unsigned char *pdata);
+static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata);
+static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdata);
+static void UpdateLidar(int node_id, int pulse_us);
+static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata);
+static void UpdateCompassData(int node_id, unsigned char *pdata);
+static void UpdatePowerNodeVI(int node_id, unsigned char *pdata);
+static void CanbusISRHandler(void);
+static void ProcessStats(void);
+static int CanbusNodeTypeStatus(int node_type);
+static void CanbusNodeMonitor(float dT);
+static void CompassCalibration(void);
+static void ArmedTimeout(float dT);
+static void FlightOdometer(void);
+static void DoFlightControl();
+static void InitFcmIO(void);
+static void ConfigRx(void);
+static void ProcessUserCmnds(char c);
+static void InitializeRuntimeData(void);
+static uint32_t InitializeSystemData();
+static uint32_t InitCanbus(void);
 
+// ---- Local Data ---- //
 ServoNodeOutputs servo_node_pwm[MAX_NUMBER_SERVO_NODES+1]; // Index 0 is FCM so MAX number is +1
+CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
+BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
+Mediator* lidar_median[MAX_NUM_LIDARS];
+signed short int pwm_values[MAX_NUMBER_SERVO_NODES][8];
 
-#define CAN_TIMEOUT 500
+static int can_node_found = 0;
+static int canbus_ack = 0;
+static int write_canbus_error = 0;
+static int canbus_livelink_avail = 0;
+static int power_update_avail = 0;
+volatile static int rx_in = 0;
+volatile static bool have_config = false;
+
+FlightControlData *phfc = NULL;
+const ConfigData *pConfig = NULL;
+
+// ---- Constants ---- //
+#define CAN_NODE_TIMEOUT 0.5f // 0.5 second
 #define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
 
 // Macros for controlling 'special' reserved FCM outputs
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
 
-static int can_node_found = 0;
-static int canbus_ack = 0;
-static int write_canbus_error = 0;
-static int can_power_coeff = 0;
-static int canbus_livelink_avail = 0;
-static int power_update_avail = 0;
+// ---- Public Interfaces ---- //
 
-#ifdef LCD_ENABLED
-void ProcessButtonSelection();
-static void Buttons();
-static void PrintOrient();
-#endif
-
-static void UpdateBatteryStatus(float dT);
-
-typedef uint16_t Item;
-typedef struct Mediator_t
-{
-   Item* data;  //circular queue of values
-   int*  pos;   //index into `heap` for each value
-   int*  heap;  //max/median/min heap holding indexes into `data`.
-   int   N;     //allocated size.
-   int   idx;   //position in circular queue
-   int   minCt; //count of items in min heap
-   int   maxCt; //count of items in max heap
-} Mediator;
-
-Mediator* lidar_median[MAX_NUM_LIDARS];
-
-inline int mmless(Mediator* m, int i, int j)
-{
-   return (m->data[m->heap[i]] < m->data[m->heap[j]]);
-}
-
-//swaps items i&j in heap, maintains indexes
-int mmexchange(Mediator* m, int i, int j)
-{
-   int t = m->heap[i];
-   m->heap[i]=m->heap[j];
-   m->heap[j]=t;
-   m->pos[m->heap[i]]=i;
-   m->pos[m->heap[j]]=j;
-   return 1;
-}
-
-//swaps items i&j if i<j;  returns true if swapped
-inline int mmCmpExch(Mediator* m, int i, int j)
-{
-   return (mmless(m,i,j) && mmexchange(m,i,j));
-}
-
-//maintains minheap property for all items below i.
-void minSortDown(Mediator* m, int i)
-{
-   for (i*=2; i <= m->minCt; i*=2)
-   {  if (i < m->minCt && mmless(m, i+1, i)) { ++i; }
-      if (!mmCmpExch(m,i,i/2)) { break; }
-   }
-}
-
-//maintains maxheap property for all items below i. (negative indexes)
-void maxSortDown(Mediator* m, int i)
-{
-   for (i*=2; i >= -m->maxCt; i*=2)
-   {  if (i > -m->maxCt && mmless(m, i, i-1)) { --i; }
-      if (!mmCmpExch(m,i/2,i)) { break; }
-   }
-}
-
-//maintains minheap property for all items above i, including median
-//returns true if median changed
-inline int minSortUp(Mediator* m, int i)
-{
-   while (i>0 && mmCmpExch(m,i,i/2)) i/=2;
-   return (i==0);
-}
-
-//maintains maxheap property for all items above i, including median
-//returns true if median changed
-inline int maxSortUp(Mediator* m, int i)
-{
-   while (i<0 && mmCmpExch(m,i/2,i))  i/=2;
-   return (i==0);
-}
-
-/*--- Public Interface ---*/
-
-
-//creates new Mediator: to calculate `nItems` running median.
-//mallocs single block of memory, caller must free.
-Mediator* MediatorNew(int nItems)
-{
-   KICK_WATCHDOG();
-   int size = sizeof(Mediator)+nItems*(sizeof(Item)+sizeof(int)*2);
-   Mediator* m =  ( Mediator*)malloc(size);
-   m->data= (Item*)(m+1);
-   m->pos = (int*) (m->data+nItems);
-   m->heap = m->pos+nItems + (nItems/2); //points to middle of storage.
-   m->N=nItems;
-   m->minCt = m->maxCt = m->idx = 0;
-   while (nItems--)  //set up initial heap fill pattern: median,max,min,max,...
-   {  m->pos[nItems]= ((nItems+1)/2) * ((nItems&1)?-1:1);
-      m->heap[m->pos[nItems]]=nItems;
-   }
-   return m;
-}
-
-
-//Inserts item, maintains median in O(lg nItems)
-void MediatorInsert(Mediator* m, Item v)
-{
-   int p = m->pos[m->idx];
-
-   Item old = m->data[m->idx];
-
-   m->data[m->idx]=v;
-   m->idx = (m->idx+1) % m->N;
-
-   if (p>0)         //new item is in minHeap
-   {  if (m->minCt < (m->N-1)/2)  { m->minCt++; }
-      else if (v>old) { minSortDown(m,p); return; }
-      if (minSortUp(m,p) && mmCmpExch(m,0,-1)) { maxSortDown(m,-1); }
-   }
-   else if (p<0)   //new item is in maxheap
-   {  if (m->maxCt < m->N/2) { m->maxCt++; }
-      else if (v<old) { maxSortDown(m,p); return; }
-      if (maxSortUp(m,p) && m->minCt && mmCmpExch(m,1,0)) { minSortDown(m,1); }
-   }
-   else //new item is at median
-   {  if (m->maxCt && maxSortUp(m,-1)) { maxSortDown(m,-1); }
-      if (m->minCt && minSortUp(m, 1)) { minSortDown(m, 1); }
-   }
-}
-
-//returns median item (or average of 2 when item count is even)
-Item MediatorMedian(Mediator* m)
-{
-   Item v= m->data[m->heap[0]];
-   if (m->minCt<m->maxCt) { v=(v+m->data[m->heap[-1]])/2; }
-   return v;
-}
-
+// @brief
+// @param
+// @retval
 int getNodeVersionNum(int type, int nodeId)
 {
   int vers_num;
@@ -316,9 +188,11 @@ int getNodeVersionNum(int type, int nodeId)
   vers_num |= (board_info[type][nodeId].build_version);
 
   return vers_num;
-
 }
 
+// @brief
+// @param
+// @retval
 void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum)
 {
   pSerailNum[0] = (board_info[type][nodeId].serial_number0);
@@ -326,7 +200,140 @@ void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum)
   pSerailNum[2] = (board_info[type][nodeId].serial_number2);
 }
 
-float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
+// @brief
+// @param
+// @retval
+void GenerateSpeed2AngleLUT(void)
+{
+  for (int i=0; i<SPEED2ANGLE_SIZE; i++) {
+    float speed = i*0.5f;
+    float angle = GetAngleFromSpeed(speed, pConfig->WindSpeedLUT, phfc->rw_cfg.WindTableScale);
+    phfc->rw_cfg.Speed2AngleLUT[i] = angle;
+  }
+}
+
+// @brief
+// @param
+// @retval
+void ResetIterms(void)
+{
+  phfc->pid_PitchRate.Ie  = 0;
+  phfc->pid_RollRate.Ie   = 0;
+  phfc->pid_YawRate.Ie    = 0;
+  phfc->pid_PitchAngle.Ie = 0;
+  phfc->pid_RollAngle.Ie  = 0;
+  phfc->pid_YawAngle.Ie   = 0;
+  phfc->pid_CollVspeed.Ie = 0;
+  phfc->pid_PitchSpeed.Ie = 0;
+  phfc->pid_RollSpeed.Ie  = 0;
+  phfc->pid_CollAlt.Ie    = 0;
+  phfc->pid_Dist2T.Ie     = 0;
+  phfc->pid_Dist2P.Ie     = 0;
+  phfc->pid_PitchCruise.Ie= 0;
+  phfc->speed_Iterm_E     = 0;
+  phfc->speed_Iterm_N     = 0;
+}
+
+// @brief
+// @param
+// @retval
+int TakeoffControlModes(void) {
+  if (  (phfc->control_mode[COLL] <= CTRL_MODE_MANUAL)
+     || (phfc->control_mode[PITCH] <= CTRL_MODE_ANGLE)
+     || (phfc->control_mode[ROLL] <= CTRL_MODE_ANGLE)
+     || (phfc->control_mode[YAW] <= CTRL_MODE_ANGLE) ) {
+    return 1;
+  }
+  else {
+    return 0;
+  }
+}
+
+// @brief
+// @param
+// @retval
+int GetMotorsState(void) {
+  if (phfc->throttle_value == -pConfig->Stick100range) {
+    return 0; // Motors off
+  }
+  else if (phfc->throttle_value == pConfig->Stick100range) {
+    return 1; // Motors On
+  }
+
+  return 2; // Unknown state
+}
+
+// @brief
+// @param
+// @retval
+void HeadingUpdate(float heading_rate, float dT)
+{
+    phfc->ctrl_out[ANGLE][YAW] += heading_rate*dT;
+
+    if (phfc->ctrl_out[ANGLE][YAW]>180) {
+      phfc->ctrl_out[ANGLE][YAW]-=360;
+    }
+    else if (phfc->ctrl_out[ANGLE][YAW]<-180) {
+      phfc->ctrl_out[ANGLE][YAW]+=360;
+    }
+}
+
+// @brief
+// @param
+// @retval
+void AltitudeUpdate(float alt_rate, float dT)
+{
+  phfc->ctrl_out[POS][COLL] += alt_rate*dT;
+
+  if (phfc->ctrl_out[POS][COLL] > 7000) {
+    phfc->ctrl_out[POS][COLL] = 7000;
+  }
+  else if (phfc->ctrl_out[POS][COLL] < 0) {
+    phfc->ctrl_out[POS][COLL] = 0;
+  }
+}
+
+// @brief
+// @param
+// @retval
+bool LidarOnline(void)
+{
+  for (int i = 0; i < phfc->num_lidars; i++) {
+    if (((phfc->lidar_online_mask >> i) & 1) == 0 ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// @brief
+// @param
+// @retval
+void CompassCalDone(void)
+{
+  for (int i=0; i<3; i++) {
+    phfc->compass_cal.comp_ofs[i] = (phfc->compass_cal.compassMin[i]+phfc->compass_cal.compassMax[i]+1)/2;
+
+    //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
+    phfc->compass_cal.comp_gains[i] = 537.37f/((phfc->compass_cal.compassMax[i]-phfc->compass_cal.compassMin[i])/2.0f);
+  }
+
+  phfc->compass_cal.valid = 1;
+  phfc->compass_cal.version = COMPASS_CAL_VERSION;
+
+  int size = telem.CalibrateCompassDone();
+  telem.AddMessage((unsigned char*)&phfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
+
+  // TODO::SP: Error handling...?
+  SaveCompassCalibration(&phfc->compass_cal);
+}
+
+// --- Private Functions --- //
+
+// @brief
+// @param
+// @retval
+static float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE], float scale)
 {
   int i;
   int angle1;
@@ -354,36 +361,10 @@ float GetAngleFromSpeed(float speed, const float WindSpeedLUT[ANGLE2SPEED_SIZE],
   return angle;
 }
 
-void GenerateSpeed2AngleLUT(void)
-{
-    int i;
-    for (i=0; i<SPEED2ANGLE_SIZE; i++) {
-        float speed = i*0.5f;
-        float angle = GetAngleFromSpeed(speed, pConfig->WindSpeedLUT, phfc->rw_cfg.WindTableScale);
-        phfc->rw_cfg.Speed2AngleLUT[i] = angle;
-    }
-}
-
-void ResetIterms(void)
-{
-    phfc->pid_PitchRate.Ie  = 0;
-    phfc->pid_RollRate.Ie   = 0;
-    phfc->pid_YawRate.Ie    = 0;
-    phfc->pid_PitchAngle.Ie = 0;
-    phfc->pid_RollAngle.Ie  = 0;
-    phfc->pid_YawAngle.Ie   = 0;
-    phfc->pid_CollVspeed.Ie = 0;
-    phfc->pid_PitchSpeed.Ie = 0;
-    phfc->pid_RollSpeed.Ie  = 0;
-    phfc->pid_CollAlt.Ie    = 0;
-    phfc->pid_Dist2T.Ie     = 0;
-    phfc->pid_Dist2P.Ie     = 0;
-    phfc->pid_PitchCruise.Ie= 0;
-    phfc->speed_Iterm_E     = 0;
-    phfc->speed_Iterm_N     = 0;
-}
-
-void AutoReset(void)
+// @brief
+// @param
+// @retval
+static void AutoReset(void)
 {
     float delta_accel[3];
     float delta_orient[3];
@@ -432,36 +413,35 @@ void AutoReset(void)
             }
         }
     }
-
-    return;
 }
 
+// @brief
+// @param
+// @retval
 static void OrientResetCounter()
 {
-    if (phfc->orient_reset_counter) {
-        phfc->orient_reset_counter--;
-        if (!(phfc->orient_reset_counter&0x3ff)) {
-            /*mmri: just took out the carriage return so that gyrotemp
-             * compensation output data is more easily read in .csv file*/
-            debug_print("IMU reset   ====   %f %f === ", phfc->SmoothAcc[PITCH]*R2D, phfc->SmoothAcc[ROLL]*R2D);
-            telem.ResetIMU(false);
-        }
+  if (phfc->orient_reset_counter) {
+    phfc->orient_reset_counter--;
+
+    if (!(phfc->orient_reset_counter&0x3ff)) {
+      debug_print("IMU reset   ====   %f %f === ", phfc->SmoothAcc[PITCH]*R2D, phfc->SmoothAcc[ROLL]*R2D);
+      telem.ResetIMU(false);
     }
+  }
 }
 
-#define AccLP_Freq  5.0f     // 1/T
-
-/*Calculation of pitch and roll based on accelerometer data.
- * see: NXP application note AN3461 section 3 - Pitch and Roll Estimation
- *  https://cache.freescale.com/files/sensors/doc/app_note/AN3461.pdf */
-void Get_Orientation(float *SmoothAcc, float *AccData, float dt)
+// @brief - Calculation of pitch and roll based on accelerometer data.
+//           see: NXP application note AN3461 section 3 - Pitch and Roll Estimation
+//           https://cache.freescale.com/files/sensors/doc/app_note/AN3461.pdf
+// @param
+// @retval
+static void Get_Orientation(float *SmoothAcc, float *AccData, float dt)
 {
-//    float GyroRate[3];
     float micro = 0.02f;
     float AccAngle[3];
+    const float AccLP_Freq = 5.0f; // 1/T
 
     float sign = AccData[Z_AXIS] < 0 ? -1 : 1;
-//    float temp1, temp2;
     
     /* Accelerometer xyz into Pitch and Roll relative to the horizon
      * - roll is limited to +/- 180vdegress
@@ -474,55 +454,9 @@ void Get_Orientation(float *SmoothAcc, float *AccData, float dt)
     SmoothAcc[PITCH] = (AccAngle[PITCH] - SmoothAcc[PITCH])*dt*AccLP_Freq + SmoothAcc[PITCH]; // Averaging pitch ACC values
 } 
 
-static void linklive_fall(void)
-{
-    phfc->linklive_t2 = CLOCK();
-    linklive->fall(NULL);
-}
-
-static void throttle_pulse_int(void)
-{
-    FCMLinkLive->write(1);
-    phfc->linklive_t1 = CLOCK();
-    phfc->linklive_t2 = phfc->linklive_t1;  // if t2 stays the same as t1, pulse from ESC did not happen -> sync
-    livelink_timer.detach();
-    FCMLinkLive->input();
-    FCMLinkLive->mode(PullUp);
-    linklive->fall(linklive_fall);
-}
-
-static const float LINKLIVE_SCALES[13] =
-{
-/*  0 */        0,
-/*  1 */        0,
-/*  2 */        0,
-/*  3 */        20*0.001f, // V
-/*  4 */        4*0.001f,  // rip V
-/*  5 */        50*0.001f, // I
-/*  6 */        1*0.001f,  // thro
-/*  7 */        0.2502f*0.001f,    // power
-/*  8 */        20416.7f*0.001f*2, // rpm
-/*  9 */        4*0.001f,          // BEC V
-/* 10 */        4*0.001f,          // BEC I
-/* 11 */        30*0.001f,         // temp lin
-/* 12 */        63.8125f*0.001f    // temp log
-};
-
-
-// temp = 1 / (ln(value*10200 / (255-value) / 10000.0f) / 3455.0f + 1/298.0f) - 273;
-// index = value/2
-static const short int LL2TEMP[128] = {
-23707,23707,18923,16500,14917,13757,12848,12105,11477,10936,10460,10036,9654,9307,8988,8694,8420,
-8165,7926,7700,7487,7284,7091,6908,6732,6563,6401,6246,6095,5950,5809,5673,5541,5413,5288,5166,
-5047,4931,4818,4708,4599,4493,4389,4287,4186,4087,3990,3895,3800,3707,3616,3525,3436,3348,3260,
-3174,3089,3004,2920,2837,2754,2672,2591,2510,2429,2349,2269,2190,2111,2032,1954,1875,1797,1719,
-1641,1563,1485,1407,1328,1250,1171,1092,1013,934,854,774,693,612,530,447,364,280,195,109,22,
--66,-155,-246,-338,-432,-527,-624,-723,-825,-928,-1035,-1144,-1256,-1372,-1492,-1616,-1745,
--1880,-2020,-2168,-2323,-2489,-2665,-2854,-3059,-3284,-3534,-3817,-4146,-4542,-5047,-5766,
--7156};
-
-signed short int pwm_values[MAX_NUMBER_SERVO_NODES][8];
-
+// @brief
+// @param
+// @retval
 static void WriteToServoNodeServos(int num_servo_nodes)
 {
     CANMessage can_tx_message;
@@ -574,7 +508,10 @@ static void WriteToServoNodeServos(int num_servo_nodes)
     }
 }
 
-// NOTE::SP: Only handles a single power node
+// @brief
+// @param
+// @retval
+//
 static void WriteToPowerNodeServos()
 {
     CANMessage can_tx_message;
@@ -616,7 +553,9 @@ static void WriteToPowerNodeServos()
     }
 }
 
-// inputs values can range from -1 to 1 corresponding to the absolute maximum range
+// @brief inputs values can range from -1 to 1 corresponding to the absolute maximum range
+// @param
+// @retval
 static void WriteToFcmServos(void)
 {
     float pwm_values[8];
@@ -633,11 +572,7 @@ static void WriteToFcmServos(void)
         pwm_values[i] = SERVOMINMAX(temp);
     }
 
-    // CH1 may have been re-purposed for link live
-    if (FCM_SERVO_CH1) {
-        FCM_SERVO_CH1->pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));
-    }
-
+    FCM_SERVO_CH1.pulsewidth_us((int)(1500.5f + pwm_values[0] * 500));
     FCM_SERVO_CH2.pulsewidth_us((int)(1500.5f + pwm_values[1] * 500));
     FCM_SERVO_CH3.pulsewidth_us((int)(1500.5f + pwm_values[2] * 500));
     FCM_SERVO_CH4.pulsewidth_us((int)(1500.5f + pwm_values[3] * 500));
@@ -646,134 +581,9 @@ static void WriteToFcmServos(void)
 
 }
 
-static void ProcessFcmLinkLive(void)
-{
-    phfc->fcm_linkLive_counter++;
-
-    // Every 50Hz
-    if (phfc->fcm_linkLive_counter >= 20) {
-        int delta = (phfc->linklive_t2 - phfc->linklive_t1);
-        // debug_print("%dus\n", delta);
-        linklive->fall(NULL);
-        FCMLinkLive->output();
-        FCMLinkLive->write(0);
-
-        float throttle = phfc->servos_out[THRO];
-        if (pConfig->servo_revert[THRO]) {
-            throttle = - phfc->servos_out[THRO];
-        }
-        throttle = SERVOMINMAX(throttle);
-
-        livelink_timer.attach_us(throttle_pulse_int, (int)(1500.5f + throttle * 500));
-        phfc->fcm_linkLive_counter = 0;
-
-         // Sync
-         if (delta == 0) {
-            unsigned int T = CLOCK();
-            unsigned int delta_us = (T - phfc->linklive_period_T + 48) / 96;
-            const float *coeffs = pConfig->power_coeffs;
-
-            phfc->linklive_item = 1;
-            phfc->linklive_period_T = T;
-            phfc->power.Iaux   = phfc->linklive_values[10];    // I BEC
-            phfc->power.Iesc   = (phfc->linklive_values[5] * coeffs[1] + 3 * phfc->power.Iesc) * 0.25f;  // rvw
-            phfc->power.Vmain  = (phfc->linklive_values[3] *coeffs[3] + 3 * phfc->power.Vmain) * 0.25f;
-            phfc->power.Vesc   = phfc->power.Vmain;
-            phfc->power.Vservo = phfc->linklive_values[9];    // V BEC
-            phfc->power.Vaux   = phfc->linklive_values[9];    // V BEC
-
-            if (!pConfig->rpm_sensor) {
-                phfc->RPM = phfc->linklive_values[8] / pConfig->gear_ratio / pConfig->motor_poles;
-            }
-
-            if (phfc->linklive_values[11] > phfc->linklive_values[12]) {
-                phfc->esc_temp = phfc->linklive_values[11]; // linear temperature
-            }
-            else {
-
-                float value = phfc->linklive_values[12];
-                if (value) {
-                    int idx = ClipMinMax((int)value * 0.5f, 1, 126);
-                    int re = ((int)(value * 0.5f * 256)) & 0xff;
-                    int temp1 = LL2TEMP[idx];
-                    int temp2 = LL2TEMP[idx+1];
-                    int temp3 = (temp1 * (256-re) + temp2 * re);
-                    float temp = temp3 / 25600.0f;
-                    // float temp = 1 / (logf(value*10200 / (255-value) / 10000.0f) / 3455.0f + 1/298.0f) - 273;
-                    phfc->esc_temp = (temp + 3 * phfc->esc_temp) * 0.25f;
-                }
-            }
-
-            // debug_print("Iesc %5.1f Iaux %4.1f Vmain %5.2f Vesc %5.2f Vaux %5.2f RPM %4.0f Temp %4.1f\n",
-            //                  phfc->power.Iesc, phfc->power.Iaux, phfc->power.Vmain, phfc->power.Vesc, phfc->power.Vaux, phfc->RPM, phfc->esc_temp);
-
-            UpdateBatteryStatus(delta_us * 0.000001f);
-        }
-        else if (phfc->linklive_item > 0) { // keep incrementing if already initialized
-            phfc->linklive_item++;
-        }
-
-        if (phfc->linklive_item == 2) {
-            phfc->linklive_calib = 1000.0f / Max(delta, 500 * 96);
-            // debug_print("Calib %d\n", delta);
-        }
-
-        if ((phfc->linklive_item > 2) && (phfc->linklive_item < 13)) {
-            phfc->linklive_values[phfc->linklive_item] = ((delta * phfc->linklive_calib) - 500.0f) * LINKLIVE_SCALES[phfc->linklive_item];
-            // debug_print("%02d %4d %4.2f\n", phfc->linklive_item, delta, phfc->linklive_values[phfc->linklive_item]);
-        }
-    }
-}
-
-#ifdef LCD_ENABLED
-static const char LINE_LABEL[8] = {'T', 'R', 'P', 'Y', 'C', ' ', ' ', ' '};
-static const unsigned char CTRL_MODE2Idx[7] = {RAW, RAW, RATE, ANGLE, SPEED, SPEED, POS};
-#endif
-
-#ifdef LCD_ENABLED
-static void Display_CtrlMode(unsigned char line, unsigned char channel, const int ctrl_inh[5], unsigned char ctrl_modes[5], float ctrl_out[NUM_CTRL_MODES][5], float throttle)
-{
-    unsigned char ctrl_mode = ctrl_modes[channel];
-    float ctrl_value = ctrl_out[CTRL_MODE2Idx[ctrl_mode]][channel];
-    char str[20];
-    char *pstr;
-
-    if (channel==THRO)
-        ctrl_value = throttle;
-        
-    str[0] = LINE_LABEL[line];
-    pstr = str+1;
-    if (ctrl_inh[channel])
-    {
-        pstr+= PRINTs(pstr, (char*)" INH   ");
-        pstr+= PRINTf(pstr, ctrl_value, 5, 3, 1);
-    } else if (ctrl_mode==CTRL_MODE_MANUAL)
-    {
-        pstr+= PRINTs(pstr, (char*)" MAN   ");
-        pstr+= PRINTf(pstr, ctrl_value, 5, 3, 1);
-    } else if (ctrl_mode==CTRL_MODE_RATE)
-    {
-        pstr+= PRINTs(pstr, (char*)" RATE  ");
-        pstr+= PRINTf(pstr, ctrl_value, 1, 1, 1);
-    } else if (ctrl_mode==CTRL_MODE_ANGLE)
-    {
-        pstr+= PRINTs(pstr, (char*)" ANGLE ");
-        pstr+= PRINTf(pstr, ctrl_value, 1, 1, 1);
-    } else if (ctrl_mode==CTRL_MODE_SPEED)
-    {
-        pstr+= PRINTs(pstr, (char*)" SPEED ");
-        pstr+= PRINTf(pstr, ctrl_value, 1, 1, 1);
-    } else if (ctrl_mode==CTRL_MODE_POSITION)
-    {
-        pstr+= PRINTs(pstr, (char*)" POS   ");
-        pstr+= PRINTf(pstr, ctrl_value, 1, 1, 1);
-    }
-
-    myLcd.SetLine(channel, str, 0);
-
-}
-#endif
-
+// @brief
+// @param
+// @retval
 static void SetAgsControls(void)
 {
   if ((phfc->waypoint_type == WAYPOINT_TAKEOFF) || phfc->touch_and_go_takeoff) {
@@ -836,29 +646,9 @@ static void SetAgsControls(void)
   }
 }
 
-int TakeoffControlModes(void) {
-  if (  (phfc->control_mode[COLL] <= CTRL_MODE_MANUAL)
-     || (phfc->control_mode[PITCH] <= CTRL_MODE_ANGLE)
-     || (phfc->control_mode[ROLL] <= CTRL_MODE_ANGLE)
-     || (phfc->control_mode[YAW] <= CTRL_MODE_ANGLE) ) {
-    return 1;
-  }
-  else {
-    return 0;
-  }
-}
-
-int GetMotorsState(void) {
-  if (phfc->throttle_value == -pConfig->Stick100range) {
-    return 0; // Motors off
-  }
-  else if (phfc->throttle_value == pConfig->Stick100range) {
-    return 1; // Motors On
-  }
-
-  return 2; // Unknown state
-}
-
+// @brief
+// @param
+// @retval
 static void SetRCRadioControl(void)
 {
     if (xbus.valuesf[XBUS_CTRLMODE_SW] > 0.5f) {
@@ -1048,11 +838,13 @@ static void SetRCRadioControl(void)
     }
 }
 
-
 /* CCPM 120deg mixer ==========================================================
 ** input: raw throttle, pitch and roll values
 ** output: servo signals A (at 6 o'clock) B (at 2 o'clock) and C (at 10 o'clock)
 ** value range: -/+ 0.571 corresponds to 100% stick */
+// @brief
+// @param
+// @retval
 static void CCPM120mix(void)
 {
     /* collective */
@@ -1074,6 +866,9 @@ static void CCPM120mix(void)
     phfc->servos_out[CCPM_C] = C;
 }
 
+// @brief
+// @param
+// @retval
 static void CCPM120TandemTestBench(ServoNodeOutputs *servo_node_pwm) {
 
   /* collective */
@@ -1099,14 +894,15 @@ static void CCPM120TandemTestBench(ServoNodeOutputs *servo_node_pwm) {
   servo_node_pwm[2].servo_out[2] = servo_node_pwm[1].servo_out[2];
   servo_node_pwm[2].servo_out[3] = servo_node_pwm[1].servo_out[3];
   servo_node_pwm[2].servo_out[4] = servo_node_pwm[1].servo_out[4];
-
-
 }
 
 /* CCPM 140deg mixer ==========================================================
 ** input: raw throttle, pitch and roll values
 ** output: servo signals A (at 6 o'clock) B (at 2 o'clock) and C (at 10 o'clock)
 ** value range: -/+ 0.571 corresponds to 100% stick */
+// @brief
+// @param
+// @retval
 static void CCPM140mix(void)
 {
     /* collective */
@@ -1134,6 +930,9 @@ static void CCPM140mix(void)
  ** output: servo signals
  ** value range: -/+ 0.571 corresponds to 100% stick
  */
+// @brief
+// @param
+// @retval
 static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
 {
     float ROLL_Taileron;
@@ -1205,20 +1004,6 @@ static void MixerTandem(ServoNodeOutputs *servo_node_pwm)
         servo_node_pwm[2].servo_out[1] = 0 - TcollectRear  - (pConfig->CcpmMixer * PITCH_TelevatorR) - ROLL_TaileronRear;    // aRearServo
         servo_node_pwm[2].servo_out[2] = 0 + TcollectRear  + (pConfig->CcpmMixer * PITCH_TelevatorR) - ROLL_TaileronRear;    // bRearServo
         servo_node_pwm[2].servo_out[3] = 0 - TcollectRear  + PITCH_TelevatorR;
-    }
-}
-
-static inline void PreventMotorsOffInArmed(int num_motors)
-{
-    // Keep motors from turning off once armed
-    if ((phfc->throttle_armed && (phfc->throttle_value > -0.5f))
-                || (phfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
-
-        for (int i = 0; i < num_motors; i++) {
-            if(phfc->servos_out[i] < pConfig->throttle_multi_min) {
-                phfc->servos_out[i] = pConfig->throttle_multi_min;
-            }
-        }
     }
 }
 
@@ -1300,7 +1085,6 @@ static void MixerHex(void)
     PreventMotorsOffInArmed(6);
 }
 
-
 /* Octo Mixer
  *
  *    7CCW     0CW
@@ -1349,6 +1133,9 @@ static void MixerOcto(void)
     PreventMotorsOffInArmed(8);
 }
 
+// @brief
+// @param
+// @retval
 static void ServoMixer(void)
 {
     switch(pConfig->ccpm_type) {
@@ -1443,6 +1230,26 @@ static void ServoMixer(void)
     }
 }
 
+// @brief
+// @param
+// @retval
+static inline void PreventMotorsOffInArmed(int num_motors)
+{
+    // Keep motors from turning off once armed
+    if ((phfc->throttle_armed && (phfc->throttle_value > -0.5f))
+                || (phfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
+
+        for (int i = 0; i < num_motors; i++) {
+            if(phfc->servos_out[i] < pConfig->throttle_multi_min) {
+                phfc->servos_out[i] = pConfig->throttle_multi_min;
+            }
+        }
+    }
+}
+
+// @brief
+// @param
+// @retval
 static inline void ProcessStickInputs(FlightControlData *phfc, float dT)
 {
     int channel;
@@ -1480,405 +1287,9 @@ static inline void ProcessStickInputs(FlightControlData *phfc, float dT)
     }
 }
 
-void HeadingUpdate(float heading_rate, float dT)
-{
-    phfc->ctrl_out[ANGLE][YAW] += heading_rate*dT;
-
-    if (phfc->ctrl_out[ANGLE][YAW]>180) {
-      phfc->ctrl_out[ANGLE][YAW]-=360;
-    }
-    else if (phfc->ctrl_out[ANGLE][YAW]<-180) {
-      phfc->ctrl_out[ANGLE][YAW]+=360;
-    }
-}
-
-void AltitudeUpdate(float alt_rate, float dT)
-{
-    phfc->ctrl_out[POS][COLL] += alt_rate*dT;
-
-    if (phfc->ctrl_out[POS][COLL] > 7000) {
-        phfc->ctrl_out[POS][COLL] = 7000;
-    }
-    else if (phfc->ctrl_out[POS][COLL] < 0) {
-        phfc->ctrl_out[POS][COLL] = 0;
-    }
-}
-
-static const char CTRL_MODES[7] = {'-', 'M', 'R', 'A', 'S', 'G', 'P'};
-
-#ifdef LCD_ENABLED
-static char GetModeChar(FlightControlData *hfc, byte channel)
-{
-    if (pConfig->ctrl_mode_inhibit[channel])
-        return CTRL_MODES[0];
-    else
-        return CTRL_MODES[phfc->control_mode[channel]];
-}
-#endif
-
-#ifdef LCD_ENABLED
-static void Display_Process(FlightControlData *hfc, char xbus_new_values, float dT)
-{
-    char str[40];
-
-    if(phfc->display_mode == DISPLAY_SPLASH)
-    {
-        if ((phfc->print_counter&0xff)==2)
-        {
-            myLcd.SetLine(0, AVIDRONE_SPLASH, false);
-            myLcd.SetLine(1, AVIDRONE_FCM_SPLASH, false);
-            myLcd.SetLine(2, FCM_VERSION, false);
-
-            if (init_ok) {
-                if (init_warning == 0) {
-                    myLcd.SetLine(3, "", 0);
-                    myLcd.SetLine(4, "", 0);
-                }
-                else {
-                    myLcd.RefreshError();
-                }
-
-                if(!phfc->throttle_armed) {
-                    PRINTs(str, (char*)"NEXT       ARM");
-                    myLcd.SetLine(5, str, 0);
-                }
-                else {
-                    PRINTs(str, (char*)"NEXT    DISARM");
-                    myLcd.SetLine(5, str, 0);
-                }
-            }
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_STATUS)
-    {
-        //GpsData gps_data = gps.GetGpsData();
-
-        if ((phfc->print_counter&0xff)==2)
-        {
-            // Loop    us
-            sPRINTdd(str, (char*)"Loop %duS %d%%", phfc->ticks_max/*(phfc->ticks_lp+32)>>6*/, (int)phfc->cpu_utilization_lp);
-            myLcd.SetLine(0, str, 0);
-            // GPS     hdop
-            if (gps.gps_data_.fix>0)
-                sPRINTfd(str, (char*)"GPS  %4.2f / %d", gps.gps_data_.PDOP*0.01f, gps.gps_data_.sats);
-            else
-                PRINTs(str, (char*)"GPS  ----");
-            myLcd.SetLine(1, str, 0);
-            // Bat     %
-            sPRINTdf(str, (char*)"Bat  %d%% %4.2fV", (int)phfc->power.battery_level, phfc->power.Vmain/pConfig->battery_cells);
-            myLcd.SetLine(2, str, 0);
-            // Xbus
-            if(pConfig->SbusEnable == 0)
-            {
-            if (!xbus.RcLinkOnline())
-                PRINTs(str, (char*)"Xbus ----");
-            else if (phfc->full_auto)
-                PRINTs(str, (char*)"Xbus FullAuto");
-            else
-                PRINTs(str, (char*)"Xbus Good");
-            }
-            if(pConfig->SbusEnable == 1)
-            {
-            if (!xbus.RcLinkOnline())
-                PRINTs(str, (char*)"Sbus ----");
-            else if (phfc->full_auto)
-                PRINTs(str, (char*)"Sbus FullAuto");
-            else
-                PRINTs(str, (char*)"Sbus Good");
-            }
-            myLcd.SetLine(3, str, 0);
-            // Mode    PRYCT (m/r/a/s/p)
-            PRINTs(str, (char*)"Mode -/-/-/-/-");
-            str[5] = GetModeChar(hfc, PITCH);
-            str[7] = GetModeChar(hfc, ROLL);
-            str[9] = GetModeChar(hfc, YAW);
-            str[11]= GetModeChar(hfc, COLL);
-            str[13]= GetModeChar(hfc, THRO);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_POWER)
-    {
-        if ((phfc->print_counter&0xff)==2)
-        {
-            sPRINTfd(str, (char*)"BAT %4.2fV %dC", phfc->power.Vmain, pConfig->battery_cells);
-            myLcd.SetLine(0, str, 0);
-            sPRINTff(str, (char*)"ESC %3.1fV %3.1fA", phfc->power.Vesc, phfc->power.Iesc);
-            myLcd.SetLine(1, str, 0);
-            sPRINTff(str, (char*)"S/A %3.1fV %3.1fV", phfc->power.Vservo, phfc->power.Vaux);
-            myLcd.SetLine(2, str, 0);
-            sPRINTff(str, (char*)"CAP %3.1f %3.1fAh", phfc->power.capacity_used/3600.0f, phfc->power.capacity_total/3600.0f);
-            myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"FT  %02d:%02dS %d%%", phfc->power.flight_time_left/60, phfc->power.flight_time_left%60, (int)phfc->power.battery_level);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_CONTROLS)
-    {
-        if (xbus_new_values)
-        {
-            float thr1 = (phfc->ctrl_out[RAW][THRO] + pConfig->Stick100range)*0.5f;
-            Display_CtrlMode(0, THRO,  pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // throttle
-            Display_CtrlMode(1, ROLL,  pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // roll
-            Display_CtrlMode(2, PITCH, pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // pitch
-            Display_CtrlMode(3, YAW,   pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // yaw
-            Display_CtrlMode(4, COLL,  pConfig->ctrl_mode_inhibit, phfc->control_mode, phfc->ctrl_out, thr1);   // collective
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_XBUS)
-    {
-        if ((phfc->print_counter&0x7f)==2)
-        {
-            sPRINTdd(str, (char*)"1:%4d  2:%4d", (int)(xbus.valuesf[0]*1000+0.5),(int)(xbus.valuesf[1]*1000+0.5));
-            myLcd.SetLine(0, str, 0);
-            sPRINTdd(str, (char*)"3:%4d  4:%4d", (int)(xbus.valuesf[2]*1000+0.5),(int)(xbus.valuesf[3]*1000+0.5));
-            myLcd.SetLine(1, str, 0);
-            sPRINTdd(str, (char*)"5:%4d  6:%4d", (int)(xbus.valuesf[4]*1000+0.5),(int)(xbus.valuesf[5]*1000+0.5));
-            myLcd.SetLine(2, str, 0);
-            sPRINTdd(str, (char*)"7:%4d  8:%4d", (int)(xbus.valuesf[6]*1000+0.5),(int)(xbus.valuesf[7]*1000+0.5));
-            myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"XB %d/%d/%d", xbus.sbus_flag_errors, xbus.bad_packets, xbus.timeouts);
-            myLcd.SetLineX(0, 4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_GPS1)
-    {
-        //GpsData gps_data = gps.GetGpsData();
-
-//        if (phfc->gps_new_data)
-        if ((phfc->print_counter&0x7f)==2)
-        {
-            sPRINTf(str, (char*)"LAT %+9.6f", gps.gps_data_.latF);
-            myLcd.SetLine(0, str, 0);
-            sPRINTf(str, (char*)"LON %+9.6f", gps.gps_data_.lonF);
-            myLcd.SetLine(1, str, 0);
-            sPRINTf(str, (char*)"ALT %+4.2fm", gps.gps_data_.altitude);
-            myLcd.SetLine(2, str, 0);
-            sPRINTdf(str, (char*)"S/D %d/%4.2f", gps.gps_data_.sats, gps.gps_data_.PDOP*0.01f);
-            myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"F/E/C %d/%d/%d", gps.gps_data_.fix, gps.glitches_, gps.selected_channel_);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_GPS2)
-    {
-//        if (phfc->gps_new_data)
-        if ((phfc->print_counter&0x7f)==2)
-        {
-          float distance = phfc->gps_to_home[0];
-          float course   = phfc->gps_to_home[1];
-          float dAlt     = phfc->gps_to_home[2];
-          
-          sPRINTf(str, (char*)"SPEED %3.1fm/s", phfc->gps_speed);
-          myLcd.SetLine(0, str, 0);
-          sPRINTf(str, (char*)"HEAD %+3.1fdeg", phfc->gps_heading);
-          myLcd.SetLine(1, str, 0);
-          sPRINTf(str, (char*)"DIST  %3.1fm", distance);
-          myLcd.SetLine(2, str, 0);
-          sPRINTf(str, (char*)"dALT %+4.2fm", dAlt);
-          myLcd.SetLine(3, str, 0);
-          sPRINTf(str, (char*)"COUR %+3.1fdeg", course);
-          myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_GPS3)
-    {
-        //GpsData gps_data = gps.GetGpsData();
-
-        if ((phfc->print_counter&0xff)==2)
-        {
-            char fix = gps.gps_data_.fix;
-            unsigned long date = gps.gps_data_.date;
-            unsigned long time = gps.gps_data_.time/100;
-            
-            if (fix==GPS_FIX_OK)
-                PRINTs(str, (char*)"FIX  OK");
-            else
-            if (fix==GPS_FIX_DIFF)
-                PRINTs(str, (char*)"FIX  DIFF");
-            else
-                PRINTs(str, (char*)"FIX  NONE");
-            myLcd.SetLine(0, str, 0);
-            sPRINTd(str, (char*)"DATE %06d", (int)date);
-            myLcd.SetLine(1, str, 0);
-            sPRINTd(str, (char*)"TIME %06d", (int)time);
-            myLcd.SetLine(2, str, 0);
-            sPRINTd(str, (char*)"ERRs %d", (int)gps.glitches_);
-            myLcd.SetLine(3, str, 0);
-            sPRINTd(str, (char*)"CURR %d", (int)gps.selected_channel_);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_BARO)
-    {
-        if ((phfc->print_counter&0xff)==2)
-        {
-            float dAlt = 0;
-            sPRINTd(str, (char*)"BaroP %dPa", (int)phfc->baro_pressure);
-            myLcd.SetLine(0, str, 0);
-            sPRINTf(str, (char*)"Temp   %+3.1fdeg", phfc->baro_temperature);
-            myLcd.SetLine(1, str, 0);
-            sPRINTf(str, (char*)"AltB   %+3.1fm", phfc->baro_altitude_raw);
-            myLcd.SetLine(2, str, 0);
-            sPRINTf(str, (char*)"AltIMU %+3.1fm", phfc->altitude);
-//            sPRINTf(str, "VSPD %+3.1fd", phfc->baro_vspeed);
-            myLcd.SetLine(3, str, 0);
-            sPRINTf(str, (char*)"dALT   %+4.2fm", dAlt);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_COMPASS)
-    {
-        if ((phfc->print_counter&0xff)==2)
-        {
-            int compR = (int)compass.dataXYZcalib[0];
-            int compF = (int)compass.dataXYZcalib[1];
-            int compU = (int)compass.dataXYZcalib[2];
-            myLcd.SetLine(0, (char*)"COMPASS", 0);
-            if(phfc->comp_calibrate == COMP_CALIBRATING)
-            {
-                int i_pitch = -1;
-                int i_roll = -1;
-                for(int j = 0; j < ROLL_COMP_LIMIT; j++) {
-                    if( (j < PITCH_COMP_LIMIT)  &&
-                        (phfc->comp_pitch_flags[j] < NUM_ANGLE_POINTS) ){
-                        i_pitch = j;
-                        break;
-                    }
-                    else
-                    if( (j < ROLL_COMP_LIMIT)  &&
-                        (phfc->comp_roll_flags[j] < NUM_ANGLE_POINTS) ){
-                        i_roll = j;
-                        break;
-                    }
-                }
-
-                if(i_pitch != -1) {
-                    int orient_val = (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT;
-                    sPRINTd(str, (char*)"COMPASS P:%d", (i_pitch - PITCH_COMP_LIMIT/2)*180/PITCH_COMP_LIMIT);
-                    myLcd.SetLine(0, str, 0);
-                    //debug_print("Orient drone with PITCH of %d degrees.\r\n", orient_val);
-                }
-                else if(i_roll != -1 ) {
-                    int orient_val = (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT;
-                    sPRINTd(str, (char*)"COMPASS R:%d", (i_roll - ROLL_COMP_LIMIT/2)*360/ROLL_COMP_LIMIT);
-                    myLcd.SetLine(0, str, 0);
-                    //debug_print("Orient drone with ROLL of %d degrees.\r\n", orient_val);
-                }
-
-                myLcd.SetLine(1, (char*)"CALIBRATING!  ", 0);
-                compR = (int)compass.dataXYZ[0];
-                compF = (int)compass.dataXYZ[1];
-                compU = (int)compass.dataXYZ[2];
-            }
-            else if(phfc->comp_calibrate == COMP_CALIBRATE_DONE)
-            {
-                myLcd.SetLine(1, (char*)"DONE COMP CAL!", 0);
-            }
-            else
-            {
-                sPRINTf(str, (char*)"HEAD %+3.1fdeg  ", phfc->compass_heading_lp);
-                myLcd.SetLine(1, str, 0);
-            }
-            sPRINTddd(str, (char*)"R%+4d %+4d%+4d", compR, phfc->compass_cal.compassMin[0], phfc->compass_cal.compassMax[0]);
-            myLcd.SetLine(2, str, 0);
-            sPRINTddd(str, (char*)"F%+4d %+4d%+4d", compF, phfc->compass_cal.compassMin[1], phfc->compass_cal.compassMax[1]);
-            myLcd.SetLine(3, str, 0);
-            sPRINTddd(str, (char*)"U%+4d %+4d%+4d", compU, phfc->compass_cal.compassMin[2], phfc->compass_cal.compassMax[2]);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_CALIB)
-    {
-        if ((phfc->print_counter&0xff)==2)
-        {
-            char *pstr = str;
-            sPRINTf(str, (char*)"GYRO %+3.1fdeg", phfc->gyro_temp_lp);
-            myLcd.SetLine(0, str, 0);
-            pstr+= PRINTd(pstr, (int)(phfc->gyro_lp_disp[0]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(phfc->gyro_lp_disp[1]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(phfc->gyro_lp_disp[2]*1000), 3, 0, 1); *pstr++ = ' ';
-            *pstr++ = ' ';
-            *pstr++ = 0;
-            str[14] = 0;
-            myLcd.SetLine(1, str, 0);
-
-            pstr = str;
-
-            pstr+= PRINTd(pstr, (int)(phfc->gyroOfs[0]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(phfc->gyroOfs[1]*1000), 3, 0, 1); *pstr++ = ' ';
-            pstr+= PRINTd(pstr, (int)(phfc->gyroOfs[2]*1000), 3, 0, 1); *pstr++ = ' ';
-            *pstr++ = ' ';
-            *pstr++ = 0;
-            str[14] = 0;
-            myLcd.SetLine(2, str, 0);
-
-            sPRINTf(str, (char*)"LIDAR %4.2fm", phfc->altitude_lidar);
-            myLcd.SetLine(3, str, 0);
-            sPRINTdd(str, (char*)"TIME  %02d:%02ds", (phfc->time_ms/1000)/60, (phfc->time_ms/1000)%60);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_WAYPOINT)
-    {
-        if ((phfc->print_counter&0x7f)==2)
-        {
-            float head = phfc->gps_to_waypoint[1] - phfc->IMUorient[2]*R2D;
-            short int se = head*182.044444f+0.5f;
-            head = se*0.0054931640625f;
-            
-            myLcd.SetLine(0, (char*)"PLAYLIST", 0);
-            if (phfc->playlist_status==PLAYLIST_PLAYING)
-                myLcd.SetLine(1, (char*)"PLAYING", 0);
-            else if (phfc->playlist_status==PLAYLIST_PAUSED)
-                myLcd.SetLine(1, (char*)"PAUSED", 0);
-            else
-                myLcd.SetLine(1, (char*)"STOPPED", 0);
-            sPRINTdd(str, (char*)"%d / %d", phfc->playlist_position, phfc->playlist_items);
-            myLcd.SetLine(2, str, 0);
-            sPRINTf(str, (char*)"Dist: %5.1fm", phfc->gps_to_waypoint[0]);
-            myLcd.SetLine(3, str, 0);
-            sPRINTd(str, (char*)"Cour: %ddeg", (int)head);
-            myLcd.SetLine(4, str, 0);
-        }
-    }
-    else if (phfc->display_mode == DISPLAY_ENG)
-    {
-        // Misc LCD Display page for Engineering purposes
-        if ((phfc->print_counter & 0xff) == 2) {
-            sPRINTf(str, (char*)"EleG:%+1.4f", phfc->rw_cfg.elevator_gain);
-            myLcd.SetLine(0, str, 0);
-
-            sPRINTf(str, (char*)"DcpG:%+1.4f", phfc->rw_cfg.dcp_gain);
-            myLcd.SetLine(1, str, 0);
-
-            myLcd.SetLine(2, "", 0);
-            myLcd.SetLine(3, "", 0);
-            myLcd.SetLine(4, "", 0);
-        }
-    }
-    else
-    {
-        if ((phfc->print_counter&0xff)==2)
-        {
-            myLcd.SetLine(0, (char*)"UNKNOWN", 0);
-            myLcd.SetLine(1, NULL, 0);
-            myLcd.SetLine(2, NULL, 0);
-            myLcd.SetLine(3, NULL, 0);
-            myLcd.SetLine(4, NULL, 0);
-        }
-    }    
-}
-#endif
-
-/*static void CheckRangeAndSetD(double *pvalue, double value, double vmin, double vmax)
-{
-//  debug_print("%f\r\n", value);
-    if (!pvalue || value>vmax || value<vmin)
-        return;
-    *pvalue = value;
-}*/
-
+// @brief
+// @param
+// @retval
 static bool CheckRangeAndSetF(float *pvalue, float value, float vmin, float vmax)
 {
 //  debug_print("%f\r\n", value);
@@ -1888,6 +1299,9 @@ static bool CheckRangeAndSetF(float *pvalue, float value, float vmin, float vmax
     return true;
 }
 
+// @brief
+// @param
+// @retval
 static void CheckRangeAndSetI(int *pvalue, int value, int vmin, int vmax)
 {
     if (!pvalue || value>vmax || value<vmin)
@@ -1895,6 +1309,9 @@ static void CheckRangeAndSetI(int *pvalue, int value, int vmin, int vmax)
     *pvalue = value;
 }
 
+// @brief
+// @param
+// @retval
 static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax)
 {
     if (!pvalue || value>vmax || value<vmin)
@@ -1902,6 +1319,9 @@ static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax)
     *pvalue = value;
 }
 
+// @brief
+// @param
+// @retval
 static void Playlist_ProcessTop()
 {
     T_PlaylistItem *item;
@@ -2113,6 +1533,9 @@ static void Playlist_ProcessTop()
     }
 }
 
+// @brief
+// @param
+// @retval
 static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 {
     T_PlaylistItem *item;
@@ -2198,6 +1621,9 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     }
 }
 
+// @brief
+// @param
+// @retval
 static void AbortFlight(void)
 {
   // Ensure we are in AutoPilot
@@ -2234,6 +1660,9 @@ static void AbortFlight(void)
   }
 }
 
+// @brief
+// @param
+// @retval
 static void initRpmThresholdCheck(void)
 {
   phfc->rpm_state = RPM_SPOOLING;
@@ -2243,6 +1672,9 @@ static void initRpmThresholdCheck(void)
 // Return -1 on error
 // 0 on success
 // 1 on waiting
+// @brief
+// @param
+// @retval
 static int rpm_threshold_check(float dT)
 {
   switch (phfc->rpm_state)
@@ -2287,6 +1719,9 @@ static int rpm_threshold_check(float dT)
   return 1;
 }
 
+// @brief
+// @param
+// @retval
 static void ProcessTakeoff(float dT, bool touch_and_go)
 {
     if (    (phfc->waypoint_stage == FM_TAKEOFF_WAIT)
@@ -2509,6 +1944,9 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
     }
 }
 
+// @brief
+// @param
+// @retval
 static void ProcessLanding(float dT, bool touch_and_go)
 {
   if (phfc->waypoint_stage == FM_LANDING_STOP)
@@ -2638,6 +2076,9 @@ static void ProcessLanding(float dT, bool touch_and_go)
   }
 }
 
+// @brief
+// @param
+// @retval
 static void ProcessTouchAndGo(float dT)
 {
   if(phfc->touch_and_go_landing) {
@@ -2709,7 +2150,12 @@ static void ProcessTouchAndGo(float dT)
   }
 }
 
-/* this function runs after the previous control modes are saved, thus PIDs will get automatically re-initialized on mode change */
+// this function runs after the previous control modes are saved,
+// thus PIDs will get automatically re-initialized on mode change
+//
+// @brief
+// @param
+// @retval
 static void ProcessFlightMode(FlightControlData *hfc, float dT)
 {
   static float abortTimer = ABORT_TIMEOUT_SEC;
@@ -2768,6 +2214,9 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
     }
 }
 
+// @brief
+// @param
+// @retval
 static void SetSpeedAcc(float *value, float speed, float acc, float dT)
 {
     float v = *value;
@@ -2776,6 +2225,9 @@ static void SetSpeedAcc(float *value, float speed, float acc, float dT)
     *value = v;
 }
 
+// @brief
+// @param
+// @retval
 static float CalcMinAboveGroundAlt(float speed)
 {
     float alt = ClipMinMax((speed - pConfig->LidarHVcurve[0]) * pConfig->LidarHVcurve[1] + pConfig->LidarHVcurve[2],
@@ -2787,15 +2239,17 @@ static float CalcMinAboveGroundAlt(float speed)
     //}
 
     // TODO::SP: Useful Lidar Max reading is 40m, but we use threshold of 35m
-    // ensure lidar altitude control is within that range.
-    if (pConfig->ground_sensor == GROUND_SENSOR_LIDAR) {
+    // ensure lidar altitude control is within that range. - always lidar
+    //if (pConfig->ground_sensor == GROUND_SENSOR_LIDAR) {
         alt = min(alt, 35);
-    }
+    //}
 
     return alt;
 }
 
-// Use to test Servo Update without processing sensor data
+// @brief
+// @param
+// @retval
 static void ServoUpdateRAW(float dT)
 {
     static float led_timer = 2.0;  // toggle time for Armed LED
@@ -2903,11 +2357,6 @@ static void ServoUpdateRAW(float dT)
 
     ProcessStickInputs(phfc, dT);
 
-
-#ifdef LCD_ENABLED
-    Display_Process(phfc, xbus_new_values, dT);
-#endif
-
     phfc->collective_raw_curr = phfc->ctrl_out[RAW][COLL];
     phfc->ctrl_out[RAW][THRO] += phfc->rw_cfg.throttle_offset;
 
@@ -2983,6 +2432,9 @@ static void ServoUpdateRAW(float dT)
 // Max is 0.444, Min is 0
 // 15 notches from Mid to Top, & 14 from Mid to bottom
 // We scale the Configured Max, Min % of adjustment across these ranges
+// @brief
+// @param
+// @retval
 static inline void UpdatePitchRateScalingFactor(float xbus_value)
 {
   float pid_scale;
@@ -3003,6 +2455,9 @@ static inline void UpdatePitchRateScalingFactor(float xbus_value)
 
 // Allow for dynamically updating PID values based on a set scaling factor
 // In-lined for speed - (Compiler should be in-lining this anyhow)
+// @brief
+// @param
+// @retval
 static inline void ApplyPidScaling(T_PID *pid_layer, const float params[6], float pid_scaling)
 {
   float gain = pid_scaling / 100;
@@ -3013,6 +2468,9 @@ static inline void ApplyPidScaling(T_PID *pid_layer, const float params[6], floa
 
 // Reset specified PID values back to those held in the configuration
 // In-lined for speed - (Compiler should be in-lining this anyhow)
+// @brief
+// @param
+// @retval
 static inline void ResetPidScaling(T_PID *pid_layer, const float params[6])
 {
   pid_layer->Kp = params[0];
@@ -3021,6 +2479,9 @@ static inline void ResetPidScaling(T_PID *pid_layer, const float params[6])
 }
 
 // dT is the time since this function was last called (in seconds)
+// @brief
+// @param
+// @retval
 static void ServoUpdate(float dT)
 {
     char control_mode_prev[4] = {0,0,0,0};
@@ -3249,8 +2710,6 @@ static void ServoUpdate(float dT)
         phfc->ctrl_out[ANGLE][YAW] = phfc->IMUorient[YAW]*R2D;
     }
 
-    //Profiling_Process(phfc, pConfig);
-
     if (phfc->ctrl_source == CTRL_SOURCE_RCRADIO || phfc->ctrl_source == CTRL_SOURCE_JOYSTICK)
     {
         if (phfc->ctrl_source == CTRL_SOURCE_JOYSTICK)
@@ -3316,11 +2775,6 @@ static void ServoUpdate(float dT)
 
     // processes staged waypoints - takeoff, landing, ... etc
     ProcessFlightMode(phfc,dT);
-
-
-#ifdef LCD_ENABLED
-    Display_Process(phfc, xbus_new_values, dT);
-#endif
     
     // horizontal position
     if (phfc->control_mode[PITCH] == CTRL_MODE_POSITION || phfc->control_mode[ROLL] == CTRL_MODE_POSITION) {
@@ -3705,7 +3159,8 @@ static void ServoUpdate(float dT)
     /* collective */
     if (phfc->control_mode[COLL]>=CTRL_MODE_POSITION)
     {
-        float CurrAltitude, CtrlAltitude, LidarMinAlt, vspeedmin;
+        float CurrAltitude, CtrlAltitude, vspeedmin;
+        float LidarMinAlt = 0;
         float e_alt;
         bool double_acc = (phfc->ctrl_source==CTRL_SOURCE_RCRADIO || phfc->ctrl_source==CTRL_SOURCE_JOYSTICK) ? true : false;
 
@@ -3880,14 +3335,13 @@ static void ServoUpdate(float dT)
         }
     }
 
-    if (FCMLinkLive) {
-        ProcessFcmLinkLive();
-    }
-
     Playlist_ProcessBottom(phfc, retire_waypoint);
 }
 
 // re-orients sensors within FCM, applies gains and offsets and the re-orients FCM
+// @brief
+// @param
+// @retval
 static void SensorsRescale(float accIn[3], float gyroIn[3], float accOut[3], float gyroOut[3])
 {
     int i;
@@ -3970,6 +3424,9 @@ static void SensorsRescale(float accIn[3], float gyroIn[3], float accOut[3], flo
     }
 }
 
+// @brief
+// @param
+// @retval
 static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_SIZE])
 {
   int index1 = ClipMinMax((int)((voltage-3.5f)*50), 0, V2ENERGY_SIZE-1);
@@ -3988,6 +3445,9 @@ static float UnloadedBatteryLevel(float voltage, const float V2Energy[V2ENERGY_S
   return energy;
 }
 
+// @brief
+// @param
+// @retval
 static void UpdateBatteryStatus(float dT)
 {
     T_Power *p = &phfc->power;
@@ -4081,6 +3541,9 @@ static void UpdateBatteryStatus(float dT)
     p->initialized = true;
 }
 
+// @brief
+// @param
+// @retval
 static void UpdateHwIdLow(int node_id, unsigned char *pdata)
 {
     int board_type = pdata[0];
@@ -4097,6 +3560,9 @@ static void UpdateHwIdLow(int node_id, unsigned char *pdata)
     }
 }
 
+// @brief
+// @param
+// @retval
 static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata)
 {
     if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
@@ -4112,6 +3578,9 @@ static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata)
     }
 }
 
+// @brief
+// @param
+// @retval
 static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdata)
 {
   uint8_t hardware_status;
@@ -4132,16 +3601,9 @@ static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdat
   }
 }
 
-bool LidarOnline(void)
-{
-  for (int i = 0; i < phfc->num_lidars; i++) {
-      if (((phfc->lidar_online_mask >> i) & 1) == 0 ) {
-        return false;
-      }
-  }
-  return true;
-}
-
+// @brief
+// @param
+// @retval
 static void UpdateLidar(int node_id, int pulse_us)
 {
   if (pulse_us == 0xFFFF) {
@@ -4164,9 +3626,9 @@ static void UpdateLidar(int node_id, int pulse_us)
   phfc->altitude_lidar_raw[node_id] = ( (pulse*.001f) + 7.0f*phfc->altitude_lidar_raw[node_id] ) * 0.125f;
 }
 
-//
-// - Process Live Link messagefrom Canbus Node
-//
+// @brief
+// @param
+// @retval
 static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
 {
 
@@ -4276,18 +3738,15 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
   }
 }
 
-//
-// - Update compass data sent from the CanBus
-//
+// @brief
+// @param
+// @retval
 static void UpdateCompassData(int node_id, unsigned char *pdata)
 {
   signed short raw_x;
   signed short raw_y;
   signed short raw_z;
 
-#ifdef COMPASS_HEADING
-  heading[node_id] = *(double *)pdata;
-#else
   raw_x = pdata[0] | (pdata[1] << 8);
   raw_y = pdata[2] | (pdata[3] << 8);
   raw_z = pdata[4] | (pdata[5] << 8);
@@ -4295,7 +3754,6 @@ static void UpdateCompassData(int node_id, unsigned char *pdata)
   phfc->raw_heading = pdata[6] | (pdata[7] << 8);
 
   compass.UpdateRawData(raw_x, raw_y, raw_z);
-#endif
 }
 
 /* NOTE: The voltage and current reported by the power node is measured by
@@ -4340,23 +3798,9 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata)
     power_update_avail = 1;
 }
 
-static void UpdatePowerNodeCoeff(int node_id, unsigned char *pdata)
-{
-    if (can_power_coeff == 1) {
-        phfc->power.Vslope  = *(float *)pdata;
-        pdata += 4;
-        phfc->power.Voffset = *(float *)pdata;
-    }
-    else if (can_power_coeff == 2) {
-        phfc->power.Islope  = *(float *)pdata;
-        pdata += 4;
-        phfc->power.Ioffset = *(float *)pdata;
-    }
-}
-
-//
-// - Callback ISR Handler for Canbus
-//
+// @brief
+// @param
+// @retval
 static void CanbusISRHandler(void)
 {
   CANMessage can_rx_message;
@@ -4443,9 +3887,12 @@ static void CanbusISRHandler(void)
   }
 }
 
-// TODO::SP: Either extend or remove this..
+// @brief
+// @param
+// @retval
 static void ProcessStats(void)
 {
+  // TODO::SP: REMOVE??
     if ((phfc->print_counter&0x7ff)==6)
     {
         if (phfc->stats.can_power_tx_failed)
@@ -4461,7 +3908,10 @@ static void ProcessStats(void)
     }
 }
 
-int CanbusNodeTypeStatus(int node_type)
+// @brief
+// @param
+// @retval
+static int CanbusNodeTypeStatus(int node_type)
 {
   int state_mask = 0;
 
@@ -4490,11 +3940,12 @@ int CanbusNodeTypeStatus(int node_type)
   default:
     break;
   }
-
   return state_mask;
 }
 
-#define CAN_NODE_TIMEOUT 0.5f
+// @brief
+// @param
+// @retval
 static void CanbusNodeMonitor(float dT)
 {
   static unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM] = {0};
@@ -4588,35 +4039,7 @@ static void CanbusNodeMonitor(float dT)
       gps_reconfig_active = 0;
     }
   }
-
 }
-
-// TODO::SP - Need to update lidar handling when only using an FCM
-#if 0
-static void Lidar_Process(FlightControlData *hfc)
-{
-    int node_id = num_lidars - 1;
-    if (!phfc->lidar_pulse)
-        return;
-
-    /* 1us/mm */
-    unsigned int time = phfc->lidar_fall;
-    unsigned int d = time - phfc->lidar_rise;
-
-    // in this case the octo runs using power node and FCM.
-    // FCM will use a node_id = 2 - 1 = 1, while
-    // the power node uses a node_id = 1 -1 = 0
-    //int filtered_data = LidarFilterFCM(node_id, d);
-    // TODO::SP - update Lidar filtering for FCM
-    if (filtered_data != -1) {
-      //UpdateLidarAltitude(node_id,filtered_data);
-      // TODO::SP - replace with new lidar handling.
-    }
-    phfc->lidar_pulse = false;
-
-    return;
-}
-#endif
 
 /*Function used for making new and on-going compass calibration
  * adjustments to the compass gains and offsets
@@ -4794,31 +4217,16 @@ static void CompassCalibration(void)
 
 }
 
-void CompassCalDone(void)
-{
-    for (int i=0; i<3; i++) {
-        phfc->compass_cal.comp_ofs[i] = (phfc->compass_cal.compassMin[i]+phfc->compass_cal.compassMax[i]+1)/2;
-
-        //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
-        phfc->compass_cal.comp_gains[i] = 537.37f/((phfc->compass_cal.compassMax[i]-phfc->compass_cal.compassMin[i])/2.0f);
-    }
-
-    phfc->compass_cal.valid = 1;
-    phfc->compass_cal.version = COMPASS_CAL_VERSION;
-
-    int size = telem.CalibrateCompassDone();
-    telem.AddMessage((unsigned char*)&phfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
-
-    // TODO::SP: Error handling...?
-    SaveCompassCalibration(&phfc->compass_cal);
-}
-
 /* Function used to DISARM the UAV if it has been armed for longer than
  * but motors have not come on.
  * Ignore timeout if Preflight checsk are disabled in config
  * dT is the elapsed time since this function was run, in seconds
  */
-void ArmedTimeout(float dT) {
+// @brief
+// @param
+// @retval
+static void ArmedTimeout(float dT)
+{
 
   if (pConfig->disable_pre_flight) {
       return;
@@ -4846,17 +4254,20 @@ void ArmedTimeout(float dT) {
 // Called every ms and increments the flight time counter,
 //   Counter is only started and incremented when we are
 //   armed and motors are ON or Throttle is in RAMP or FLY mode
-void FlightOdometer(void)
+// @brief
+// @param
+// @retval
+static void FlightOdometer(void)
 {
   if (phfc->throttle_armed && (GetMotorsState() || (phfc->fixedThrottleMode > THROTTLE_DEAD))) {
     phfc->OdometerReading++;
   }
 }
 
-//
-// - Process Main AVI Flight Control
-//
-void DoFlightControl()
+// @brief
+// @param
+// @retval
+static void DoFlightControl()
 {
     int i;
     int ticks;
@@ -4867,15 +4278,11 @@ void DoFlightControl()
 
     KICK_WATCHDOG();
 
-#ifdef LCD_ENABLED
-    Buttons();
-#endif
-
     if (!mpu.readMotion7f_finish(phfc->accRaw, phfc->gyroRaw, &phfc->gyro_temperature)) {
       phfc->system_status_mask |= IMU_FAIL;
     }
 
-    ticks = Ticks_us_minT(LOOP_PERIOD, &utilization);   // defines loop time in uS
+    ticks = Ticks_us_minT(1000, &utilization);   // defines loop time in uS, 1000Hz
 
     if (!(phfc->system_status_mask & IMU_FAIL)) {
       mpu.readMotion7_start();
@@ -4914,7 +4321,7 @@ void DoFlightControl()
         //}
     //}
 
-    if (pConfig->sensor_mode == FLY_ALL_SENSORS) {
+    if (pConfig->sensor_mode == 0 /*FLY_ALL_SENSORS*/) {
 
         if (compass.HaveNewData()) {
             phfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, phfc->compass_cal.comp_ofs, phfc->compass_cal.comp_gains,
@@ -5177,11 +4584,6 @@ void DoFlightControl()
         //debug_print("GPS time %d %f %f %f\n", phfc->time_ms, gps.gps_data_.speedENU[0], gps.gps_data_.speedENU[1], gps.gps_data_.speedENU[2]);
     }
 
-#ifdef LCD_ENABLED
-    PrintOrient();
-#endif
-
-
     if (pConfig->servo_raw) {
       ServoUpdateRAW(dT);
     }
@@ -5254,17 +4656,7 @@ void DoFlightControl()
         afsi.ProcessStatusMessages();
     }
 
-#ifdef LCD_ENABLED
-    myLcd.Update();
-#endif
-
     ProcessStats();
-
-    // TODO::SP: Assumption here is that lidar not from servo and not from power,
-    // then must be onboard FCM. Should be better handled!
-    //if ((pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0)) {
-    //    Lidar_Process(phfc);
-    //}
 
     telem.ProcessInputBytes(telemetry);
 
@@ -5299,83 +4691,45 @@ void DoFlightControl()
     phfc->print_counter++;
 }
 
-static void Lidar_fall(void)
-{
-    phfc->lidar_fall = GetTime_us();
-    phfc->lidar_pulse = true;
-}
-
-static void Lidar_rise(void)
-{
-    phfc->lidar_rise = GetTime_us();
-}
-
+// @brief
+// @param
+// @retval
 static void InitFcmIO(void)
 {
-    lidar.mode(PullNone);
+  // NOTE::SP: HACK OF THE DAY 18-10-2018
+  // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 6
+  // FOR USE WITH ARMED LED
+  if (FCM_SERVO_CH6) {
+    FCM_SERVO_CH6.period_us(pConfig->pwm_period);
+    FCM_SERVO_CH6.pulsewidth_us(1500);
+  }
 
-    if (pConfig->fcm_linklive_enable) {
-        FCMLinkLive = new DigitalInOut(p26);
-        FCMLinkLive->output();
-        FCMLinkLive->write(1);
-        phfc->fcm_linkLive_counter = 0;
-        linklive  = new InterruptIn(p26);
-    }
-    else {
-        FCM_SERVO_CH1 = new PwmOut(p26);
-    }
+  // NOTE::SP: HACK OF THE DAY 12-09-2018
+  // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 5
+  // FOR USE WITH SPECIAL BOX DROPPER FOR INDRO Demo
+  if (FCM_SERVO_CH5) {
+    FCM_SERVO_CH5.period_us(pConfig->pwm_period);
+    FCM_SERVO_CH5.pulsewidth_us(1500);
+  }
 
-    // NOTE::SP: HACK OF THE DAY 18-10-2018
-    // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 6
-    // FOR USE WITH ARMED LED
-    if (FCM_SERVO_CH6) {
-        FCM_SERVO_CH6.period_us(pConfig->pwm_period);
-        FCM_SERVO_CH6.pulsewidth_us(1500);
-    }
+  if (pConfig->fcm_servo) {
+    FCM_SERVO_CH5.period_us(pConfig->pwm_period);
+    FCM_SERVO_CH4.period_us(pConfig->pwm_period);
+    FCM_SERVO_CH3.period_us(pConfig->pwm_period);
+    FCM_SERVO_CH2.period_us(pConfig->pwm_period);
+    FCM_SERVO_CH1.period_us(pConfig->pwm_period);
 
-    // NOTE::SP: HACK OF THE DAY 12-09-2018
-    // REGARDLESS OF WHAT SERVO WE ARE USING, ALWAYS ENABLE CHANNEL 5
-    // FOR USE WITH SPECIAL BOX DROPPER FOR INDRO Demo
-    if (FCM_SERVO_CH5) {
-        FCM_SERVO_CH5.period_us(pConfig->pwm_period);
-        FCM_SERVO_CH5.pulsewidth_us(1500);
-    }
-
-    if (pConfig->fcm_servo) {
-
-        FCM_SERVO_CH5.period_us(pConfig->pwm_period);
-        FCM_SERVO_CH4.period_us(pConfig->pwm_period);
-        FCM_SERVO_CH3.period_us(pConfig->pwm_period);
-        FCM_SERVO_CH2.period_us(pConfig->pwm_period);
-
-        if (FCM_SERVO_CH1) {
-            FCM_SERVO_CH1->period_us(pConfig->pwm_period);
-        }
-
-        FCM_SERVO_CH5.pulsewidth_us(1500);
-        FCM_SERVO_CH4.pulsewidth_us(1500);
-        FCM_SERVO_CH3.pulsewidth_us(1500);
-        FCM_SERVO_CH2.pulsewidth_us(1500);
-
-        if (FCM_SERVO_CH1) {
-            FCM_SERVO_CH1->pulsewidth_us(1000);
-        }
-    }
-
-    if ( (pConfig->LidarFromServo == 0) && (pConfig->LidarFromPowerNode == 0) ) {
-      phfc->lidar_rise = GetTime_us();
-      lidar.fall(&Lidar_fall);
-      lidar.rise(&Lidar_rise);
-    }
+    FCM_SERVO_CH5.pulsewidth_us(1500);
+    FCM_SERVO_CH4.pulsewidth_us(1500);
+    FCM_SERVO_CH3.pulsewidth_us(1500);
+    FCM_SERVO_CH2.pulsewidth_us(1500);
+    FCM_SERVO_CH1.pulsewidth_us(1500);
+  }
 }
 
-volatile static int rx_in=0;
-volatile static bool have_config = false;
-/**
-  * @brief  ConfigRx callback handler.
-  * @param  none
-  * @retval none
-  */
+// @brief  ConfigRx callback handler.
+// @param  none
+// @retval none
 static void ConfigRx(void)
 {
   while (serial.readable() && (rx_in < MAX_CONFIG_SIZE)) {
@@ -5385,11 +4739,9 @@ static void ConfigRx(void)
   have_config = true;
 }
 
-/**
-  * @brief  Process user commands from USB Serial Port.
-  * @param  received command byte
-  * @retval none
-  */
+// @brief  Process user commands from USB Serial Port.
+// @param  received command byte
+// @retval none
 static void ProcessUserCmnds(char c)
 {
     char request[20] = {0};
@@ -5566,170 +4918,132 @@ static void ProcessUserCmnds(char c)
     }
 }
 
-#ifdef LCD_ENABLED
-void ProcessButtonSelection()
-{
-//    if (phfc->display_mode==DISPLAY_SPLASH || phfc->display_mode==DISPLAY_STATUS || phfc->display_mode==DISPLAY_POWER)
-    // Only allow arm and disarm function on SPLASH screen
-    if (phfc->display_mode==DISPLAY_SPLASH)
-    {
-        if (phfc->throttle_armed)
-        {
-            if (phfc->btnSelectCounter>500)
-                telem.Disarm();
-        }
-        else {
-            telem.Arm();            // old code was only Arm
-        }
-
-        phfc->resetandarm_req = 1;                    // Request reset and arm event
-        phfc->resetandarm_time = GetTime_ms();        // capture current time to compare against
-        /*
-         *
-        instead of Arm right after button has been pushed held and released as in the above else
-        the new sequence should be:
-        1 - delay 500mS to allow for any movement to stop
-        2 - reset IMU
-        3 - Arm(phfc)
-
-        Should we just wait here or set a flag
-
-        phfc->resetandarm_req
-        and set counter to current time in ms
-        phfc->resetandarm_time;
-
-        in the main loop we can check flag and clear once time > 500ms of delay.
-        main loop will then reset imu, arm and then clear the flag.
-
-        New concept code is shown below.
-        */
-        /*
-{
-        if(phfc->resetandarm_req && (phfc->time_ms - phfc->resetandarm_time) > 500)
-        {
-            ResetIMU(phfc, true);
-                        Arm(phfc);
-            phfc->resetandarm_req = 0;    //RVW
-        }
-} */
-
-
-        ArmedLed = !phfc->throttle_armed;
-        phfc->waypoint_type = WAYPOINT_NONE;
-    }
-    else
-    if (phfc->display_mode==DISPLAY_GPS1)
-        gps.SetNextChannel();
-    else
-    if (phfc->display_mode==DISPLAY_GPS2)
-        telem.SetHome();
-    else
-    if (phfc->display_mode==DISPLAY_CALIB)
-    {
-        telem.ResetIMU(false);
-    }
-    else
-    if (phfc->display_mode==DISPLAY_COMPASS)
-    {
-        int i = 0;
-
-        if( phfc->comp_calibrate == NO_COMP_CALIBRATE ) {
-            phfc->compass_cal.compassMin[0] = phfc->compass_cal.compassMin[1] = phfc->compass_cal.compassMin[2] = 9999;
-            phfc->compass_cal.compassMax[0] = phfc->compass_cal.compassMax[1] = phfc->compass_cal.compassMax[2] = -9999;
-
-            for(i = 0; i < PITCH_COMP_LIMIT; i++)
-            {
-                phfc->comp_pitch_flags[i] = 0;
-            }
-
-            for(i = 0; i < ROLL_COMP_LIMIT; i++)
-            {
-                phfc->comp_roll_flags[i] = 0;
-            }
-
-            phfc->comp_calibrate = COMP_CALIBRATING;
-            //debug_print("Starting Compass Calibration\r\n");
-        }
-        else {
-            phfc->comp_calibrate = COMP_CALIBRATE_DONE;
-            //debug_print("Compass Calibration Finished\r\n");
-        }
-    }
-}
-#endif
-
-#ifdef LCD_ENABLED
-void button_Menu(void)
-{
-    phfc->display_mode++;
-    if (phfc->display_mode>=DISPLAY_PAGES)
-        phfc->display_mode = 0;
-}
-#endif
-
-#ifdef LCD_ENABLED
-static void Buttons()
-{
-    bool btn = btnMenu;
-    if (btn && !phfc->btnMenuPrev)
-      button_Menu();
-    phfc->btnMenuPrev = btn;
-    if (!btn)
-        phfc->btnMenuCounter++;
-    else
-        phfc->btnMenuCounter=0;
-    
-    btn = btnSelect;
-    if (btn && !phfc->btnSelectPrev)
-      ProcessButtonSelection();
-    phfc->btnSelectPrev = btn;
-    if (!btn)
-        phfc->btnSelectCounter++;
-    else
-        phfc->btnSelectCounter=0;
-}
-#endif
-
-#ifdef LCD_ENABLED
-static void PrintOrient()
-{
-
-
-    char str[30];
-    char *pstr = str;
-  
-    if (!(phfc->display_mode == DISPLAY_SPLASH) && (phfc->print_counter&0x1f) == 8 ) {
-        //debug_print("P %+5.1f R %+5.1f Y %+5.1f    ", SmoothAcc[PITCH]*R2D, SmoothAcc[ROLL]*R2D, SmoothAcc[YAW]*R2D);
-        //debug_print("P %+5.1f R %+5.1f Y %+5.1f\r\n", phfc->IMUorient[PITCH]*R2D, phfc->IMUorient[ROLL]*R2D, phfc->IMUorient[YAW]*R2D);
-        //debug_print("P %+5.1f R %+5.1f Y %+5.1f\r\n", gBfiltered[PITCH], gBfiltered[ROLL], gBfiltered[YAW]);
-        pstr+= PRINTf(pstr, phfc->IMUorient[PITCH]*R2D, 1, 1, 0);
-        *pstr++ = ' ';
-
-        pstr+= PRINTf(pstr, phfc->IMUorient[ROLL]*R2D, 1, 1, 0);
-        *pstr++ = ' ';
-
-        pstr+= PRINTf(pstr, phfc->IMUorient[YAW]*R2D, 1, 1, 0);
-        *pstr++ = ' ';
-        *pstr++ = ' ';
-        *pstr++ = 0;
-
-        str[14] = 0;
-        myLcd.SetLine(5, str, 0);
-    }
-
-    if ((phfc->print_counter & 0x1f) == 8) {
-        led1 = phfc->throttle_armed;
-        led2 = phfc->throttle_armed;
-        led3 = phfc->throttle_armed;
-        //led4 = phfc->throttle_armed;
-        ArmedLed = !phfc->throttle_armed;
-    }
-}
-#endif
-
 //
-// - Initialize Canbus Node(s)
-//
+// @brief  InitCanbus.
+// @param
+// @retval 0 if success, < 0 on failure
+static uint32_t InitCanbus(void)
+{
+  int error = 0;
+  volatile uint32_t ret_mask = 0;
+  CANMessage node_cfg_data;
+
+  // Create New Canbus Client
+  Canbus = new CAN(CAN_RXD1, CAN_TXD1, (pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
+  Canbus->reset();
+  Canbus->attach(CanbusISRHandler);
+
+  if (phfc->system_reset_reason != (RESET_REASON_POR | RESET_REASON_BODR)) {
+    return ret_mask;
+  }
+
+  for (int i=0; i < 5; i++) {
+    KICK_WATCHDOG();
+    wait_ms(100);
+  }
+
+  // Initialize and configure any servo nodes...
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
+      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
+      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+      node_cfg_data.data[1] = LIDAR_ACTIVE;
+      node_cfg_data.len = 2;
+      wait_ms(10);
+      error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
+
+      short int* failsafe;
+      int seq_id = AVI_FAILSAFE_0_3;
+      for (int i=0; i < 2; i++) {
+        failsafe = (short int *)&node_cfg_data.data[0];
+
+        for (int j=0; j < 4; j++) {
+          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+        }
+        // SP::TODO - until config values are available, override with these defaults.
+        failsafe = (short int *)&node_cfg_data.data[0];
+        *failsafe++ = 1000;
+        *failsafe++ = 1500;
+        *failsafe++ = 1500;
+        *failsafe = 1500;
+
+        node_cfg_data.len = 8;
+        wait_ms(10);
+        error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, seq_id, &node_cfg_data);
+        seq_id = AVI_FAILSAFE_4_7;
+      }
+    }
+
+    if (error) {
+      ret_mask |= (SERVO_NODE_FAIL << (node_id-1));
+    }
+  }
+
+  // Initialize and configure any Power nodes...
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_power_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_PWR_NODETYPE, node_id)) == 0) {
+      wait_ms(10);
+      // Enable all PWM channels and Lidar.
+      node_cfg_data.data[0] = PWM_CHANNEL_1_8;
+      node_cfg_data.data[1] = LIDAR_ACTIVE;
+      node_cfg_data.len = 2;
+      error = ConfigureCanbusNode(AVI_PWR_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
+
+      short int* failsafe;
+      int seq_id = AVI_FAILSAFE_0_3;
+      for (int i=0; i < 2; i++) {
+        failsafe = (short int *)&node_cfg_data.data[0];
+
+        for (int j=0; j < 4; j++) {
+          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+        }
+
+        // SP::TODO - until config values are available, override with these defaults.
+        failsafe = (short int *)&node_cfg_data.data[0];
+        *failsafe++ = 1000;
+        *failsafe++ = 1500;
+        *failsafe++ = 1500;
+        *failsafe = 1500;
+
+        node_cfg_data.len = 8;
+        wait_ms(10);
+        error = ConfigureCanbusNode(AVI_PWR_NODETYPE, node_id, seq_id, &node_cfg_data);
+        seq_id = AVI_FAILSAFE_4_7;
+      }
+    }
+
+    if (error) {
+      ret_mask |= (PWR_NODE_FAIL << (node_id-1));
+    }
+  }
+
+  // Initialize and configure any GPS nodes...
+  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
+    if ((error = InitCanbusNode(AVI_GPS_NODETYPE, node_id)) == 0) {
+
+      // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
+      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
+      node_cfg_data.len = 1;
+      wait_ms(10);
+      error = ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
+    }
+
+    if (error) {
+      ret_mask |= (NAV_NODE_FAIL << (node_id-1));
+    }
+  }
+
+  // Enable Canbus Reporting - Broadcast to ALL nodes on system
+  KICK_WATCHDOG();
+  wait_ms(100);
+  ret_mask |= EnableCanbusPDPs();
+
+  return ret_mask;
+}
+
+// @brief
+// @param
+// @retval
 static uint32_t InitCanbusNode(int node_type, int node_id, int timeout)
 {
   CANMessage can_tx_message;
@@ -5765,9 +5079,9 @@ static uint32_t InitCanbusNode(int node_type, int node_id, int timeout)
   return ret;
 }
 
-//
-// - Configure operation of a particular type of Canbus Node.
-//
+// @brief
+// @param
+// @retval
 static uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANMessage *can_tx_message, int timeout)
 {
   uint32_t ret = 0;
@@ -5796,9 +5110,9 @@ static uint32_t ConfigureCanbusNode(int node_type, int node_id, int seq_id, CANM
   return ret;
 }
 
-//
-// - Enable Canbus Node(s)
-//
+// @brief
+// @param
+// @retval
 static uint32_t EnableCanbusPDPs(void)
 {
   CANMessage can_tx_message;
@@ -5850,11 +5164,11 @@ static void CanbusSync(void)
   }
 }
 
-//
-// - Send a Canbus Sync(Heartbeat) request to GPS
-//   Servo and Pwr Nodes dont require this since we send
-//   servo data to them at a 1ms interval (which acts as the heartbeat)
-//
+// @brief - Send a Canbus Sync(Heartbeat) request to GPS
+//          Servo and Pwr Nodes dont require this since we send
+//          servo data to them at a 1ms interval (which acts as the heartbeat)
+// @param
+// @retval
 static void CanbusFailsafe(int node_type, int node_id)
 {
   CANMessage can_tx_message;
@@ -5867,10 +5181,10 @@ static void CanbusFailsafe(int node_type, int node_id)
   }
 }
 
-//
-// - Initialize the Flight Controllers Runtime data Structure
-//
-void InitializeRuntimeData(void)
+// @brief
+// @param
+// @retval
+static void InitializeRuntimeData(void)
 {
   uint32_t last_reset = GetResetReason();
 
@@ -6038,7 +5352,6 @@ void InitializeRuntimeData(void)
   phfc->command.command = TELEM_CMD_NONE;
   phfc->rc_ctrl_request = false;
   phfc->playlist_status = PLAYLIST_NONE;
-  phfc->display_mode = DISPLAY_SPLASH;
   phfc->control_mode[PITCH] = CTRL_MODE_ANGLE;
   phfc->control_mode[ROLL] = CTRL_MODE_ANGLE;
   phfc->control_mode[YAW] = CTRL_MODE_ANGLE;
@@ -6113,7 +5426,10 @@ void InitializeRuntimeData(void)
   LPC_RIT->RICOUNTER = 0;
 }
 
-uint32_t InitializeSystemData()
+// @brief
+// @param
+// @retval
+static uint32_t InitializeSystemData()
 {
   uint32_t ret_value = 0;
 
@@ -6139,133 +5455,10 @@ uint32_t InitializeSystemData()
   return ret_value;
 }
 
-/**
-  * @brief  InitCanbus.
-  * @retval 0 if success, < 0 on failure
-  */
-static uint32_t InitCanbus(void)
-{
-  int error = 0;
-  volatile uint32_t ret_mask = 0;
-  CANMessage node_cfg_data;
 
-  // Create New Canbus Client
-  Canbus = new CAN(CAN_RXD1, CAN_TXD1, (pConfig->canbus_freq_high == 1) ? 1000000 : 500000);
-  Canbus->reset();
-  Canbus->attach(CanbusISRHandler);
-
-  if (phfc->system_reset_reason != (RESET_REASON_POR | RESET_REASON_BODR)) {
-    return ret_mask;
-  }
-
-  for (int i=0; i < 5; i++) {
-    KICK_WATCHDOG();
-    wait_ms(100);
-  }
-
-  // Initialize and configure any servo nodes...
-  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
-    if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
-      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
-      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
-      node_cfg_data.data[1] = LIDAR_ACTIVE;
-      node_cfg_data.len = 2;
-      wait_ms(10);
-      error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
-
-      short int* failsafe;
-      int seq_id = AVI_FAILSAFE_0_3;
-      for (int i=0; i < 2; i++) {
-        failsafe = (short int *)&node_cfg_data.data[0];
-
-        for (int j=0; j < 4; j++) {
-          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
-        }
-        // SP::TODO - until config values are available, override with these defaults.
-        failsafe = (short int *)&node_cfg_data.data[0];
-        *failsafe++ = 1000;
-        *failsafe++ = 1500;
-        *failsafe++ = 1500;
-        *failsafe = 1500;
-
-        node_cfg_data.len = 8;
-        wait_ms(10);
-        error = ConfigureCanbusNode(AVI_SERVO_NODETYPE, node_id, seq_id, &node_cfg_data);
-        seq_id = AVI_FAILSAFE_4_7;
-      }
-    }
-
-    if (error) {
-      ret_mask |= (SERVO_NODE_FAIL << (node_id-1));
-    }
-  }
-
-  // Initialize and configure any Power nodes...
-  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_power_nodes; node_id++) {
-    if ((error = InitCanbusNode(AVI_PWR_NODETYPE, node_id)) == 0) {
-      wait_ms(10);
-      // Enable all PWM channels and Lidar.
-      node_cfg_data.data[0] = PWM_CHANNEL_1_8;
-      node_cfg_data.data[1] = LIDAR_ACTIVE;
-      node_cfg_data.len = 2;
-      error = ConfigureCanbusNode(AVI_PWR_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
-
-      short int* failsafe;
-      int seq_id = AVI_FAILSAFE_0_3;
-      for (int i=0; i < 2; i++) {
-        failsafe = (short int *)&node_cfg_data.data[0];
-
-        for (int j=0; j < 4; j++) {
-          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
-        }
-
-        // SP::TODO - until config values are available, override with these defaults.
-        failsafe = (short int *)&node_cfg_data.data[0];
-        *failsafe++ = 1000;
-        *failsafe++ = 1500;
-        *failsafe++ = 1500;
-        *failsafe = 1500;
-
-        node_cfg_data.len = 8;
-        wait_ms(10);
-        error = ConfigureCanbusNode(AVI_PWR_NODETYPE, node_id, seq_id, &node_cfg_data);
-        seq_id = AVI_FAILSAFE_4_7;
-      }
-    }
-
-    if (error) {
-      ret_mask |= (PWR_NODE_FAIL << (node_id-1));
-    }
-  }
-
-  // Initialize and configure any GPS nodes...
-  for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
-    if ((error = InitCanbusNode(AVI_GPS_NODETYPE, node_id)) == 0) {
-
-      // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
-      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
-      node_cfg_data.len = 1;
-      wait_ms(10);
-      error = ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
-    }
-
-    if (error) {
-      ret_mask |= (NAV_NODE_FAIL << (node_id-1));
-    }
-  }
-
-  // Enable Canbus Reporting - Broadcast to ALL nodes on system
-  KICK_WATCHDOG();
-  wait_ms(100);
-  ret_mask |= EnableCanbusPDPs();
-
-  return ret_mask;
-}
-
-/**
-  * @brief  main.
-  * @retval none
-  */
+// @brief
+// @param
+// @retval
 int main()
 {
 #if defined (CRP_LOCK)
@@ -6277,16 +5470,6 @@ int main()
   SysTick_Run();
 
   InitializeWatchdog(0.25f);  // 250ms
-
-#ifdef LCD_ENABLED
-  spi.frequency(4000000);
-  spi.format(8, 0);   // 0-sd ok, disp ok, 1-no sd, disp ok
-
-  btnMenu.mode(PullUp);
-  btnSelect.mode(PullUp);
-
-  myLcd.InitLcd();
-#endif
 
   // Initialize system configuration, Runtime Data and Peripherals
   phfc->system_status_mask |= InitializeSystemData();

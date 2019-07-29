@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
-  * @file    version.h
+  * @file    mediator.h
   * @author  AVIDRONE FIRMWARE Team
-  * @brief   Header for version.c
+  * @brief   Provides support for FCM node of Avidrone FCS
   *
   ******************************************************************************
   * @attention
@@ -24,31 +24,25 @@
   ******************************************************************************
   */
 
-#ifndef VERSION_H_
-#define VERSION_H_
+#ifndef MEDIATOR_H_
+#define MEDIATOR_H_
 
-#define PN_GPS  0x03
-#define PN_SN   0x02
-#define PN_FCM  0x05
-#define PN_IMU  0x04
-#define PN_PWR  0x06
+typedef uint16_t Item;
+typedef struct Mediator_t
+{
+   Item* data;  //circular queue of values
+   int*  pos;   //index into `heap` for each value
+   int*  heap;  //max/median/min heap holding indexes into `data`.
+   int   N;     //allocated size.
+   int   idx;   //position in circular queue
+   int   minCt; //count of items in min heap
+   int   maxCt; //count of items in max heap
+} Mediator;
 
-// Engineering Test builds are marked as "X" builds
-// THIS IS PASSED IN FROM BUILD LINE WHEN USING ECLIPSE
-//#define BUILD_TYPE ""
-//#define BUILD_TYPE "X"
-
-#define xstr(s) str(s)
-#define str(s) #s
-
-#define FCM_VERSION (" VER:" xstr(MAJOR_VERSION) "." xstr(MINOR_VERSION) "." xstr(BUILD_VERSION) xstr(BUILD_TYPE))
-
-extern const char * build_git_time;
-extern const char * build_git_sha;
-extern const char * build_git_info;
+// Public interfaces..
+Mediator* MediatorNew(int nItems);
+void MediatorInsert(Mediator* m, Item v);
+Item MediatorMedian(Mediator* m);
 
 
-
-#endif /* VERSION_H_ */
-
-/************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/
+#endif /* MEDIATOR_H_ */

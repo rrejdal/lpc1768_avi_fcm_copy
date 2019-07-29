@@ -80,8 +80,8 @@ public:
     int calib_day;  // day of calibration
 
     int board_year; // year the board was manufactured
-    int board_type; // type of board, see version.h for definitions
-    int id_num;     // type of board, see version.h for definitions
+    int board_type; // type of board
+    int id_num;     // type of board
 
     EEPROM_TYPE type;  // type 0 = IMU EEPROM = 24LC01B, type 1 = FCM EEPROM = 24AA256
 

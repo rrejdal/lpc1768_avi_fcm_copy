@@ -1,6 +1,6 @@
 /**
   ******************************************************************************
-  * @file    main.h
+  * @file    config.h
   * @author  AVIDRONE FIRMWARE Team
   * @brief   Provides support for FCM node of Avidrone FCS
   *
@@ -24,34 +24,21 @@
   ******************************************************************************
   */
 
-#ifndef MAIN_H_
-#define MAIN_H_
+#ifndef CONFIG_H_
+#define CONFIG_H_
 
 // ---- Public Interfaces ---- //
-void ResetIterms(void);
-void GenerateSpeed2AngleLUT(void);
-void AltitudeUpdate(float alt_rate, float dT);
-void HeadingUpdate(float heading_rate, float dT);
-void CompassCalDone(void);
-int  TakeoffControlModes(void);
-int  GetMotorsState(void);
-bool LidarOnline(void);
-void NVIC_WatchdogHandler(void);
-int getNodeVersionNum(int type, int nodeId);
-void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
-void CompassCalDone(void);
+int LoadConfiguration(const ConfigData **pConfig);
+int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
+int SaveNewConfig(void);
+int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+void InitializeOdometer(FlightControlData *hfc);
+int UpdateOdometerReading(uint32 OdometerCounter);
+int EraseFlash(void);
+int SetJtag(int state);
 
 // ---- Public Data ---- //
-typedef struct {
-    uint8_t major_version;
-    uint8_t minor_version;
-    uint8_t build_version;
-    uint32_t serial_number0;
-    uint32_t serial_number1;
-    uint32_t serial_number2;
-} BoardInfo;
+#define CONFIG_VERSION   14
+#define COMPASS_CAL_VERSION 1
 
-// ---- Public Macros ---- //
-#define IN_THE_AIR(X) ( ( (( X ) > 0.2) && (GetMotorsState() == 1) ) ? 1 : 0 )
-
-#endif /* MAIN_H_ */
+#endif /* CONFIG_H_ */

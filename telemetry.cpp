@@ -7,7 +7,6 @@
 #include "pGPS.h"
 #include "IMU.h"
 #include "defines.h"
-#include "version.h"
 #include "main.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
@@ -160,7 +159,6 @@ unsigned int TelemSerial::RemoveBytes(unsigned char *b, int remove, int size)
 void TelemSerial::AddInputByte(char ch)
 {
     T_TelemUpHdr *hdr;
-    static int idx = 0;
 
 //  debug_print("Telem c=%d\r\n", ch);
     
@@ -2230,8 +2228,6 @@ void TelemSerial::ProcessCommands(void)
         if (sub_cmd == CALIBRATE_COMPASS)
         {
             int i = 0;
-
-            hfc->display_mode = DISPLAY_COMPASS;
 
             hfc->compass_cal.compassMin[0] = hfc->compass_cal.compassMin[1] = hfc->compass_cal.compassMin[2] = 9999;
             hfc->compass_cal.compassMax[0] = hfc->compass_cal.compassMax[1] = hfc->compass_cal.compassMax[2] = -9999;

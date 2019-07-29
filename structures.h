@@ -1051,7 +1051,6 @@ typedef struct
     float fixedThrottleCap;				// Capture throttle position for Ramp detection
     float fixedThrottleMult;			// multiplier for ramp 0 to 1
     
-    unsigned char display_mode;
     unsigned char joystick_new_values;
     unsigned char joy_PRmode;
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio

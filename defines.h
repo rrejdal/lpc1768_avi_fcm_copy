@@ -16,22 +16,20 @@ extern USBSerial   serial;
 #define usb_print(fmt, ...) \
             do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
 
-#define CONFIG_VERSION   14
-#define COMPASS_CAL_VERSION 1
-
-#define PC_BAUDRATE          115200
-#define GPS_BAUDRATE         38400
-
 #define PLAYLIST_SIZE   512
 
-#define LOOP_PERIOD     1000    // 1000Hz   830 // in mS
+#define PN_GPS  0x03
+#define PN_SN   0x02
+#define PN_FCM  0x05
+#define PN_IMU  0x04
+#define PN_PWR  0x06
 
 #define MAX_NUM_CASTLE_LINKS 2
 #define MAX_NUM_GPS          1
 #define MAX_NUMBER_SERVO_NODES  2
-#define MAX_BOARD_TYPES      5
-#define MAX_NODE_NUM         2
-
+#define MAX_BOARD_TYPES      7
+#define MAX_NODE_NUM         7
+#define MAX_NUMBER_SERVO_OUTPUTS  8
 
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
 
@@ -116,29 +114,6 @@ extern USBSerial   serial;
 
 #define LANDING_THRESHOLD_HEIGHT_FIXED_PROP 0.1f //in meters, used in landing
 #define LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP 0.2f //in meters, used in landing
-
-/* display modes defines */
-#define DISPLAY_SPLASH		  0
-#define DISPLAY_STATUS        1
-#define DISPLAY_POWER         2
-#define DISPLAY_CONTROLS      3
-#define DISPLAY_XBUS          4
-#define DISPLAY_GPS1          5
-#define DISPLAY_GPS2          6
-#define DISPLAY_GPS3          7
-#define DISPLAY_BARO          8
-#define DISPLAY_COMPASS       9
-#define DISPLAY_CALIB         10
-#define DISPLAY_WAYPOINT      11
-#define DISPLAY_ENG           12
-#define DISPLAY_PAGES         13
-
-#define FLY_ALL_SENSORS 0
-#define FLY_NO_COMPASS  1
-
-#define GROUND_SENSOR_NONE      0
-#define GROUND_SENSOR_LIDAR     1
-#define GROUND_SENSOR_SONAR     2
 
 /* constants */
 #define D2R 0.017453292f
@@ -247,6 +222,12 @@ typedef enum {
     RPM_DONE,
     RPM_FAIL,
 } rpmSpoolState;
+
+/* Passed in the GPS CANbus CFG Message, 1byte */
+#define GPS_SEL_CHIP_0          (1 << 0)
+#define GPS_SEL_CHIP_1          (1 << 1)
+#define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
+#define COMPASS_SEL_MASK(x)     ((x) << 2)
 
 // Variable Pitch (Tandem) airframes
 #define RPM_SPOOL_TIMEOUT    30.0f  // Wait upto x seconds to reach desired RPM

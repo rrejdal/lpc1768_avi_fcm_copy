@@ -425,68 +425,6 @@ bool Streaming_Process(FlightControlData *hfc)
     return false;
 }
 
-#if 0
-void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
-{
-    if (hfc->profile_mode == PROFILING_START)
-    {
-        int i;
-        //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-        
-        //LEDs[0]->write(1); LEDs[1]->write(1); LEDs[2]->write(1); LEDs[3]->write(1);
-        hfc->profile_mode = PROFILING_ON;
-        hfc->profile_start_time = GetTime_ms();
-        
-        /* save current control values to detect any motion during the auto-profiling and terminate it if necessary */
-        for (i=0; i<5; i++) hfc->ctrl_initial[i] = hfc->ctrl_out[RAW][i];
-    }
-        
-    /* automatic profiling control */
-    if (hfc->profile_mode == PROFILING_ON)
-    {
-        int i;
-        //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-        float *controlled = hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
-        float delta = 0;            // value added to the controlled variable
-        int t = GetTime_ms() - hfc->profile_start_time;  // timeline in ms
-        int Td = hfc->profile_lag;
-        int Tt = hfc->profile_period;
-        float dC = hfc->profile_delta*0.001f*pConfig->Stick100range;
-        
-//        debug_print("%d %d %d %4.3f\n", t, Td, Tt, dC);
-        if (t>(Td+5*Tt))        // test complete
-        {
-//            debug_print("profiling finish\r\n");
-            hfc->profile_mode = PROFILING_FINISH;
-            //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
-            return;
-        }
-        else if (t>(Td+4*Tt))   // test complete
-            delta = 0;
-        else if (t>(Td+3*Tt))   // third leg
-            delta = dC;
-        else if (t>(Td+1*Tt))   // second leg
-            delta = -dC;
-        else if (t>Td)          // first leg
-            delta = dC;
-        
-        /* terminate auto-profiling if any stick motion is detected */
-        for (i=0; i<5; i++)
-            if (ABS(hfc->ctrl_initial[i] - hfc->ctrl_out[RAW][i]) > AUTO_PROF_TERMINATE_THRS)
-            {
-//                debug_print("Profiling terminated\r\n");
-                hfc->profile_mode = PROFILING_OFF;
-                hfc->streaming_enable = false;
-                delta = 0;
-                //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
-                break;
-            }
-
-        *controlled = (*controlled) + delta;
-    }
-}
-#endif
-
 void GyroCalibDynamic(FlightControlData *hfc)
 {
     int i;

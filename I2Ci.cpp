@@ -10,6 +10,8 @@
 #define IRQ_I2C_READ        1
 #define IRQ_I2C_WRITE       2
 
+#define MAX_PAYLOAD_BYTES   128
+
 volatile I2Ci::I2CBuffer I2Ci::Buffer1 = {0,0};        //Sets the initial buffer empty and count on zero
 volatile I2Ci::I2CBuffer I2Ci::Buffer2 = {0,0};        //Sets the initial buffer empty
 volatile int I2Ci::defaultStatus=0;
@@ -71,7 +73,8 @@ void I2Ci::write_reg_blocking(int address, char data) // function to talk with t
 
 void I2Ci::write_blocking(int address, char reg, char *data, int length)
 {
-   char d[length+1];
+   char d[MAX_PAYLOAD_BYTES];
+
    d[0] = reg;
    for(int i = 0; i<length; i++) {
        d[i+1] = data[i];
@@ -83,7 +86,8 @@ void I2Ci::write_blocking(int address, char reg, char *data, int length)
 
 void I2Ci::write_blocking(int address, char* reg, int reg_len, char *data, int data_len)
 {
-   char d[reg_len+data_len]; // register length is two bytes
+   char d[MAX_PAYLOAD_BYTES];
+
    for(int i = 0; i<reg_len; i++) {
        d[i] = reg[i];
    }
@@ -163,7 +167,8 @@ int I2Ci::read_reg_blocking(int address, char reg)
 
 int I2Ci::read_reg_blocking(int address, char* reg, int reg_len)
 {
-    char d[reg_len]; // register length is two bytes
+    char d[MAX_PAYLOAD_BYTES];
+
     volatile int status;
 
     for(int i = 0; i<reg_len; i++) {
