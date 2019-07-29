@@ -459,6 +459,7 @@ void InitializeOdometer(FlightControlData *hfc)
 {
   uint32 *pOdometerReading = (uint32 *)&ram_config;
 
+  KICK_WATCHDOG();
   memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
   memcpy(pOdometerReading, (void *)sector_start_adress[FLASH_ODOMETER_SECTOR], sizeof(int));
 

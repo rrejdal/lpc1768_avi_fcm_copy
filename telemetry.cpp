@@ -518,7 +518,7 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     msg->lidar_raw_rear = Float32toFloat16(hfc->altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX]);
     msg->controlStatus = hfc->controlStatus;
     msg->lidar_online_mask = hfc->lidar_online_mask;
-    
+    msg->raw_heading = hfc->raw_heading;
     InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
 }
 
@@ -743,6 +743,9 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->imu_serial_num = hfc->imu_serial_num;
 
     msg->odometerReading = (hfc->OdometerReading /1000);
+
+    msg->system_status_mask = hfc->system_status_mask;
+    msg->system_reset_reason = hfc->system_reset_reason;
 
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
@@ -1315,7 +1318,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             else
             if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
             {
-                // TODO::SP - Removing this for Indro demo, to hook up new box drop
+                // NOTE::SP - Removing this for Indro demo, to hook up new box drop
                 // Another HACK OF THE DAY 09-12-2018
                 CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1);
 
@@ -2454,7 +2457,9 @@ void TelemSerial::ProcessCommands(void)
     {
         if (sub_cmd == RESET_SUBID) {
             // NOTE::SP: Causes a MICRO Soft Reset
-            NVIC_SystemReset();
+            //NVIC_SystemReset();
+            //InitializeWatchdog(1.0f);
+            while(1);
         }
     }
     else

@@ -26,6 +26,12 @@ extern USBSerial   serial;
 
 #define LOOP_PERIOD     1000    // 1000Hz   830 // in mS
 
+#define MAX_NUM_CASTLE_LINKS 2
+#define MAX_NUM_GPS          1
+#define MAX_NUMBER_SERVO_NODES  2
+#define MAX_BOARD_TYPES      5
+#define MAX_NODE_NUM         2
+
 
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
 
@@ -250,5 +256,38 @@ typedef enum {
 #define DEFAULT_TAKEOFF_TIMEOUT 60000000  // 60 Seconds
 #define DEFAULT_LANDING_TIMEOUT 30000000  // 30 Seconds
 #define DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT 3000000 // 3 Seconds
+
+// System Failure Status flags
+#define CONFIG_FAIL       (1 << 0)
+
+#define NAV_NODE_FAIL       (1 << 1)
+#define N2_NAV_NODE_FAIL    (1 << 2)
+
+#define SERVO_NODE_FAIL     (1 << 3)
+#define N2_SERVO_NODE_FAIL  (1 << 4)
+
+#define PWR_NODE_FAIL       (1 << 5)
+#define N2_PWR_NODE_FAIL    (1 << 6)
+
+#define N1_GPS0_FAIL      (1 << 7)
+#define N1_GPS1_FAIL      (1 << 8)
+#define N1_COMPASS0_FAIL  (1 << 9)
+#define N1_COMPASS1_FAIL  (1 << 10)
+
+#define N2_GPS0_FAIL      (1 << 11)
+#define N2_GPS1_FAIL      (1 << 12)
+#define N2_COMPASS0_FAIL  (1 << 13)
+#define N2_COMPASS1_FAIL  (1 << 14)
+
+#define IMU_FAIL          (1 << 15)
+#define IMU_WARN          (1 << 16)
+#define BARO_FAIL         (1 << 17)
+
+#define RESET_REASON_POR  (1 << 0)
+#define RESET_REASON_EXTR (1 << 1)
+#define RESET_REASON_WD   (1 << 2)
+#define RESET_REASON_BODR (1 << 3)
+#define RESET_REASON_SYS  (1 << 4)
+#define RESET_REASON_LOCK (1 << 5)
 
 #endif

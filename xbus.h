@@ -80,7 +80,7 @@ class XBus
         int sbus_flag_errors;           // number of error conditions reported from sbus flags
         char NewValues(float dT, unsigned char throttle_armed, unsigned char fixed_throttle_mode); // returns 0- no new, 1-new, 2-timeout
 
-        void ConfigRx();
+        void ConfigRx(const ConfigData *pConfig);
         bool RcLinkOnline(void);
 
     private:

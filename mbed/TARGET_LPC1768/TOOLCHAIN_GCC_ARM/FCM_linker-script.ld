@@ -1,7 +1,8 @@
 MEMORY
 {
   FLASH (rx) : ORIGIN = 0x00000000, LENGTH = (512K - 64K)
-  RAM (rwx) : ORIGIN = 0x100000C8, LENGTH = (28K - 0xC8 - 32)
+  RAM (rwx) : ORIGIN = 0x100000C8, LENGTH = (17K - 0xC8 - 32)
+  HfcRuntime (rwx): ORIGIN = 0x10004400, LENGTH = 11k
   RamConfig (rwx): ORIGIN = 0x10007000, LENGTH = 4k
   USB_RAM(rwx) : ORIGIN = 0x2007C000, LENGTH = 16K
   ETH_RAM(rwx) : ORIGIN = 0x20080000, LENGTH = 16K
@@ -80,6 +81,13 @@ SECTIONS
     	KEEP(*(.ramconfig))
     	. = ALIGN(4) ;
     } > RamConfig
+    .hfcruntime : ALIGN(4)
+    {
+    	_hfcruntime = .;
+    	*(.hfcruntime*);
+    	KEEP(*(.hfcruntime))
+    	. = ALIGN(4) ;
+    } > HfcRuntime
     .heap :
     {
         __end__ = .;

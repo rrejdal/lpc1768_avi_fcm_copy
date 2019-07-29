@@ -10,6 +10,11 @@
 #define EarthR  6372795
 #define DPM (180.0f/EarthR/3.14159265359f)   // degrees per meter
 
+#define KICK_WATCHDOG() { \
+		LPC_WDT->WDFEED = 0xAA; \
+		LPC_WDT->WDFEED = 0x55; \
+}
+
 /* returns distance in meters and course in deg (+/-180) from north CW from (1) to (2) */
 /* accurate only for short distances, a few kilometers, since it assumes the Earth is flat */
 float DistanceCourse(double lat1, double long1, double lat2, double long2, float *course);
@@ -32,7 +37,7 @@ void perf_printf();
 
 bool Streaming_Process(FlightControlData *hfc);
 
-void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
+//void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig);
 
 /* float32/float16 conversion
 ** largest +/-65504, smallest +/-6.10352e—6 */
@@ -40,8 +45,8 @@ float Float16toFloat32(const unsigned short int in);
 unsigned short int Float32toFloat16(const float in);
 
 /* watchdog API */
-void WDT_Kick();
-void WDT_Init(float timeout);
+void KickWatchdog();
+void InitializeWatchdog(float timeout);
 bool WDT_ResetByWDT();
 
 void SensorCalib(FlightControlData *hfc, float dT);
@@ -49,5 +54,8 @@ void GyroCalibDynamic(FlightControlData *hfc);
 
 uint32_t crc32b(uint8_t *message, uint32_t length);
 bool N1WithinPercentOfN2(float n1, float percentage, float n2);
+uint32_t GetResetReason(void);
+
+void SetFcmLedState(uint32_t state_mask);
 
 #endif

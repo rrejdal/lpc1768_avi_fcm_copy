@@ -4,6 +4,8 @@
 #include "HMC5883L.h"
 #include "mymath.h"
 #include "defines.h"
+#include "main.h"
+#include "hardware.h"
 
 static unsigned int ticks;
 static unsigned int ticks_base=0;    // counts how many times SysTick wrapped around
@@ -12,6 +14,22 @@ static unsigned int p1_counter = 0;
 static int avg_delta = 0;
 static int min_delta = 1<<30;
 static int max_delta = 0;
+
+DigitalOut  led1(LED_1);
+DigitalOut  led2(LED_2);
+DigitalOut  led3(LED_3);
+DigitalOut  led4(LED_4);
+DigitalOut  ArmedLed(LED_3);
+
+DigitalOut  leds[4] = {led1, led2, led3, led4};
+
+void SetFcmLedState(uint32_t state_mask)
+{
+  for(int i=0; i < 4; i++) {
+    leds[i] = state_mask & (1 << i);
+  }
+
+}
 
 float DistanceCourse(double lat1, double long1, double lat2, double long2, float *course)
 {
@@ -407,6 +425,7 @@ bool Streaming_Process(FlightControlData *hfc)
     return false;
 }
 
+#if 0
 void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
 {
     if (hfc->profile_mode == PROFILING_START)
@@ -427,7 +446,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
     {
         int i;
         //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-        float *controlled = &hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
+        float *controlled = hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
         float delta = 0;            // value added to the controlled variable
         int t = GetTime_ms() - hfc->profile_start_time;  // timeline in ms
         int Td = hfc->profile_lag;
@@ -466,6 +485,7 @@ void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
         *controlled = (*controlled) + delta;
     }
 }
+#endif
 
 void GyroCalibDynamic(FlightControlData *hfc)
 {
@@ -474,22 +494,33 @@ void GyroCalibDynamic(FlightControlData *hfc)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
 
-// "kick" or "feed" the dog - reset the watchdog timer
-// by writing this required bit pattern
-void WDT_Kick()
+//
+// - NVIC Interrupt handler for the watchdog handler
+//
+void NVIC_WatchdogHandler(void)
 {
-    LPC_WDT->WDFEED = 0xAA;
-    LPC_WDT->WDFEED = 0x55;
+  NVIC_DisableIRQ(WDT_IRQn);
+
+  // Plan here is to look at the stack pointer and save to hfc (which is not re-initialised after soft boot)
+  // the address, thus we could trace reason for the watchdog.
+  // In addition we could keep track of the number of resets?
+  SetFcmLedState(0xF);
+
 }
 
 /* timeout in seconds */
-void WDT_Init(float timeout)
+void InitializeWatchdog(float timeout)
 {
-    LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
-    uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
-    LPC_WDT->WDTC = timeout * (float)clk;
-    LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
-    WDT_Kick();
+  //NVIC_SetVector(WDT_IRQn, (uint32_t)&NVIC_WatchdogHandler);
+  //NVIC_EnableIRQ(WDT_IRQn);
+
+  LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
+  uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
+  LPC_WDT->WDTC = timeout * (float)clk;
+  LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
+  //LPC_WDT->WDMOD = 0x2; // WD Int Mode
+
+  KICK_WATCHDOG();
 }
 
 /* to be called during startup, returns true if the reset by WDT timeout,
@@ -541,3 +572,10 @@ bool N1WithinPercentOfN2(float n1, float percentage, float n2)
     return (percentage > abs(abs(n2 - n1)/n2)*100.0);
   }
 }
+
+uint32_t GetResetReason(void)
+{
+  return LPC_SC->RSID;
+}
+
+
