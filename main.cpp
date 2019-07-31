@@ -43,6 +43,7 @@
 #include "main.h"
 #include "mediator.h"
 #include "config.h"
+#include "mixer.h"
 
 // Linker defined sections. DO NOT ALTER
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
@@ -94,15 +95,12 @@ static uint32_t InitCanbusNode(int node_type, int node_id, int timeout = 100);
 static void WriteToServos(int node_id, int num_servo_nodes);
 static void SetAgsControls(void);
 static void SetRCRadioControl(void);
-static void CCPM120mix(void);
-static void MixerTandem(void);
-static void CCPM140mix(void);
-static void MixerQuad(void);
-static void MixerHex(void);
-static void MixerOcto(void);
 static void ServoMixer(void);
 static inline void ServoOutput(void);
-static inline void PreventMotorsOffInArmed(int node_type, int num_motors);
+static inline void KeepMotorsOnWhenArmed(void);
+static inline void SetThrottle(void);
+static inline void SetDcpElevGains(void);
+static inline void TandemFanControl(void);
 static inline void ProcessStickInputs(FlightControlData *phfc, float dT);
 static bool CheckRangeAndSetF(float *pvalue, float value, float vmin, float vmax);
 static void CheckRangeAndSetI(int *pvalue, int value, int vmin, int vmax);
@@ -147,8 +145,9 @@ static uint32_t InitializeSystemData();
 static uint32_t InitCanbus(void);
 
 // ---- Local Data ---- //
+AviMixer *mixer = NULL;
+AviTandemMixer  *tandem_mixer = NULL;
 CastleLinkLive castle_link_live[MAX_NUM_CASTLE_LINKS];
-BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
 Mediator* lidar_median[MAX_NUM_LIDARS];
 
 static int can_node_found = 0;
@@ -183,9 +182,9 @@ int getNodeVersionNum(int type, int nodeId)
 {
   int vers_num;
 
-  vers_num = (board_info[type][nodeId].major_version) << 16;
-  vers_num |= (board_info[type][nodeId].minor_version) << 8;
-  vers_num |= (board_info[type][nodeId].build_version);
+  vers_num = (phfc->board_info[type][nodeId].major_version) << 16;
+  vers_num |= (phfc->board_info[type][nodeId].minor_version) << 8;
+  vers_num |= (phfc->board_info[type][nodeId].build_version);
 
   return vers_num;
 }
@@ -195,9 +194,9 @@ int getNodeVersionNum(int type, int nodeId)
 // @retval
 void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum)
 {
-  pSerailNum[0] = (board_info[type][nodeId].serial_number0);
-  pSerailNum[1] = (board_info[type][nodeId].serial_number1);
-  pSerailNum[2] = (board_info[type][nodeId].serial_number2);
+  pSerailNum[0] = (phfc->board_info[type][nodeId].serial_number0);
+  pSerailNum[1] = (phfc->board_info[type][nodeId].serial_number1);
+  pSerailNum[2] = (phfc->board_info[type][nodeId].serial_number2);
 }
 
 // @brief
@@ -774,358 +773,27 @@ static void SetRCRadioControl(void)
     }
 }
 
-/* CCPM 120deg mixer ==========================================================
-** input: raw throttle, pitch and roll values
-** output: servo signals A (at 6 o'clock) B (at 2 o'clock) and C (at 10 o'clock)
-** value range: -/+ 0.571 corresponds to 100% stick */
-// @brief
-// @param
-// @retval
-static void CCPM120mix(void)
-{
-    /* collective */
-    float A = phfc->mixer_in[COLL];
-    float B = phfc->mixer_in[COLL];
-    float C = phfc->mixer_in[COLL];
-
-    /* roll */
-    B -= phfc->mixer_in[ROLL] * 0.8660254038f; //cos(30);
-    C += phfc->mixer_in[ROLL] * 0.8660254038f; //cos(30);
-    
-    /* pitch */
-    A += phfc->mixer_in[PITCH];
-    B -= phfc->mixer_in[PITCH] * 0.5f; //sin(30);
-    C -= phfc->mixer_in[PITCH] * 0.5f; //sin(30);
-    
-    phfc->servos_out[0][CCPM_A] = A;
-    phfc->servos_out[0][CCPM_B] = B;
-    phfc->servos_out[0][CCPM_C] = C;
-}
-
-/* CCPM 140deg mixer ==========================================================
-** input: raw throttle, pitch and roll values
-** output: servo signals A (at 6 o'clock) B (at 2 o'clock) and C (at 10 o'clock)
-** value range: -/+ 0.571 corresponds to 100% stick */
-// @brief
-// @param
-// @retval
-static void CCPM140mix(void)
-{
-    /* collective */
-    float A = phfc->mixer_in[COLL];
-    float B = phfc->mixer_in[COLL];
-    float C = phfc->mixer_in[COLL];
-
-    /* roll */
-    B -= phfc->mixer_in[ROLL] * 0.8660254038f; //cos(30);
-    C += phfc->mixer_in[ROLL] * 0.8660254038f; //cos(30);
-
-    /* pitch */
-    A += phfc->mixer_in[PITCH];
-    B -= phfc->mixer_in[PITCH];
-    C -= phfc->mixer_in[PITCH];
-
-    phfc->servos_out[0][CCPM_A] = A;
-    phfc->servos_out[0][CCPM_B] = B;
-    phfc->servos_out[0][CCPM_C] = C;
-}
-
-/* Tandem Helicopter Mixer ====================================================
- ** input: collective, pitch and roll values
- ** input: XBUS channel 6 and 7 raw values
- ** output: servo signals
- ** value range: -/+ 0.571 corresponds to 100% stick
- */
-// @brief
-// @param
-// @retval
-//         Servo map on Tandem
-// NOTE::SP: Check MAPPING to HARDWARE
-//    Front(Node 1)               Rear(Node 2)
-//   B(3)                             B(3)
-//       C(4)   <---------------  C(4)
-//   A(2)                             A(2)
-// () servo channel output
-//
-// Throttle(1)
-// CcpmMixer value of 0.5 multiplier is used for 120deg CCPM
-// CcpmMixer value of 1.0 multiplier is used for 140deg CCPM
-static void MixerTandem(void)
-{
-  float ROLL_Taileron;
-  float PITCH_Televator, PITCH_TelevatorR;
-  float YAW_Trudder;
-  float dcp, torqComp;
-  float TcollectFront,TcollectRear;
-  float ROLL_TaileronFront, ROLL_TaileronRear;
-
-  // Link Live Throttle on Front Servo output 0
-  if (phfc->throttle_value > 0.5f) {
-    phfc->servos_out[0][0] = phfc->mixer_in[THRO] * pConfig->throttle_gain;
-  }
-  else {
-    phfc->servos_out[0][0] = phfc->mixer_in[THRO];
-  }
-
-  if (pConfig->ModelSelect == TANDEM_210TL) {
-    // OPERATING AS 210TL
-
-    // Link Live Throttle on Rear Servo output 0, set to front value + trim value
-    phfc->servos_out[1][0] = phfc->servos_out[0][0] + pConfig->RearRpmTrim;
-
-    if ((pConfig->dcp_gain == 0) && (pConfig->elevator_gain == 0)) {
-        // Take values from xbus in this case
-        phfc->rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
-        phfc->rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);
-    }
-    else {
-        // Take values for dcp and elevator gain from the config
-        phfc->rw_cfg.elevator_gain = pConfig->elevator_gain;         // use only positive half
-        phfc->rw_cfg.dcp_gain  = pConfig->dcp_gain;
-    }
-
-    // gain calculation 0 to .571 maximum, could x 1.7512f for full 0 to 1 range
-    // gain is set usually by digital levers on the transmitter for in flight adjustment
-    ROLL_Taileron  = phfc->mixer_in[ROLL]  * pConfig->AilRange;
-    PITCH_Televator = phfc->mixer_in[PITCH] * pConfig->EleRange * phfc->rw_cfg.elevator_gain;
-    PITCH_TelevatorR = PITCH_Televator * pConfig->swashTiltRear;
-    YAW_Trudder   = phfc->mixer_in[YAW] * pConfig->RudRange;
-
-    dcp      = PITCH_Televator * phfc->rw_cfg.dcp_gain; // Differential collective pitch calculation
-    torqComp = dcp * pConfig->TorqCompMult;             // Torque compensation due to dcp and elevator
-
-    TcollectFront = phfc->mixer_in[COLL] * pConfig->CollRange + dcp * pConfig->dcpFront;
-    TcollectRear  = phfc->mixer_in[COLL] * pConfig->CollRange - dcp * pConfig->dcpRear;
-
-    ROLL_TaileronFront = ROLL_Taileron + YAW_Trudder + torqComp;
-    ROLL_TaileronRear  = ROLL_Taileron - YAW_Trudder - torqComp;
-
-    // Front Servo
-    phfc->servos_out[0][1] = 0 + ROLL_TaileronFront + (pConfig->CcpmMixer * PITCH_Televator) + TcollectFront;   // aFrontServo
-    phfc->servos_out[0][2] = 0 + ROLL_TaileronFront - (pConfig->CcpmMixer * PITCH_Televator) - TcollectFront;   // bFrontServo
-    phfc->servos_out[0][3] = 0 + TcollectFront - PITCH_Televator;                                               // cFrontServo
-
-    // Rear Servo
-    phfc->servos_out[1][1] = 0 - TcollectRear  - (pConfig->CcpmMixer * PITCH_TelevatorR) - ROLL_TaileronRear;    // aRearServo
-    phfc->servos_out[1][2] = 0 + TcollectRear  + (pConfig->CcpmMixer * PITCH_TelevatorR) - ROLL_TaileronRear;    // bRearServo
-    phfc->servos_out[1][3] = 0 - TcollectRear  + PITCH_TelevatorR;
-
-  }
-  else if (pConfig->ModelSelect == TANDEM_COPYCAT) {
-    // CCPM120 Heli, setup as 210 configuration for testing
-
-    // Link Live Throttle on Rear Servo output 0, just duplicate what on front
-    phfc->servos_out[1][0] = phfc->servos_out[0][0];
-
-    // Collective
-    float A = phfc->mixer_in[COLL]*pConfig->CollRange;
-    float B = -phfc->mixer_in[COLL]*pConfig->CollRange;
-    float C = phfc->mixer_in[COLL]*pConfig->CollRange;
-
-    // Roll
-    B += phfc->mixer_in[ROLL] * 0.8660254038f; //cos(30);
-    C += phfc->mixer_in[ROLL] * 0.8660254038f; //cos(30);
-
-    // Pitch
-    A -= phfc->mixer_in[PITCH];
-    B -= phfc->mixer_in[PITCH] * 0.5f; //sin(30);
-    C += phfc->mixer_in[PITCH] * 0.5f; //sin(30);
-
-    phfc->servos_out[0][1] = A;
-    phfc->servos_out[0][2] = B;
-    phfc->servos_out[0][3] = C;
-    phfc->servos_out[0][4] = -phfc->mixer_in[YAW];
-
-    // Duplicate Rear 'false' servo to match front
-    phfc->servos_out[1][1] = phfc->servos_out[0][1];
-    phfc->servos_out[1][2] = phfc->servos_out[0][2];
-    phfc->servos_out[1][3] = phfc->servos_out[0][3];
-    phfc->servos_out[1][4] = phfc->servos_out[0][4];
-  }
-  else {
-    // not supported.
-  }
-}
-
-/* Quad Mixer
- *
- *  3CW       0CCW
- *     \  ^  /
- *     /  |  \
- * 2CCW       1CW
- *
- */
-static void MixerQuad(void)
-{
-    for (int i=0; i < 4; i++) {
-        phfc->servos_out[0][i] = phfc->mixer_in[THRO]* pConfig->throttle_gain;
-    }
-
-    // 6 & 7 are Unused outputs
-    phfc->servos_out[0][6] = 0;
-    phfc->servos_out[0][7] = 0;
-
-    phfc->servos_out[0][0] -= phfc->mixer_in[ROLL];
-    phfc->servos_out[0][1] -= phfc->mixer_in[ROLL];
-    phfc->servos_out[0][2] += phfc->mixer_in[ROLL];
-    phfc->servos_out[0][3] += phfc->mixer_in[ROLL];
-
-    phfc->servos_out[0][0] += phfc->mixer_in[PITCH];
-    phfc->servos_out[0][1] -= phfc->mixer_in[PITCH];
-    phfc->servos_out[0][2] -= phfc->mixer_in[PITCH];
-    phfc->servos_out[0][3] += phfc->mixer_in[PITCH];
-
-    phfc->servos_out[0][0] += phfc->mixer_in[YAW];
-    phfc->servos_out[0][1] -= phfc->mixer_in[YAW];
-    phfc->servos_out[0][2] += phfc->mixer_in[YAW];
-    phfc->servos_out[0][3] -= phfc->mixer_in[YAW];
-
-    PreventMotorsOffInArmed(FCM_SERVO, 4);
-}
-
-/*
- * Hex layout as shown
- *
- *  5CCW     0CW
- *      \   /
- *  4CW-- | --1CCW
- *      /   \
- *  3CCW     2CW
- *
- */
-static void MixerHex(void)
-{
-    for (int i=0; i < 6; i++) {
-        phfc->servos_out[0][i] = phfc->mixer_in[THRO]* pConfig->throttle_gain;
-    }
-
-    // Channels 6 & 7 not used.
-    phfc->servos_out[0][6] = 0;
-    phfc->servos_out[0][7] = 0;
-
-    phfc->servos_out[0][0] -= phfc->mixer_in[ROLL]*0.5f;
-    phfc->servos_out[0][1] -= phfc->mixer_in[ROLL];
-    phfc->servos_out[0][2] -= phfc->mixer_in[ROLL]*0.5f;
-    phfc->servos_out[0][3] += phfc->mixer_in[ROLL]*0.5f;
-    phfc->servos_out[0][4] += phfc->mixer_in[ROLL];
-    phfc->servos_out[0][5] += phfc->mixer_in[ROLL]*0.5f;
-    
-    phfc->servos_out[0][0] += phfc->mixer_in[PITCH]*0.866f;
-    phfc->servos_out[0][2] -= phfc->mixer_in[PITCH]*0.866f;
-    phfc->servos_out[0][3] -= phfc->mixer_in[PITCH]*0.866f;
-    phfc->servos_out[0][5] += phfc->mixer_in[PITCH]*0.866f;
-    
-    phfc->servos_out[0][0] += phfc->mixer_in[YAW];     //cw
-    phfc->servos_out[0][1] -= phfc->mixer_in[YAW];
-    phfc->servos_out[0][2] += phfc->mixer_in[YAW];     //cw
-    phfc->servos_out[0][3] -= phfc->mixer_in[YAW];
-    phfc->servos_out[0][4] += phfc->mixer_in[YAW];     //cw
-    phfc->servos_out[0][5] -= phfc->mixer_in[YAW];
-
-    PreventMotorsOffInArmed(FCM_SERVO, 6);
-}
-
-/* Octo Mixer
- *
- *    7CCW     0CW
- *      \   ^  /
- *  6CW     |     1CCW
- *     \-   |   -/
- *     /-       -\
- * 5CCW           2CW
- *      /       \
- *    4CW     3CCW
- *
- */
-static void MixerOcto(void)
-{
-    for (int i=0; i < 8; i++) {
-        phfc->servos_out[0][i] = phfc->mixer_in[THRO]* pConfig->throttle_gain;
-    }
-
-    phfc->servos_out[0][0] += phfc->mixer_in[PITCH];
-    phfc->servos_out[0][1] += phfc->mixer_in[PITCH] * 0.414174f;
-    phfc->servos_out[0][2] -= phfc->mixer_in[PITCH] * 0.414174f;
-    phfc->servos_out[0][3] -= phfc->mixer_in[PITCH];
-    phfc->servos_out[0][4] -= phfc->mixer_in[PITCH];
-    phfc->servos_out[0][5] -= phfc->mixer_in[PITCH] * 0.414174f;
-    phfc->servos_out[0][6] += phfc->mixer_in[PITCH] * 0.414174f;
-    phfc->servos_out[0][7] += phfc->mixer_in[PITCH];
-
-    phfc->servos_out[0][0] -= phfc->mixer_in[ROLL] * 0.414174f;
-    phfc->servos_out[0][1] -= phfc->mixer_in[ROLL];
-    phfc->servos_out[0][2] -= phfc->mixer_in[ROLL];
-    phfc->servos_out[0][3] -= phfc->mixer_in[ROLL] * 0.414174f;
-    phfc->servos_out[0][4] += phfc->mixer_in[ROLL] * 0.414174f;
-    phfc->servos_out[0][5] += phfc->mixer_in[ROLL];
-    phfc->servos_out[0][6] += phfc->mixer_in[ROLL];
-    phfc->servos_out[0][7] += phfc->mixer_in[ROLL] * 0.414174f;
-
-    phfc->servos_out[0][0] += phfc->mixer_in[YAW];         //cw
-    phfc->servos_out[0][1] -= phfc->mixer_in[YAW];
-    phfc->servos_out[0][2] += phfc->mixer_in[YAW];         //cw
-    phfc->servos_out[0][3] -= phfc->mixer_in[YAW];
-    phfc->servos_out[0][4] += phfc->mixer_in[YAW];         //cw
-    phfc->servos_out[0][5] -= phfc->mixer_in[YAW];
-    phfc->servos_out[0][6] += phfc->mixer_in[YAW];         //cw
-    phfc->servos_out[0][7] -= phfc->mixer_in[YAW];
-
-    PreventMotorsOffInArmed(FCM_SERVO, 8);
-}
-
 // @brief
 // @param
 // @retval
 static void ServoMixer(void)
 {
-  switch(pConfig->ccpm_type) {
-    case CCPM_NONE:
-      phfc->servos_out[0][THRO]  = phfc->mixer_in[THRO];
-      phfc->servos_out[0][PITCH] = phfc->mixer_in[PITCH];
-      phfc->servos_out[0][ROLL]  = phfc->mixer_in[ROLL];
-      phfc->servos_out[0][YAW]   = phfc->mixer_in[YAW];
-      phfc->servos_out[0][COLL]  = 0;
-    break;
-
-    case CCPM_120:
-      phfc->servos_out[0][YAW]  = phfc->mixer_in[YAW];
-      phfc->servos_out[0][THRO] = phfc->mixer_in[THRO];
-      CCPM120mix();
-    break;
-
-    case CCPM_140:
-      phfc->servos_out[0][YAW] = phfc->mixer_in[YAW];
-      phfc->servos_out[0][THRO] = phfc->mixer_in[THRO];
-      CCPM140mix();
-    break;
-
-    case CCPM_HEX:
-      MixerHex();
-    break;
-
-    case CCPM_QUAD:
-      MixerQuad();
-
-      // Throttle Armed LEDs on channel 4 and 5
-      // TODO::SP: Need a way of configuring this..
+  if (pConfig->ccpm_type == CCPM_TANDEM) {
+    SetThrottle();
+    SetDcpElevGains();
+    tandem_mixer->ServoMixer(phfc->mixer_in, &phfc->servos_out[0][0], &phfc->servos_out[1][0]);
+    TandemFanControl();
+  }
+  else {
+    SetThrottle();
+    mixer->ServoMixer(phfc->mixer_in, &phfc->servos_out[0][0]);
+    
+    // TODO::SP This is a special and needs sorting out
+    if(pConfig->ccpm_type == CCPM_QUAD) {
       phfc->servos_out[0][4] = ((phfc->throttle_value > 0.5) && phfc->throttle_armed) ? 1 : -1;
       phfc->servos_out[0][5] = phfc->throttle_armed ? 1 : -1;
-    break;
-
-    case CCPM_OCTO:
-      MixerOcto();
-    break;
-
-    case CCPM_TANDEM:
-      MixerTandem();
-
-      // Drive PWM Ch5 on front back servos for Fan Control
-      phfc->servos_out[0][7] = phfc->throttle_armed ? 1 : -1;
-      phfc->servos_out[1][7] = phfc->throttle_armed ? 1 : -1;
-      break;
-
-    default:
-      break;
+    }
+    KeepMotorsOnWhenArmed();
   }
 }
 
@@ -1149,18 +817,77 @@ static inline void ServoOutput(void)
 // @brief
 // @param
 // @retval
-static inline void PreventMotorsOffInArmed(int node_type, int num_motors)
+static inline void KeepMotorsOnWhenArmed(void)
 {
-    // Keep motors from turning off once armed
-    if ((phfc->throttle_armed && (phfc->throttle_value > -0.5f))
-                || (phfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
+  // Keep motors from turning off once armed
+  if ((phfc->throttle_armed && (phfc->throttle_value > -0.5f))
+          || (phfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)) {
 
-        for (int i = 0; i < num_motors; i++) {
-            if(phfc->servos_out[node_type][i] < pConfig->throttle_multi_min) {
-                phfc->servos_out[node_type][i] = pConfig->throttle_multi_min;
-            }
-        }
+    for (int i = 0; i < phfc->num_motors; i++) {
+      if(phfc->servos_out[0][i] < pConfig->throttle_multi_min) {
+        phfc->servos_out[0][i] = pConfig->throttle_multi_min;
+      }
     }
+  }
+}
+
+// @brief
+// @param
+// @retval
+static inline void SetThrottle(void)
+{
+  if (pConfig->ccpm_type == CCPM_TANDEM) {
+    // Front
+    if (phfc->throttle_value > 0.5f) {
+      phfc->servos_out[0][0] = phfc->mixer_in[THRO] * pConfig->throttle_gain;
+    }
+    else {
+      phfc->servos_out[0][0] = phfc->mixer_in[THRO];
+    }
+
+    // Rear
+    if(pConfig->ModelSelect == TANDEM_210TL) {
+      // Link Live Throttle on Rear Servo output 0, set to front value + trim value
+      phfc->servos_out[1][0] = phfc->servos_out[0][0] + pConfig->RearRpmTrim;
+    }
+    else {
+      phfc->servos_out[1][0] = phfc->servos_out[0][0];
+    }
+  }
+  else {
+    for (int i=0; i < phfc->num_motors; i++) {
+        phfc->servos_out[0][i] = phfc->mixer_in[THRO] * pConfig->throttle_gain;
+    }
+  }
+}
+
+// @brief
+// @param
+// @retval
+static inline void SetDcpElevGains(void)
+{
+  if ((pConfig->dcp_gain == 0) && (pConfig->elevator_gain == 0)) {
+      // Take values from xbus in this case
+      phfc->rw_cfg.elevator_gain = abs(xbus.valuesf[ELEVGAIN]);         // use only positive half
+      phfc->rw_cfg.dcp_gain  = abs(xbus.valuesf[DCPGAIN]);
+  }
+  else {
+      // Take values for dcp and elevator gain from the config
+      phfc->rw_cfg.elevator_gain = pConfig->elevator_gain;         // use only positive half
+      phfc->rw_cfg.dcp_gain  = pConfig->dcp_gain;
+  }
+
+  tandem_mixer->UpdateDcpElevGains(phfc->rw_cfg.dcp_gain, phfc->rw_cfg.elevator_gain);
+}
+
+// @brief
+// @param
+// @retval
+static inline void TandemFanControl(void)
+{
+  // Drive PWM Ch5 on front back servos for Fan Control
+  phfc->servos_out[0][7] = phfc->throttle_armed ? 1 : -1;
+  phfc->servos_out[1][7] = phfc->throttle_armed ? 1 : -1;
 }
 
 // @brief
@@ -3412,14 +3139,14 @@ static void UpdateHwIdLow(int node_id, unsigned char *pdata)
     int board_type = pdata[0];
 
     if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
-        board_info[board_type][node_id].major_version = pdata[1];
-        board_info[board_type][node_id].minor_version = pdata[2];
-        board_info[board_type][node_id].build_version = pdata[3];
+      phfc->board_info[board_type][node_id].major_version = pdata[1];
+      phfc->board_info[board_type][node_id].minor_version = pdata[2];
+      phfc->board_info[board_type][node_id].build_version = pdata[3];
 
-        board_info[board_type][node_id].serial_number2 = pdata[4] << 24;
-        board_info[board_type][node_id].serial_number2 |= pdata[5] << 16;
-        board_info[board_type][node_id].serial_number2 |= (pdata[6] << 8);
-        board_info[board_type][node_id].serial_number2 |= (pdata[7]);
+      phfc->board_info[board_type][node_id].serial_number2 = pdata[4] << 24;
+      phfc->board_info[board_type][node_id].serial_number2 |= pdata[5] << 16;
+      phfc->board_info[board_type][node_id].serial_number2 |= (pdata[6] << 8);
+      phfc->board_info[board_type][node_id].serial_number2 |= (pdata[7]);
     }
 }
 
@@ -3429,15 +3156,15 @@ static void UpdateHwIdLow(int node_id, unsigned char *pdata)
 static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata)
 {
     if ((board_type < MAX_BOARD_TYPES) && (node_id < MAX_NODE_NUM)) {
-        board_info[board_type][node_id].serial_number1 = pdata[0] << 24;
-        board_info[board_type][node_id].serial_number1 |= pdata[1] << 16;
-        board_info[board_type][node_id].serial_number1 |= (pdata[2] << 8);
-        board_info[board_type][node_id].serial_number1 |= (pdata[3]);
+      phfc->board_info[board_type][node_id].serial_number1 = pdata[0] << 24;
+      phfc->board_info[board_type][node_id].serial_number1 |= pdata[1] << 16;
+      phfc->board_info[board_type][node_id].serial_number1 |= (pdata[2] << 8);
+      phfc->board_info[board_type][node_id].serial_number1 |= (pdata[3]);
 
-        board_info[board_type][node_id].serial_number0 = pdata[4] << 24;
-        board_info[board_type][node_id].serial_number0 |= pdata[5] << 16;
-        board_info[board_type][node_id].serial_number0 |= (pdata[6] << 8);
-        board_info[board_type][node_id].serial_number0 |= (pdata[7]);
+      phfc->board_info[board_type][node_id].serial_number0 = pdata[4] << 24;
+      phfc->board_info[board_type][node_id].serial_number0 |= pdata[5] << 16;
+      phfc->board_info[board_type][node_id].serial_number0 |= (pdata[6] << 8);
+      phfc->board_info[board_type][node_id].serial_number0 |= (pdata[7]);
     }
 }
 
@@ -3577,7 +3304,6 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
       esc_temp /= MAX_NUM_CASTLE_LINKS;
     }
 
-    // TODO::??: Note, removed the use of PowerCoeffs here. Check why they are needed.
     phfc->power.Iaux   = Iaux;
     phfc->power.Iesc   = (Iesc + 3* phfc->power.Iesc ) * 0.25f;
     phfc->power.Iesc   = ClipMinMax(phfc->power.Iesc, 0, phfc->power.Iesc);
@@ -4708,20 +4434,20 @@ static void ProcessUserCmnds(char c)
         usb_print("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
             usb_print("Type[ SN], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        board_info[PN_SN][i].major_version, board_info[PN_SN][i].minor_version, board_info[PN_SN][i].build_version,
-                        board_info[PN_SN][i].serial_number2, board_info[PN_SN][i].serial_number1, board_info[PN_SN][i].serial_number0);
+                        phfc->board_info[PN_SN][i].major_version, phfc->board_info[PN_SN][i].minor_version, phfc->board_info[PN_SN][i].build_version,
+                        phfc->board_info[PN_SN][i].serial_number2, phfc->board_info[PN_SN][i].serial_number1, phfc->board_info[PN_SN][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_gps_nodes; i++) {
             usb_print("Type[GPS], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        board_info[PN_GPS][i].major_version, board_info[PN_GPS][i].minor_version, board_info[PN_GPS][i].build_version,
-                        board_info[PN_GPS][i].serial_number2, board_info[PN_GPS][i].serial_number1, board_info[PN_GPS][i].serial_number0);
+                        phfc->board_info[PN_GPS][i].major_version, phfc->board_info[PN_GPS][i].minor_version, phfc->board_info[PN_GPS][i].build_version,
+                        phfc->board_info[PN_GPS][i].serial_number2, phfc->board_info[PN_GPS][i].serial_number1, phfc->board_info[PN_GPS][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_power_nodes; i++) {
             usb_print("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        board_info[PN_PWR][i].major_version, board_info[PN_PWR][i].minor_version, board_info[PN_PWR][i].build_version,
-                        board_info[PN_PWR][i].serial_number2, board_info[PN_PWR][i].serial_number1, board_info[PN_PWR][i].serial_number0);
+                        phfc->board_info[PN_PWR][i].major_version, phfc->board_info[PN_PWR][i].minor_version, phfc->board_info[PN_PWR][i].build_version,
+                        phfc->board_info[PN_PWR][i].serial_number2, phfc->board_info[PN_PWR][i].serial_number1, phfc->board_info[PN_PWR][i].serial_number0);
             usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",phfc->power.Vslope,phfc->power.Voffset,phfc->power.Islope,phfc->power.Ioffset);
         }
 
@@ -5287,6 +5013,8 @@ static void InitializeRuntimeData(void)
 
   phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 
+  phfc->num_motors = 0;
+
   //phfc->abort_flight_timer = ABORT_TIMEOUT_SEC;
   LPC_RIT->RICOUNTER = 0;
 }
@@ -5302,7 +5030,6 @@ static uint32_t InitializeSystemData()
   KICK_WATCHDOG();
   memset(pRamConfigData, 0x00, sizeof(ConfigData));
 
-  // load configuration,
   if (LoadConfiguration(&pConfig) < 0) {
     ret_value = CONFIG_FAIL;
   }
@@ -5317,6 +5044,32 @@ static uint32_t InitializeSystemData()
 
   gps.Init(pConfig->num_gps_nodes);
 
+  // Instantiate mixer to be used, based upon configuration
+  switch(pConfig->ccpm_type) {
+    case CCPM_120:
+      mixer = new CCPM120Mixer();
+    break;
+    case CCPM_140:
+      mixer = new CCPM140Mixer();
+    break;
+    case CCPM_QUAD:
+      mixer = new QuadMixer();
+      phfc->num_motors = 4;
+    break;
+    case CCPM_HEX:
+      mixer = new HexMixer();
+      phfc->num_motors = 6;
+    break;
+    case CCPM_OCTO:
+      mixer = new OctoMixer();
+      phfc->num_motors = 8;
+    break;
+    case CCPM_TANDEM:
+      tandem_mixer = new AviTandemMixer(pConfig);
+      break;
+    default:
+    break;
+  }
   return ret_value;
 }
 
@@ -5334,7 +5087,9 @@ int main()
 
   SysTick_Run();
 
+#ifndef DEBUG
   InitializeWatchdog(0.5f);  // 0.5 sec timeout
+#endif
 
   // Initialize system configuration, Runtime Data and Peripherals
   phfc->system_status_mask |= InitializeSystemData();

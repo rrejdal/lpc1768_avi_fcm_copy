@@ -1796,6 +1796,13 @@ char TelemSerial::PreFlightChecks(void)
 
     int gps_error;
 
+    // Hardware Status - ANY issues result in a Preflight failure
+    if (hfc->system_status_mask != 0)
+    {
+      SendMsgToGround(MSG2GROUND_PFCHECK_HW_FAIL);
+      return false;
+    }
+
     // Resetting IMU before pre-flight check, to deal with noisy compass type
     ResetIMU(false);
 
@@ -1845,12 +1852,6 @@ char TelemSerial::PreFlightChecks(void)
     /* power module */
     if (pConfig->power_node)
     {
-        if (hfc->stats.can_power_tx_errors)
-        {
-            SendMsgToGround(MSG2GROUND_PFCHECK_CAN_POWER);
-            return false;
-        }
-
         /* battery */
         if (hfc->power.battery_level<10 || (hfc->power.Vmain/pConfig->battery_cells)<3.6f || (hfc->power.Vesc/pConfig->battery_cells)<3.6f)
         {
@@ -1863,13 +1864,6 @@ char TelemSerial::PreFlightChecks(void)
     if (ABS(hfc->IMUorient[0]*R2D)>5 || ABS(hfc->IMUorient[1]*R2D)>5)
     {
         SendMsgToGround(MSG2GROUND_PFCHECK_ANGLE);
-        return false;
-    }
-
-    /* servo module */
-    if (pConfig->can_servo && hfc->stats.can_servo_tx_errors)
-    {
-        SendMsgToGround(MSG2GROUND_PFCHECK_CAN_SERVO);
         return false;
     }
 

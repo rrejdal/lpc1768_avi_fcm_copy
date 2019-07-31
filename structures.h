@@ -291,7 +291,7 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_COMPASS      15  // compass exceed limits
 #define MSG2GROUND_PFCHECK_BATTERY      16  // battery level/voltage too low
 #define MSG2GROUND_PFCHECK_ANGLE        17  // level limit exceeded
-#define MSG2GROUND_PFCHECK_CAN_SERVO    18  // failed to send msg to servo module
+#define MSG2GROUND_PFCHECK_HW_FAIL      18  // System hardware failure
 #define MSG2GROUND_PFCHECK_CAN_POWER    19  // failed to send msg to power module
 #define MSG2GROUND_PFCHECK_IMU_GPS_ALT  20  // IMU and GPS altitude have to within 2m
 #define MSG2GROUND_PFCHECK_GPS_NOFIX    21  // not all GPS units have a lock
@@ -1027,6 +1027,15 @@ typedef struct
     float compassMax[3];
 } CompassCalibrationData;
 
+typedef struct {
+    uint8_t major_version;
+    uint8_t minor_version;
+    uint8_t build_version;
+    uint32_t serial_number0;
+    uint32_t serial_number1;
+    uint32_t serial_number2;
+} BoardInfo;
+
 typedef struct
 {
     float PRstick_rate;
@@ -1347,6 +1356,9 @@ typedef struct
 
     signed short raw_heading;
 
+    BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
+
+    int num_motors;
 } FlightControlData;
 
 

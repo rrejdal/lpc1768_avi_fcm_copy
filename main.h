@@ -42,14 +42,6 @@ void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
 void CompassCalDone(void);
 
 // ---- Public Data ---- //
-typedef struct {
-    uint8_t major_version;
-    uint8_t minor_version;
-    uint8_t build_version;
-    uint32_t serial_number0;
-    uint32_t serial_number1;
-    uint32_t serial_number2;
-} BoardInfo;
 
 // ---- Public Macros ---- //
 #define IN_THE_AIR(X) ( ( (( X ) > 0.2) && (GetMotorsState() == 1) ) ? 1 : 0 )
