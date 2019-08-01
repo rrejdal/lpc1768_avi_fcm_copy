@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include "utils.h"
 #include "mymath.h"
-#include "HMC5883L.h"
 #include "pGPS.h"
 #include "IMU.h"
 #include "defines.h"

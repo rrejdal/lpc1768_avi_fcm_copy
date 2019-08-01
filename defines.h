@@ -26,6 +26,7 @@ extern USBSerial   serial;
 
 #define MAX_NUM_CASTLE_LINKS 2
 #define MAX_NUM_GPS          1
+#define MAX_NUM_COMPASS      2
 #define MAX_CAN_SERVO_NODES  2
 #define MAX_BOARD_TYPES      7
 #define MAX_NODE_NUM         7

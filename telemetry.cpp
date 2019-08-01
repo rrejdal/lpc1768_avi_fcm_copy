@@ -3,18 +3,18 @@
 #include "telemetry.h"
 #include "utils.h"
 #include "mymath.h"
-#include "HMC5883L.h"
 #include "pGPS.h"
 #include "IMU.h"
 #include "defines.h"
 #include "main.h"
+#include "compass.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern int UpdateOdometerReading(uint32 OdometerCounter);
 
-extern HMC5883L compass;
 extern GPS gps;
 extern XBus xbus;
+extern Compass *compass;
 
 TelemSerial::TelemSerial(RawSerial *m_serial)
 {
@@ -485,12 +485,10 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     for (i=0; i<3; i++) msg->gyro_lp[i]  = Float32toFloat16(hfc->gyro[i]);
     for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->acc[i]);
 //    for (i=0; i<3; i++) msg->acc_lp[i]   = Float32toFloat16(hfc->accGroundENUhp[i]);
-    for (i=0; i<3; i++) msg->compass[i]  = Float32toFloat16(compass.dataXYZcalib[i]);
-#if defined(HEADING_OFFSET_ADJUST)
-    msg->compass_heading = Float32toFloat16(hfc->heading);
-#else
+    for (int i=0; i<3; i++) msg->compass[i]  = Float32toFloat16(compass->GetCalibratedMagData(i));
+
     msg->compass_heading = Float32toFloat16(hfc->compass_heading);
-#endif
+    msg->raw_heading = ((hfc->compass_heading_raw[1] << 16) | hfc->compass_heading_raw[0]);
 
     for (i=0; i<3; i++) msg->orient[i]   = Float32toFloat16(hfc->IMUorient[i]*R2D);
     msg->speedGroundENU[0] = Float32toFloat16(hfc->IMUspeedGroundENU[0]);
@@ -516,7 +514,7 @@ void TelemSerial::Generate_Ctrl0(int time_ms)
     msg->lidar_raw_rear = Float32toFloat16(hfc->altitude_lidar_raw[REAR_TANDEM_LIDAR_INDEX]);
     msg->controlStatus = hfc->controlStatus;
     msg->lidar_online_mask = hfc->lidar_online_mask;
-    msg->raw_heading = hfc->raw_heading;
+
     InitHdr32(TELEMETRY_CTRL, (unsigned char*)msg, sizeof(T_Telem_Ctrl0));
 }
 
@@ -1843,11 +1841,11 @@ char TelemSerial::PreFlightChecks(void)
     }
 
     /* compass */
-    if (ABS(compass.dataXYZcalib[0])>600 || ABS(compass.dataXYZcalib[1])>600 || compass.dataXYZcalib[2]<-600 || compass.dataXYZcalib[2]>-350)
-    {
-        SendMsgToGround(MSG2GROUND_PFCHECK_COMPASS);
-        return false;
-    }
+  //  if (ABS(compass.dataXYZcalib[0])>600 || ABS(compass.dataXYZcalib[1])>600 || compass.dataXYZcalib[2]<-600 || compass.dataXYZcalib[2]>-350)
+  //  {
+  //      SendMsgToGround(MSG2GROUND_PFCHECK_COMPASS);
+  //      return false;
+  //  }
 
     /* power module */
     if (pConfig->power_node)
@@ -2560,16 +2558,10 @@ void TelemSerial::ResetIMU(bool print)
     hfc->IMUorient[ROLL]  = hfc->SmoothAcc[ROLL];
 
     /* re-orient compass based on the new pitch/roll */
-    hfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, hfc->compass_cal.comp_ofs, hfc->compass_cal.comp_gains,
-                                                    pConfig->fcm_orient, pConfig->comp_declination_offset,
-                                                    hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
+    hfc->compass_heading = compass->GetHeadingDeg(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL]);
     hfc->compass_heading_lp = hfc->compass_heading;
-#if defined(HEADING_OFFSET_ADJUST)
-    hfc->heading = hfc->compass_heading_lp + hfc->heading_offset;
-    hfc->IMUorient[YAW] = hfc->heading*D2R;
-#else
     hfc->IMUorient[YAW] = hfc->compass_heading_lp*D2R;
-#endif
+
 
     IMU_PRY2Q(hfc->IMUorient[PITCH], hfc->IMUorient[ROLL], hfc->IMUorient[YAW]);
 
@@ -2577,12 +2569,7 @@ void TelemSerial::ResetIMU(bool print)
     for (i=0; i<3; i++) hfc->gyro_lp_disp[i] = 0;
     PID_SetForEnable(&hfc->pid_IMU[0], hfc->SmoothAcc[PITCH]*R2D, hfc->IMUorient[PITCH]*R2D, -hfc->gyroOfs[0]);
     PID_SetForEnable(&hfc->pid_IMU[1], hfc->SmoothAcc[ROLL]*R2D,  hfc->IMUorient[ROLL]*R2D,  -hfc->gyroOfs[1]);
-#if defined(HEADING_OFFSET_ADJUST)
-    PID_SetForEnable(&hfc->pid_IMU[2], hfc->heading, hfc->IMUorient[YAW]*R2D, -hfc->gyroOfs[2]);
-#else
     PID_SetForEnable(&hfc->pid_IMU[2], hfc->compass_heading, hfc->IMUorient[YAW]*R2D, -hfc->gyroOfs[2]);
-
-#endif
 
     /*mmri: just took out the carriage return so that gyrotemp
      * compensation output data is more easily read in .csv file*/

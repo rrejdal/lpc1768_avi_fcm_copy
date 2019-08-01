@@ -32,7 +32,6 @@
 #include "IMU.h"
 #include "xbus.h"
 #include "PID.h"
-#include "HMC5883L.h"
 #include "BMP180.h"
 #include "pGPS.h"
 #include "telemetry.h"
@@ -44,6 +43,7 @@
 #include "mediator.h"
 #include "config.h"
 #include "mixer.h"
+#include "compass.h"
 
 // Linker defined sections. DO NOT ALTER
 extern int __attribute__((__section__(".ramconfig"))) ram_config;
@@ -54,11 +54,11 @@ int __attribute__((__section__(".hfcruntime"))) _hfc_runtime;
 USBSerial serial(0x0D28, 0x0204, 0x0001, false);
 I2Ci Li2c(I2C_SDA1, I2C_SCL1);
 MPU6050 mpu(&Li2c, -1, MPU6050_GYRO_FS_500, MPU6050_ACCEL_FS_4);
-HMC5883L compass(&Li2c);
 BMPx80 baro(&Li2c);
 XBus xbus(XBUS_IN);
 CAN *Canbus = NULL;
 GPS gps;
+Compass *compass = NULL;
 
 // Telemetry Serial connection
 RawSerial telemetry(TELEM_TX, TELEM_RX);
@@ -127,7 +127,6 @@ static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata);
 static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdata);
 static void UpdateLidar(int node_id, int pulse_us);
 static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata);
-static void UpdateCompassData(int node_id, unsigned char *pdata);
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata);
 static void CanbusISRHandler(void);
 static void ProcessStats(void);
@@ -314,6 +313,7 @@ void CompassCalDone(void)
     phfc->compass_cal.comp_ofs[i] = (phfc->compass_cal.compassMin[i]+phfc->compass_cal.compassMax[i]+1)/2;
 
     //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
+    // TODO::SP take the value from the AGS - this can also give declination
     phfc->compass_cal.comp_gains[i] = 537.37f/((phfc->compass_cal.compassMax[i]-phfc->compass_cal.compassMin[i])/2.0f);
   }
 
@@ -3327,24 +3327,6 @@ static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata)
   }
 }
 
-// @brief
-// @param
-// @retval
-static void UpdateCompassData(int node_id, unsigned char *pdata)
-{
-  signed short raw_x;
-  signed short raw_y;
-  signed short raw_z;
-
-  raw_x = pdata[0] | (pdata[1] << 8);
-  raw_y = pdata[2] | (pdata[3] << 8);
-  raw_z = pdata[4] | (pdata[5] << 8);
-
-  phfc->raw_heading = pdata[6] | (pdata[7] << 8);
-
-  compass.UpdateRawData(raw_x, raw_y, raw_z);
-}
-
 /* NOTE: The voltage and current reported by the power node is measured by
  * two different ADCs.
  * The ratio of the ADC1 voltage output and the actual voltage is 0.0197 V/mV.
@@ -3426,8 +3408,11 @@ static void CanbusISRHandler(void)
         if (seq_id <= AVI_GPS4) {
           gps.AddGpsData(node_id, seq_id, (char *)pdata);
         }
-        else if (seq_id == AVI_COMPASS) {
-          UpdateCompassData(node_id, pdata);
+        else if (seq_id == AVI_COMPASS0) {
+          compass->UpdateMagData(0, pdata);
+        }
+        else if (seq_id == AVI_COMPASS1) {
+          compass->UpdateMagData(1, pdata);
         }
         else {
           unknown_msg = true;
@@ -3699,7 +3684,7 @@ static void CompassCalibration(void)
     int max_min_changed = 0;
     for (i=0; i<3; i++)
     {
-        float fDataXYZ = compass.dataXYZ[i];
+        float fDataXYZ = compass->GetMagData(i);
         phfc->compass_cal.compassMin[i] = min(phfc->compass_cal.compassMin[i], fDataXYZ);
         phfc->compass_cal.compassMax[i] = max(phfc->compass_cal.compassMax[i], fDataXYZ);
         mag_range[i] = phfc->compass_cal.compassMax[i] - phfc->compass_cal.compassMin[i];
@@ -3911,11 +3896,8 @@ static void DoFlightControl()
     //}
 
     if (pConfig->sensor_mode == 0 /*FLY_ALL_SENSORS*/) {
-
-        if (compass.HaveNewData()) {
-            phfc->compass_heading = compass.GetHeadingDeg(pConfig->comp_orient, phfc->compass_cal.comp_ofs, phfc->compass_cal.comp_gains,
-                                                            pConfig->fcm_orient, pConfig->comp_declination_offset,
-                                                            phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
+        if (compass->HaveNewData()) {
+            phfc->compass_heading = compass->GetHeadingDeg(phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
 
             if (phfc->compass_heading_lp == 0) {
                 phfc->compass_heading_lp = phfc->compass_heading;
@@ -3927,6 +3909,18 @@ static void DoFlightControl()
 
             // debug_print("Comp: %+5.1f %+5.1f\r\n", phfc->compass_heading, phfc->compass_heading_lp);
             CompassCalibration();
+
+            phfc->compass_heading_raw[pConfig->compass_selection] = compass->GetRawHeadingXY(pConfig->compass_selection);
+            if (pConfig->compass_selection == 0) {
+              if (compass->HaveNewData(1)) {
+                phfc->compass_heading_raw[1] = compass->GetRawHeadingXY(1);
+              }
+            }
+            else {
+              if (compass->HaveNewData(0)) {
+                phfc->compass_heading_raw[0] = compass->GetRawHeadingXY(0);
+              }
+            }
         }
     }
 
@@ -3991,12 +3985,8 @@ static void DoFlightControl()
         /* orient is in rad, gyro in deg */
         phfc->gyroOfs[PITCH] = -PID(&phfc->pid_IMU[PITCH], phfc->SmoothAcc[PITCH]*R2D-phfc->bankPitch,phfc->IMUorient[PITCH]*R2D, dT);
         phfc->gyroOfs[ROLL]  = -PID(&phfc->pid_IMU[ROLL],  phfc->SmoothAcc[ROLL]*R2D+phfc->bankRoll,  phfc->IMUorient[ROLL]*R2D,  dT);
-#if defined(HEADING_OFFSET_ADJUST)
-        phfc->gyroOfs[YAW] = -PID(&phfc->pid_IMU[YAW], phfc->heading, phfc->IMUorient[YAW]*R2D, dT);
-#else
         phfc->gyroOfs[YAW] = -PID(&phfc->pid_IMU[YAW], phfc->compass_heading_lp, phfc->IMUorient[YAW]*R2D, dT);
 
-#endif
         /*
         if (!(phfc->print_counter & 0x3ff)) {
             debug_print("Gyro %+6.3f %+6.3f %+6.3f  IMU %+6.3f %+6.3f %+6.3f  Err %+6.3f %+6.3f %+6.3f\r\n",
@@ -4610,8 +4600,8 @@ static uint32_t InitCanbus(void)
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_GPS_NODETYPE, node_id)) == 0) {
 
-      // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
-      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
+      // Allow Node to auto select GPS Chip.
+      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO;
       node_cfg_data.len = 1;
       wait_ms(10);
       error = ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
@@ -4990,19 +4980,17 @@ static void InitializeRuntimeData(void)
 
   phfc->box_dropper_ = 0;
 
-  phfc->heading_offset = 0; //pConfig->heading_offset;
+  phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 
-    phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
-
-    phfc->servo_reverse_mask = 0;
-    for (int i=0; i < MAX_SERVO_OUTPUTS; i++) {
-      if ( i < 6 ) {
-        phfc->servo_reverse_mask |= pConfig->servo_revert[i] << i;
-      }
-      else {
-        phfc->servo_reverse_mask |= pConfig->servo_revert_ch7_ch8[i-6] << i;
-      }
+  phfc->servo_reverse_mask = 0;
+  for (int i=0; i < MAX_SERVO_OUTPUTS; i++) {
+    if ( i < 6 ) {
+      phfc->servo_reverse_mask |= pConfig->servo_revert[i] << i;
     }
+    else {
+      phfc->servo_reverse_mask |= pConfig->servo_revert_ch7_ch8[i-6] << i;
+    }
+  }
   phfc->eng_super_user = false;
 
   InitializeOdometer(phfc);
@@ -5042,7 +5030,11 @@ static uint32_t InitializeSystemData()
     lidar_median[i] = MediatorNew(35);
   }
 
+  // Initialize Gps class data
   gps.Init(pConfig->num_gps_nodes);
+
+  // Instantiate compass
+  compass = new Compass(pConfig, phfc->compass_cal.comp_ofs, phfc->compass_cal.comp_gains);
 
   // Instantiate mixer to be used, based upon configuration
   switch(pConfig->ccpm_type) {

@@ -143,8 +143,8 @@ typedef enum {
   AVI_GPS2  = 2,
   AVI_GPS3  = 3,
   AVI_GPS4  = 4,
-  AVI_COMPASS = 5,
-  AVI_GPS_RSVD0 = 6,
+  AVI_COMPASS0 = 5,
+  AVI_COMPASS1 = 6,
   AVI_GPS_RSVD1 = 7,
 } AVI_CANBUS_SEQID_GPS;
 

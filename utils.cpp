@@ -1,11 +1,11 @@
 #include "utils.h"
 #include "mbed.h"
 #include "defines.h"
-#include "HMC5883L.h"
 #include "mymath.h"
 #include "defines.h"
 #include "main.h"
 #include "hardware.h"
+#include "compass.h"
 
 static unsigned int ticks;
 static unsigned int ticks_base=0;    // counts how many times SysTick wrapped around
@@ -232,7 +232,7 @@ unsigned short int Float32toFloat16(const float in1)
     return t1;
 }
    
-extern HMC5883L compass;   
+extern Compass *compass;
 extern XBus xbus;
 
 static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
@@ -270,9 +270,10 @@ static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
         break;
       case LOG_PARAM_COMPASS:
         if (index==0)
-            value = Float32toFloat16(hfc->compass_heading);
-        else
-            value = Float32toFloat16(compass.dataXYZcalib[index-1]);
+          value = Float32toFloat16(hfc->compass_heading);
+        else {
+          value = Float32toFloat16(compass->GetCalibratedMagData(index -1));
+        }
         break;
       case LOG_PARAM_ORIENT:
         value = Float32toFloat16(hfc->IMUorient[Min(2, index)]*R2D);

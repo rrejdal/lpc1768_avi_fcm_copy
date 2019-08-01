@@ -1196,10 +1196,8 @@ typedef struct
     float landing_timeout;              // time (seconds) to wait to completely spool down motors at end of landing
 
 
-    float heading;
-    float heading_offset;
-
     float compass_heading;              // heading based on compass in deg CW starting from north
+    int compass_heading_raw[2];
     float compass_heading_lp;           // 1s low-passed version
     
     float gps_heading;                  // deg
@@ -1353,8 +1351,6 @@ typedef struct
     byte soft_reset_counter;
 
     float abort_flight_timer;
-
-    signed short raw_heading;
 
     BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
 
