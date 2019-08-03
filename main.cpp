@@ -125,6 +125,7 @@ static void UpdateBatteryStatus(float dT);
 static void UpdateHwIdLow(int node_id, unsigned char *pdata);
 static void UpdateHwIdHigh(int node_id, int board_type, unsigned char *pdata);
 static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdata);
+static void UpdateServoNodeMonV(int node_id, unsigned char *pdata);
 static void UpdateLidar(int node_id, int pulse_us);
 static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata);
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata);
@@ -3191,6 +3192,14 @@ static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdat
   }
 }
 
+// @brief Update servo node monitoring voltage
+// @param
+// @retval
+static void UpdateServoNodeMonV(int node_id, unsigned char *pdata)
+{
+  phfc->servo_mon_voltage[node_id] = *(float *)pdata;
+}
+
 // @brief
 // @param
 // @retval
@@ -3392,7 +3401,12 @@ static void CanbusISRHandler(void)
           UpdateLidar(node_id, *(uint32_t *)pdata);
         }
         else if (seq_id == AVI_VI) {
-          UpdatePowerNodeVI(node_id, pdata);
+          if (node_type == AVI_PWR_NODETYPE) {
+            UpdatePowerNodeVI(node_id, pdata);
+          }
+          else if (node_type == AVI_SERVO_NODETYPE) {
+            UpdateServoNodeMonV(node_id, pdata);
+          }
         }
         else if ((seq_id >= AVI_CL0) && (seq_id <= AVI_CL4)) {
           UpdateCastleLiveLink(node_id, seq_id, pdata);

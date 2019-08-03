@@ -451,6 +451,8 @@ typedef struct
     f16     esc_temp;           // ESC temperature in degC
     byte    num_landing_sites;
     byte    ctrl_source;
+    f16     servo0_mon_voltage;
+    f16     servo1_mon_voltage;
 } T_Telem_System2;
 
 /* Telemetry - DataStream 3       sent at the full rate (1200Hz) divided by the number of elements,
@@ -1355,6 +1357,9 @@ typedef struct
     BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
 
     int num_motors;
+
+    float servo_mon_voltage[MAX_CAN_SERVO_NODES];
+
 } FlightControlData;
 
 

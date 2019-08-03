@@ -660,6 +660,8 @@ void TelemSerial::Generate_System2(int time_ms)
 
     msg->num_landing_sites = hfc->landing_sites_num;
     msg->ctrl_source = hfc->ctrl_source;
+    msg->servo0_mon_voltage = Float32toFloat16(hfc->servo_mon_voltage[0]);
+    msg->servo1_mon_voltage = Float32toFloat16(hfc->servo_mon_voltage[1]);
 
     InitHdr32(TELEMETRY_SYSTEM, (unsigned char*)msg, sizeof(T_Telem_System2));
 }
