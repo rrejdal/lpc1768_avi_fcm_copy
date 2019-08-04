@@ -968,6 +968,7 @@ typedef struct ConfigurationData {
     int servo_revert_ch7_ch8[2];
 
     int servo_failsafe_pwm[8];
+    int enable_servomon_check;
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;

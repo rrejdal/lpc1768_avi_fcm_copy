@@ -3613,7 +3613,7 @@ static void CanbusNodeMonitor(float dT)
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
     // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
     if (!gps_reconfig_active) {
-      can_tx_message.data[0] = GPS_SEL_CHIP_AUTO | COMPASS_SEL_MASK(pConfig->compass_selection);
+      can_tx_message.data[0] = GPS_SEL_CHIP_AUTO;
       can_tx_message.len = 1;
       ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &can_tx_message, 0);
       gps_reconfigure_timeout = 100;
