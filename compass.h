@@ -48,8 +48,8 @@ public :
     }
 
     declination_ = -9.63; // Waterloo declination angle
-    field_intensity_ = 537.37;
 
+    field_intensity_ = 537.37; // TODO::SP take the value from the AGS - this can also give declination
   };
 
   ~Compass() {};
@@ -71,8 +71,23 @@ public :
   void SetDeclination(float declination) { declination_ = declination; };
   void SetFieldIntensity(float field_intensity) { field_intensity_ = field_intensity; };
 
+  float GetDeclination(void) { return declination_; };
+  float GetFieldIntensity(void) { return field_intensity_; };
+
   int HaveNewData(void) { return new_data_[compass_id_]; };
   int HaveNewData(int compass_id) { return new_data_[compass_id]; };
+
+  void UpdateOffsets(int axis, float min, float max) { UpdateOffsets(compass_id_, axis, min, max); }
+  void UpdateGains(int axis, float min, float max) { UpdateGains(compass_id_, axis, min, max); };
+
+  void UpdateOffsets(int compass_id, int axis, float min, float max);
+  void UpdateGains(int compass_id, int axis, float min, float max);
+
+  float GetOffsets(int axis) { return offsets_[compass_id_][axis]; };
+  float GetGains(int axis) { return gains_[compass_id_][axis]; };
+
+  float GetOffsets(int compass_id, int axis) { return offsets_[compass_id][axis]; };
+  float GetGains(int compass_id, int axis) { return gains_[compass_id][axis]; };
 
 private:
   int new_data_[MAX_NUM_COMPASS] = {0};

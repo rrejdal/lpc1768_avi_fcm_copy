@@ -302,6 +302,7 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_IMUACC_HORIZ 30  // IMU and ACC horizon estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_IMUCOMP_HEAD 31  // IMU and compass heading estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_LIDAR        32  // Lidar reports invalid value.
+#define MSG2GROUND_PFCHECK_SERVOMON     33  // Servo monitoring shows a failure
 #define MSG2GROUND_THROTTLE_LEVER_LOW   34  // Throttle Level needs is LOW
 #define MSG2GROUND_THROTTLE_LEVER_HIGH  35  // Throttle Level needs is High
 #define MSG2GROUND_LIDAR_NOGROUND       40  // lidar does not see ground before landing
@@ -736,12 +737,7 @@ typedef struct
 
 typedef struct
 {
-    char    can_servo_tx_failed;
-    char    can_power_tx_failed;
-    uint16  can_servo_tx_errors;
-    uint16  can_power_tx_errors;
-    uint16  canbus_error_count;
-    unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM];
+  unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM];
 } T_Stats;
 
 typedef struct {
@@ -968,7 +964,7 @@ typedef struct ConfigurationData {
     int servo_revert_ch7_ch8[2];
 
     int servo_failsafe_pwm[8];
-    int enable_servomon_check;
+    int enable_servomon_check[2];
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
@@ -1352,8 +1348,6 @@ typedef struct
     uint32_t system_reset_reason;
 
     byte soft_reset_counter;
-
-    float abort_flight_timer;
 
     BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
 

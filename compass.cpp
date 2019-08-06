@@ -30,6 +30,9 @@
 
 #define PI2 (2*PI)
 
+// @brief Return compass heading in degrees, CW starting from North
+// @param
+// @retval heading
 void Compass::UpdateMagData(int compass_id, unsigned char *pdata)
 {
 
@@ -38,6 +41,22 @@ void Compass::UpdateMagData(int compass_id, unsigned char *pdata)
   compass_data_[compass_id][2] = pdata[4] | (pdata[5] << 8);
 
   new_data_[compass_id] = 1;
+}
+
+// @brief Return compass heading in degrees, CW starting from North
+// @param
+// @retval heading
+void Compass::UpdateOffsets(int compass_id, int axis, float min, float max)
+{
+  offsets_[compass_id][axis] = (min + max +1)/2;
+}
+
+// @brief Return compass heading in degrees, CW starting from North
+// @param
+// @retval heading
+void Compass::UpdateGains(int compass_id, int axis, float min, float max)
+{
+  gains_[compass_id][axis] = field_intensity_ / ((max-min)/2.0f);
 }
 
 // @brief Return compass heading in degrees, CW starting from North

@@ -130,7 +130,6 @@ static void UpdateLidar(int node_id, int pulse_us);
 static void UpdateCastleLiveLink(int node_id, int seq_id, unsigned char *pdata);
 static void UpdatePowerNodeVI(int node_id, unsigned char *pdata);
 static void CanbusISRHandler(void);
-static void ProcessStats(void);
 static int CanbusNodeTypeStatus(int node_type);
 static void CanbusNodeMonitor(float dT);
 static void CompassCalibration(void);
@@ -152,7 +151,6 @@ Mediator* lidar_median[MAX_NUM_LIDARS];
 
 static int can_node_found = 0;
 static int canbus_ack = 0;
-static int write_canbus_error = 0;
 static int canbus_livelink_avail = 0;
 static int power_update_avail = 0;
 volatile static int rx_in = 0;
@@ -168,6 +166,9 @@ const ConfigData *pConfig = NULL;
 #define CAN_SERVO_FRONT 0
 #define CAN_SERVO_REAR  1
 #define FCM_SERVO       2
+
+// Default configuration is to all GPS to auto select device in use.
+#define DEFAULT_GPS_CFG GPS_SEL_CHIP_AUTO
 
 // Macros for controlling 'special' reserved FCM outputs
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
@@ -310,12 +311,13 @@ bool LidarOnline(void)
 // @retval
 void CompassCalDone(void)
 {
+  // Update new offset and gains to the compass class
   for (int i=0; i<3; i++) {
-    phfc->compass_cal.comp_ofs[i] = (phfc->compass_cal.compassMin[i]+phfc->compass_cal.compassMax[i]+1)/2;
+    compass->UpdateOffsets(i, phfc->compass_cal.compassMin[i], phfc->compass_cal.compassMax[i]);
+    compass->UpdateGains(i, phfc->compass_cal.compassMin[i], phfc->compass_cal.compassMax[i]);
 
-    //537.37mGa is the expected magnetic field intensity in Kitchener & Waterloo region
-    // TODO::SP take the value from the AGS - this can also give declination
-    phfc->compass_cal.comp_gains[i] = 537.37f/((phfc->compass_cal.compassMax[i]-phfc->compass_cal.compassMin[i])/2.0f);
+    phfc->compass_cal.comp_ofs[i] = compass->GetOffsets(i);
+    phfc->compass_cal.comp_gains[i] = compass->GetGains(i);
   }
 
   phfc->compass_cal.valid = 1;
@@ -497,10 +499,7 @@ static void WriteToServos(int node_type, int num_nodes)
         memcpy(can_tx_message.data, &pwm_values[i][0], 8);
 
         can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SERVOS_0_3, AVI_MSGID_CDP);
-
-        if (!Canbus->write(can_tx_message)) {
-          ++write_canbus_error;
-        }
+        Canbus->write(can_tx_message);
       }
     }
     else {
@@ -508,10 +507,7 @@ static void WriteToServos(int node_type, int num_nodes)
         memcpy(can_tx_message.data, &pwm_values[i][4], 8);
 
         can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SERVOS_4_7, AVI_MSGID_CDP);
-
-        if (!Canbus->write(can_tx_message)) {
-          ++write_canbus_error;
-        }
+        Canbus->write(can_tx_message);
       }
     }
   }
@@ -1877,17 +1873,9 @@ static float CalcMinAboveGroundAlt(float speed)
     float alt = ClipMinMax((speed - pConfig->LidarHVcurve[0]) * pConfig->LidarHVcurve[1] + pConfig->LidarHVcurve[2],
                                pConfig->LidarHVcurve[2], pConfig->LidarHVcurve[3]);
 
-    /* clip not to exceed the sensor operating range otherwise it would keep pushing the heli up */
-    //if (pConfig->ground_sensor == GROUND_SENSOR_SONAR) {
-    //    alt = min(alt, 7);
-    //}
-
     // TODO::SP: Useful Lidar Max reading is 40m, but we use threshold of 35m
     // ensure lidar altitude control is within that range. - always lidar
-    //if (pConfig->ground_sensor == GROUND_SENSOR_LIDAR) {
-        alt = min(alt, 35);
-    //}
-
+    alt = min(alt, 35);
     return alt;
 }
 
@@ -3464,7 +3452,6 @@ static void CanbusISRHandler(void)
       break;
 
     default:
-      phfc->stats.canbus_error_count++;
       unknown_msg = true;
       break;
     }
@@ -3473,27 +3460,6 @@ static void CanbusISRHandler(void)
       phfc->stats.can_rx_msg_count[node_type][node_id]++;
     }
   }
-}
-
-// @brief
-// @param
-// @retval
-static void ProcessStats(void)
-{
-  // TODO::SP: REMOVE??
-    if ((phfc->print_counter&0x7ff)==6)
-    {
-        if (phfc->stats.can_power_tx_failed)
-        {
-            phfc->stats.can_power_tx_errors++;
-            phfc->stats.can_power_tx_failed = false;
-        }
-
-        if (write_canbus_error > 0) {
-            //debug_print("CAN write failed messages[%d]\r\n", write_canbus_error);
-            phfc->stats.can_servo_tx_errors = write_canbus_error;
-        }
-    }
 }
 
 // @brief
@@ -3613,7 +3579,7 @@ static void CanbusNodeMonitor(float dT)
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
     // Allow Node to auto select GPS Chip and specify compass combination based on configuration.
     if (!gps_reconfig_active) {
-      can_tx_message.data[0] = GPS_SEL_CHIP_AUTO;
+      can_tx_message.data[0] = DEFAULT_GPS_CFG;
       can_tx_message.len = 1;
       ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &can_tx_message, 0);
       gps_reconfigure_timeout = 100;
@@ -3696,31 +3662,35 @@ static void CompassCalibration(void)
      *   is that the user knows only to calibrate in an area void of EM interference
      * - If not calibrating, only update max and min if limits are not exceeded*/
     int max_min_changed = 0;
-    for (i=0; i<3; i++)
-    {
-        float fDataXYZ = compass->GetMagData(i);
-        phfc->compass_cal.compassMin[i] = min(phfc->compass_cal.compassMin[i], fDataXYZ);
-        phfc->compass_cal.compassMax[i] = max(phfc->compass_cal.compassMax[i], fDataXYZ);
-        mag_range[i] = phfc->compass_cal.compassMax[i] - phfc->compass_cal.compassMin[i];
-        if(phfc->compass_cal.compassMax[i] == fDataXYZ || phfc->compass_cal.compassMin[i] == fDataXYZ)
-            max_min_changed = 1;
+    for (i=0; i<3; i++) {
+      float fDataXYZ = compass->GetMagData(i);
+
+      phfc->compass_cal.compassMin[i] = min(phfc->compass_cal.compassMin[i], fDataXYZ);
+      phfc->compass_cal.compassMax[i] = max(phfc->compass_cal.compassMax[i], fDataXYZ);
+
+      mag_range[i] = phfc->compass_cal.compassMax[i] - phfc->compass_cal.compassMin[i];
+
+      if(phfc->compass_cal.compassMax[i] == fDataXYZ
+            || phfc->compass_cal.compassMin[i] == fDataXYZ) {
+          max_min_changed = 1;
+      }
     }
 
-    for(i = 0; i<3; i++)
-    {
-        if( mag_range[i] > max_range )
-        {
-            phfc->compass_cal.compassMax[i] = 0;
-            phfc->compass_cal.compassMin[i] = 0;
-        }
+    for(i = 0; i<3; i++) {
+      if (mag_range[i] > max_range) {
+        phfc->compass_cal.compassMax[i] = 0;
+        phfc->compass_cal.compassMin[i] = 0;
+      }
     }
 
     // The max and min values have changed, report to the ground station
-    if(0 != max_min_changed)
-    {
-        int size = telem.CalibrateCompass();
-        telem.AddMessage((unsigned char*)&phfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
+    if (0 != max_min_changed) {
+      int size = telem.CalibrateCompass();
+      telem.AddMessage((unsigned char*)&phfc->telemCalibrate, size, TELEMETRY_CALIBRATE, 6);
     }
+
+#if 0
+    // This procedure is no longer being used
 
     /*Set the pitch angle flag index and roll angle flag index to the
      * current pitch and roll angle of the IMU.
@@ -3798,6 +3768,7 @@ static void CompassCalibration(void)
             phfc->comp_roll_flags[i] = 0;
         }
     }
+#endif
 
     if (phfc->comp_calibrate == COMP_CALIBRATE_DONE) {
         CompassCalDone();
@@ -4249,8 +4220,6 @@ static void DoFlightControl()
         afsi.ProcessStatusMessages();
     }
 
-    ProcessStats();
-
     telem.ProcessInputBytes(telemetry);
 
     if (pConfig->AfsiEnabled) {
@@ -4415,11 +4384,13 @@ static void ProcessUserCmnds(char c)
 
             usb_print("\r\n     MAX       MIN       GAIN    OFFSET \r\n");
             usb_print("X    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", phfc->compass_cal.compassMax[0],phfc->compass_cal.compassMin[0],
-                                                                     phfc->compass_cal.comp_gains[0],phfc->compass_cal.comp_ofs[0]);
+                                                                     compass->GetGains(0),compass->GetOffsets(0));
+
             usb_print("Y    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", phfc->compass_cal.compassMax[1],phfc->compass_cal.compassMin[1],
-                                                                     phfc->compass_cal.comp_gains[1],phfc->compass_cal.comp_ofs[1]);
+                                                                     compass->GetGains(1),compass->GetOffsets(1));
+
             usb_print("Z    %+3.2f   %+3.2f   %+1.2f   %+3.2f \r\n", phfc->compass_cal.compassMax[2],phfc->compass_cal.compassMin[2],
-                                                                     phfc->compass_cal.comp_gains[2],phfc->compass_cal.comp_ofs[2]);
+                                                                     compass->GetGains(2),compass->GetOffsets(2));
         }
         else {
             usb_print("NACK\r\n");
@@ -4496,13 +4467,12 @@ static void ProcessUserCmnds(char c)
         else if (strcmp(request, "forcereset") == 0) {
           NVIC_SystemReset(); // force software reset
         }
+        else if (strcmp(request, "forcewd") == 0) {
+          // loop until watchdog expires
+          while(1);
+        }
         else if (strcmp(request, "resetreason") == 0) {
           usb_print("0x%08x\r\n", GetResetReason());
-        }
-        else if (strcmp(request, "loop") == 0) {
-          // force watchdog reset
-          //InitializeWatchdog(0.5f);
-          while(1);
         }
         else {
             usb_print("INVALID");
@@ -4526,7 +4496,7 @@ static uint32_t InitCanbus(void)
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
 
-  if (phfc->system_reset_reason != (RESET_REASON_POR | RESET_REASON_BODR)) {
+  if (phfc->system_reset_reason == RESET_REASON_WD) {
     return ret_mask;
   }
 
@@ -4615,7 +4585,7 @@ static uint32_t InitCanbus(void)
     if ((error = InitCanbusNode(AVI_GPS_NODETYPE, node_id)) == 0) {
 
       // Allow Node to auto select GPS Chip.
-      node_cfg_data.data[0] = GPS_SEL_CHIP_AUTO;
+      node_cfg_data.data[0] = DEFAULT_GPS_CFG;
       node_cfg_data.len = 1;
       wait_ms(10);
       error = ConfigureCanbusNode(AVI_GPS_NODETYPE, node_id, AVI_CFG, &node_cfg_data);
@@ -4751,9 +4721,7 @@ static void CanbusSync(void)
   // Send Sync heartbeat to GPS nodes
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_gps_nodes; node_id++) {
     can_tx_message.id = AVI_CAN_ID(AVI_GPS_NODETYPE, node_id, AVI_SYNC, AVI_MSGID_CTRL);
-    if (!Canbus->write(can_tx_message)) {
-      ++write_canbus_error;
-    }
+    Canbus->write(can_tx_message);
   }
 }
 
@@ -4769,9 +4737,7 @@ static void CanbusFailsafe(int node_type, int node_id)
   can_tx_message.len = 0;
 
   can_tx_message.id = AVI_CAN_ID(node_type, BASE_NODE_ID + node_id, AVI_FAILSAFE, AVI_MSGID_CTRL);
-  if (!Canbus->write(can_tx_message)) {
-    ++write_canbus_error;
-  }
+  Canbus->write(can_tx_message);
 }
 
 // @brief
@@ -4785,7 +4751,7 @@ static void InitializeRuntimeData(void)
 
   // If we are warm resetting, DO NOT re-init data. We are trying to
   // keep running under a warm reset.
-  if (last_reset != (RESET_REASON_POR | RESET_REASON_BODR)) {
+  if (last_reset == RESET_REASON_WD) {
     phfc->system_reset_reason = last_reset;
     phfc->system_status_mask = 0;
     phfc->soft_reset_counter++;
@@ -5017,7 +4983,6 @@ static void InitializeRuntimeData(void)
 
   phfc->num_motors = 0;
 
-  //phfc->abort_flight_timer = ABORT_TIMEOUT_SEC;
   LPC_RIT->RICOUNTER = 0;
 }
 

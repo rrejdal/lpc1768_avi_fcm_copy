@@ -1843,21 +1843,21 @@ char TelemSerial::PreFlightChecks(void)
     }
 
     /* compass */
-  //  if (ABS(compass.dataXYZcalib[0])>600 || ABS(compass.dataXYZcalib[1])>600 || compass.dataXYZcalib[2]<-600 || compass.dataXYZcalib[2]>-350)
-  //  {
-  //      SendMsgToGround(MSG2GROUND_PFCHECK_COMPASS);
-  //      return false;
-  //  }
+    if (ABS(compass->GetCalibratedMagData(0))>600 || ABS(compass->GetCalibratedMagData(1))>600
+              || compass->GetCalibratedMagData(2)<-600 || compass->GetCalibratedMagData(2)>-350) {
+
+      SendMsgToGround(MSG2GROUND_PFCHECK_COMPASS);
+      return false;
+    }
 
     /* power module */
-    if (pConfig->power_node)
-    {
-        /* battery */
-        if (hfc->power.battery_level<10 || (hfc->power.Vmain/pConfig->battery_cells)<3.6f || (hfc->power.Vesc/pConfig->battery_cells)<3.6f)
-        {
-            SendMsgToGround(MSG2GROUND_PFCHECK_BATTERY);
-            return false;
-        }
+    if (pConfig->power_node) {
+      if (hfc->power.battery_level<10
+            || (hfc->power.Vmain/pConfig->battery_cells)<3.6f || (hfc->power.Vesc/pConfig->battery_cells)<3.6f) {
+
+        SendMsgToGround(MSG2GROUND_PFCHECK_BATTERY);
+        return false;
+      }
     }
 
     /* angle, less than 5 deg */
@@ -1882,10 +1882,19 @@ char TelemSerial::PreFlightChecks(void)
     }
 
     /* LIDAR */
-    if (!LidarOnline())
-    {
-        SendMsgToGround(MSG2GROUND_PFCHECK_LIDAR);
-        return false;
+    if (!LidarOnline()) {
+      SendMsgToGround(MSG2GROUND_PFCHECK_LIDAR);
+      return false;
+    }
+
+    /* Check servo monitoring if configured */
+    for (int i = 0; i < pConfig->num_servo_nodes; i++) {
+      if (pConfig->enable_servomon_check[i]) {
+        if (hfc->servo_mon_voltage[i] < 5.0) {
+          SendMsgToGround(MSG2GROUND_PFCHECK_SERVOMON);
+          return false;
+        }
+      }
     }
     return true;
 }
@@ -2170,8 +2179,6 @@ void TelemSerial::Arm(void)
 
     hfc->throttle_armed = 1;
     gps.glitches_ = 0;   // reset GPS glitch counter
-    hfc->stats.can_servo_tx_errors = 0;
-    hfc->stats.can_power_tx_errors = 0;
 
     SetHome();
 
