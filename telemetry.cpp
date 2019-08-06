@@ -1943,7 +1943,7 @@ void TelemSerial::CommandTakeoffArm(void)
     // if the control source changes SelectCtrlSource pauses the play-list status.
     hfc->playlist_status = status;
 
-    if (!hfc->afsi_takeoff_enable) {
+    if (!hfc->auto_takeoff) {
         /* send message that to prepare radio and spool up */
         if (!hfc->rc_ctrl_request ) {
             SendMsgToGround(MSG2GROUND_ALLOW_SPOOLUP);
@@ -1959,7 +1959,7 @@ void TelemSerial::CommandTakeoffArm(void)
     hfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
     hfc->waypoint_type = WAYPOINT_TAKEOFF;
 
-    if (hfc->afsi_takeoff_enable) {
+    if (hfc->auto_takeoff) {
       hfc->waypoint_stage  = FM_TAKEOFF_AUTO_SPOOL;
       hfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
     }
@@ -1972,7 +1972,7 @@ void TelemSerial::CommandTakeoffArm(void)
       }
     }
 
-    hfc->message_timeout = 60000000;    // 60 seconds
+    hfc->message_timeout = DEFAULT_TAKEOFF_TIMEOUT;    // 60 seconds
 }
 
 /* vspeed needs to be negative */
@@ -2052,8 +2052,14 @@ void TelemSerial::Disarm(void)
 	hfc->playlist_status = PLAYLIST_NONE;
 	hfc->LidarCtrlMode   = false;
 	hfc->fixedThrottleMode = THROTTLE_IDLE;
+
 	hfc->touch_and_go_landing = false;
 	hfc->touch_and_go_takeoff = false;
+
+  hfc->auto_takeoff = false;
+  hfc->auto_landing = false;
+
+  hfc->takeoff_height = pConfig->takeoff_height;
 
 	// TODO::SP: Error handling on Flash write error??
   UpdateFlashConfig(hfc);
@@ -2115,7 +2121,7 @@ void TelemSerial::PlaylistRestoreState(void)
 
     SaveValuesForAbort();
     hfc->playlist_status = PLAYLIST_PLAYING;
-    hfc->delay_counter = 0;
+    hfc->delay_time = -1;
     // Force this to a value outside of waypoint retire, to ensure we don't process
     // our position is at the retore waypoint, right away.
     hfc->gps_to_waypoint[0] = 99;
@@ -2296,7 +2302,7 @@ void TelemSerial::ProcessCommands(void)
                 hfc->playlist_status = PLAYLIST_PLAYING;
                 hfc->pl_wp_initialized = false;
                 hfc->altitude_WPnext   = -9999;  // altitude unchanged by default, can be set from playlist
-                hfc->delay_counter     = 0;
+                hfc->delay_time = -1;
                 
                 /* set default values */
                 ApplyDefaults();

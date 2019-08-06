@@ -349,7 +349,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
                 hfc.takeoff_height = alt;
-                hfc.afsi_takeoff_enable = 1;
+                hfc.auto_takeoff = true;
                 telem->CommandTakeoffArm();
             }
             else {
@@ -361,6 +361,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             telem->SetZeroSpeed();
             hfc.waypoint_type = WAYPOINT_LANDING;
             hfc.waypoint_stage = FM_LANDING_STOP;
+            hfc.auto_landing = true;
             debug_print("LANDING!\r\n");
             break;
 
@@ -557,12 +558,12 @@ void AFSI_Serial::GenerateGpsStatus(void)
     msg_stat_gps.hdr.id        = AFSI_STAT_ID_GPS;
     msg_stat_gps.hdr.len       = AFSI_STAT_PAYL_LEN_GPS;
 
-    msg_stat_gps.hour          = gps.gps_data_.time/1000000;
-    msg_stat_gps.min           = (gps.gps_data_.time-(msg_stat_gps.hour*1000000))/10000;
-    msg_stat_gps.sec           = (gps.gps_data_.time-(msg_stat_gps.hour*1000000)-(msg_stat_gps.min*10000))/100;
-    msg_stat_gps.year          = gps.gps_data_.date/10000;
-    msg_stat_gps.month         = (gps.gps_data_.date-(msg_stat_gps.year*10000)) / 100;
-    msg_stat_gps.day           = gps.gps_data_.date-(msg_stat_gps.year*10000)-(msg_stat_gps.month*100);
+    msg_stat_gps.hour          = gps.GetHour();
+    msg_stat_gps.min           = gps.GetMin();
+    msg_stat_gps.sec           = gps.GetSec();
+    msg_stat_gps.year          = gps.GetYear();
+    msg_stat_gps.month         = gps.GetMonth();
+    msg_stat_gps.day           = gps.GetDay();
     msg_stat_gps.altitude      = gps.gps_data_.altitude * AFSI_STAT_SCALE_GPS_ALT;
     msg_stat_gps.latitude      = gps.gps_data_.lat;  // this variable is already scaled by AFSI_STAT_SCALE_POS;
     msg_stat_gps.longitude     = gps.gps_data_.lon;  // this variable is already scaled by AFSI_STAT_SCALE_POS;

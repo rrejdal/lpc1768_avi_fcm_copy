@@ -250,5 +250,6 @@ typedef enum {
 #define DEFAULT_TAKEOFF_TIMEOUT 60000000  // 60 Seconds
 #define DEFAULT_LANDING_TIMEOUT 30000000  // 30 Seconds
 #define DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT 3000000 // 3 Seconds
+#define DEFAULT_FIXED_PROP_SPOOL_TIME 4  // 4 seconds
 
 #endif
