@@ -302,9 +302,10 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_IMUACC_HORIZ 30  // IMU and ACC horizon estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_IMUCOMP_HEAD 31  // IMU and compass heading estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_LIDAR        32  // Lidar reports invalid value.
-#define MSG2GROUND_PFCHECK_SERVOMON     33  // Servo monitoring shows a failure
+#define MSG2GROUND_AGS_INVALID_KEY      33  // AGS, FCM Key mismatch
 #define MSG2GROUND_THROTTLE_LEVER_LOW   34  // Throttle Level needs is LOW
 #define MSG2GROUND_THROTTLE_LEVER_HIGH  35  // Throttle Level needs is High
+#define MSG2GROUND_PFCHECK_SERVOMON     36  // Servo monitoring shows a failure
 #define MSG2GROUND_LIDAR_NOGROUND       40  // lidar does not see ground before landing
 #define MSG2GROUND_TAKEOFF              41  // tell AGS that takeoff has begun
 

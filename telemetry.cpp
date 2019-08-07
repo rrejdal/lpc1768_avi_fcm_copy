@@ -1890,7 +1890,7 @@ char TelemSerial::PreFlightChecks(void)
     /* Check servo monitoring if configured */
     for (int i = 0; i < pConfig->num_servo_nodes; i++) {
       if (pConfig->enable_servomon_check[i]) {
-        if (hfc->servo_mon_voltage[i] < 5.0) {
+        if (hfc->servo_mon_voltage[i] < 5000.0) {
           SendMsgToGround(MSG2GROUND_PFCHECK_SERVOMON);
           return false;
         }
