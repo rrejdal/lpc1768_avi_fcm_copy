@@ -2,6 +2,7 @@
 #define GPS_h
 
 #include <stdlib.h>
+#include <time.h>
 
 #define MAX_GPS_CHANNELS		2	// defines the maximum number of GPS channels supported
 
@@ -99,6 +100,10 @@ public:
     int glitches_;
     GpsData gps_data_;
 
+    struct tm gps_time;
+    time_t time_of_the_day;
+
+
     int Init(int number_of_channels);
     void AddGpsData(int channel, int seq_id, char *msg);
     GpsData GpsUpdate(int dTus, char* new_data_flag);
@@ -111,6 +116,32 @@ public:
 
     void SetNextChannel() { set_next_channel_ = 1; }
     int GetLastUpdate() { return (gps_channel_[selected_channel_].last_update); }
+
+    int GetHour() {return gps_data_.time/1000000;}
+    int GetMin() {return (gps_data_.time-(GetHour()*1000000))/10000;}
+    int GetSec() {return (gps_data_.time-(GetHour()*1000000)-(GetMin()*10000))/100;}
+
+    int GetYear() {return gps_data_.date/10000;}
+    int GetMonth() {return (gps_data_.date-(GetYear()*10000)) / 100;}
+    int GetDay() {return gps_data_.date-(GetYear()*10000)-(GetMonth()*100);}
+
+
+    int GetDayTimeInSecs() {return (GetHour()*60*60 + GetMin()*60 + GetSec());}
+
+    time_t GetEpochTimeInSecs(int added_seconds_from_now) {
+      gps_time.tm_year = GetYear()-1900;
+      gps_time.tm_mon = GetMonth();
+      gps_time.tm_mday = GetDay();
+      gps_time.tm_hour = GetHour();
+      gps_time.tm_min = GetMin();
+      gps_time.tm_sec = GetSec() + added_seconds_from_now;
+      gps_time.tm_isdst = 0;
+
+      time_of_the_day = mktime(&gps_time);
+
+      return time_of_the_day;
+    }
+
 
     GPS();   // Constructor
 

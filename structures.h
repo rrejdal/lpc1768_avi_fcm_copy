@@ -1064,7 +1064,8 @@ typedef struct
     unsigned char joy_PRmode;
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio
     
-    int afsi_takeoff_enable;  // only used as a flag to make sure TAKEOFF happens without interruption
+    bool auto_takeoff;  // only used as a flag to make sure TAKEOFF happens without interruption
+    bool auto_landing;  // only used as a flag to make sure LANDING happens without interruption
 
     /* playlist stuff */
     unsigned int playlist_items;
@@ -1094,7 +1095,7 @@ typedef struct
     int   resetandarm_req;		// request to reset and arm the FCU from button RVW
     int   resetandarm_time;     // time captured when reset and arm was requested RVW
     int   throttle_width;  		// for battery tester and gyro calib modes
-    int   delay_counter;    	// counter for DELAY command, in us
+    int   delay_time;    	    // time of day in seconds for DELAY command, in seconds
 
     unsigned char control_mode[5];  // [P, R, Y, C, T] Control modes, 0-inhibit, 1-manual, 2-rate, 3-angle
     float SmoothAcc[3]; // low-passed acc

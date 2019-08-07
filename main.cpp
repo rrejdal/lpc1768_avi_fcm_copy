@@ -1008,6 +1008,7 @@ static void Playlist_ProcessTop()
               else {
                 // For Mission takeoff, Set the desired takeoff height
                 phfc->takeoff_height = item->data[1];
+                phfc->auto_takeoff = item->data[2];
                 telem.CommandTakeoffArm();
               }
             }
@@ -1019,6 +1020,7 @@ static void Playlist_ProcessTop()
           {
             /* initialize it only for the first time */
             phfc->landingWPHeight = item->data[1];
+            phfc->auto_landing = item->data[2];
             telem.CommandLandingWP(item->value1.i/10000000.0f, item->value2.i/10000000.0f, phfc->landingWPHeight);
           }
         }
@@ -1168,8 +1170,20 @@ static void Playlist_ProcessTop()
     }
     else if (item->type == PL_ITEM_DELAY)
     {
-        if (phfc->delay_counter<=0)
-            phfc->delay_counter = item->value1.i*1000;
+      int current_time_seconds = gps.GetDayTimeInSecs();
+
+      bool start_time_set = item->data[0];
+      int delay_seconds = item->value1.i;
+      int start_time_seconds = item->value2.i;
+
+      if (phfc->delay_time < 0) {
+        if (start_time_set) {
+          phfc->delay_time = start_time_seconds + delay_seconds;
+        }
+        else {
+          phfc->delay_time = current_time_seconds + delay_seconds;
+        }
+      }
     }
 }
 
@@ -1235,9 +1249,10 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     }
     else if (item->type == PL_ITEM_DELAY)
     {
-        phfc->delay_counter -= phfc->ticks_curr;
-        if (phfc->delay_counter<=0)
-            phfc->playlist_position++;
+      if( gps.GetDayTimeInSecs() >= hfc->delay_time) {
+          hfc->playlist_position++;
+          hfc->delay_time = -1;
+      }
     }
     else if (item->type == PL_ITEM_HOLD)
     {
@@ -1359,15 +1374,11 @@ static int rpm_threshold_check(float dT)
   return 1;
 }
 
-// @brief
-// @param
-// @retval
-static void ProcessTakeoff(float dT, bool touch_and_go)
+static void ProcessTakeoff(float dT)
 {
     if (    (phfc->waypoint_stage == FM_TAKEOFF_WAIT)
          && (    (phfc->message_from_ground>0)
-              || (phfc->message_timeout<=0)
-              ||  phfc->afsi_takeoff_enable         ) )
+              || (phfc->message_timeout<=0)         ) )
     {
 
       /* cancel and disarmed */
@@ -1387,13 +1398,8 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
     }
     else if (   (phfc->waypoint_stage == FM_TAKEOFF_AUTO_SPOOL)
              && (   (phfc->message_from_ground>0)
-                 || (phfc->message_timeout<=0)
-                 ||  phfc->afsi_takeoff_enable                ) )
+                 || (phfc->message_timeout<=0)                ) )
     {
-        if (phfc->afsi_takeoff_enable) {
-            phfc->message_from_ground = CMD_MSG_TAKEOFF_OK;
-        }
-
         /* cancel and disarmed */
         if (phfc->message_from_ground!=CMD_MSG_TAKEOFF_OK || phfc->message_timeout<=0)
         {
@@ -1409,33 +1415,37 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
         /* set the throttle value to spool */
         phfc->throttle_value = pConfig->Stick100range;
 
-        if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
-          initRpmThresholdCheck();
-          phfc->waypoint_stage = FM_TAKEOFF_RPM_CHECK;
-        }
-        else {
-          if (phfc->afsi_takeoff_enable || touch_and_go) {
-            phfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
-            phfc->afsi_takeoff_enable = 0;
-          }
-          else {
-            telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
-            phfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
-          }
+        initRpmThresholdCheck();
+        phfc->waypoint_stage = FM_TAKEOFF_RPM_CHECK;
 
-          phfc->message_timeout = DEFAULT_TAKEOFF_TIMEOUT;    // 60 seconds
-          phfc->waypoint_stage  = FM_TAKEOFF_ARM;
-        }
     }
     else if (phfc->waypoint_stage == FM_TAKEOFF_RPM_CHECK) {
 
-      int rpm_check = rpm_threshold_check(dT);
+      int rpm_check = -1;
+      static time_t spool_time = gps.GetEpochTimeInSecs(DEFAULT_FIXED_PROP_SPOOL_TIME);
+
+      if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+        rpm_check = rpm_threshold_check(dT);
+
+        if (rpm_check < 0) {
+          // Cancel and disarm
+          phfc->inhibitRCswitches = false;
+          /* send message that takeoff has timed out */
+          phfc->message_timeout = 0;
+          telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+          telem.Disarm();
+          return;
+        }
+      }
+      else if(spool_time <= gps.GetEpochTimeInSecs(0)) { //PROP_FIXED_PITCH spooled up
+        rpm_check = 0;
+      }
+
       if (rpm_check == 0) {
         // rpm reached - continue with takeoff
 
-        if (phfc->afsi_takeoff_enable || touch_and_go) {
+        if (phfc->auto_takeoff || phfc->touch_and_go_takeoff) {
           phfc->message_from_ground = CMD_MSG_TAKEOFF_ALLOWED;
-          phfc->afsi_takeoff_enable = 0;
         }
         else {
           telem.SendMsgToGround(MSG2GROUND_ALLOW_TAKEOFF);
@@ -1444,15 +1454,6 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
 
         phfc->message_timeout = DEFAULT_TAKEOFF_TIMEOUT;    // 60 seconds
         phfc->waypoint_stage  = FM_TAKEOFF_ARM;
-      }
-      else if (rpm_check < 0) {
-        // Cancel and disarm
-        phfc->inhibitRCswitches = false;
-        /* send message that takeoff has timed out */
-        phfc->message_timeout = 0;
-        telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-        telem.Disarm();
-        return;
       }
     }
     else if (   (phfc->waypoint_stage == FM_TAKEOFF_ARM)
@@ -1474,7 +1475,8 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
             return;
         }
 
-        if (!touch_and_go) {
+        if (!phfc->touch_and_go_takeoff) {
+          // AVI says "Commence Takeoff Sequence"
           telem.SendMsgToGround(MSG2GROUND_TAKEOFF);
         }
 
@@ -1493,7 +1495,7 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
         phfc->ctrl_angle_pitch_3d = phfc->ctrl_out[ANGLE][PITCH];
         phfc->ctrl_angle_roll_3d  = phfc->ctrl_out[ANGLE][ROLL];
 
-        if (!touch_and_go) {
+        if (!phfc->touch_and_go_takeoff) {
           /* set home position */
           telem.SetHome();
         }
@@ -1580,14 +1582,12 @@ static void ProcessTakeoff(float dT, bool touch_and_go)
         // make sure the next waypoint uses the intended takeoff height
         phfc->altitude_WPnext = phfc->waypoint_pos[2] - phfc->altitude_base;
         phfc->waypoint_stage = FM_TAKEOFF_COMPLETE;
+        phfc->auto_takeoff = false;
       }
     }
 }
 
-// @brief
-// @param
-// @retval
-static void ProcessLanding(float dT, bool touch_and_go)
+static void ProcessLanding(float dT)
 {
   if (phfc->waypoint_stage == FM_LANDING_STOP)
   {
@@ -1597,7 +1597,14 @@ static void ProcessLanding(float dT, bool touch_and_go)
           phfc->waypoint_stage = FM_LANDING_HOLD;
           phfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
           phfc->message_timeout = DEFAULT_LANDING_TIMEOUT;
-          telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
+
+          if(phfc->auto_landing) {
+            phfc->message_timeout = DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT;    // 3 seconds
+            phfc->message_from_ground = CMD_MSG_LANDING_GO ;
+          }
+          else {
+            telem.SendMsgToGround(MSG2GROUND_ALLOW_LANDING);
+          }
       }
   }
   else
@@ -1610,7 +1617,7 @@ static void ProcessLanding(float dT, bool touch_and_go)
           phfc->message_from_ground = 0;   // reset it so we can wait for the message from ground
           phfc->message_timeout = DEFAULT_LANDING_TIMEOUT;
 
-          if(touch_and_go) {
+          if(phfc->auto_landing || phfc->touch_and_go_landing) {
             phfc->message_timeout = DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT;    // 3 seconds
             phfc->message_from_ground = CMD_MSG_LANDING_GO ;
           }
@@ -1621,8 +1628,11 @@ static void ProcessLanding(float dT, bool touch_and_go)
   }
   else if (phfc->waypoint_stage == FM_LANDING_HOLD && (phfc->message_from_ground==CMD_MSG_LANDING_GO || phfc->message_timeout<=0))
   {
-      /* check for incoming message or timeout */
-      telem.CommandLanding(false, false);
+    if (phfc->touch_and_go_landing) {
+      phfc->takeoff_height = phfc->altitude - phfc->altitude_base;
+    }
+    /* check for incoming message or timeout */
+    telem.CommandLanding(false, false);
   }
   else if (phfc->waypoint_stage == FM_LANDING_HIGH_ALT)
   {
@@ -1677,9 +1687,12 @@ static void ProcessLanding(float dT, bool touch_and_go)
         phfc->ctrl_vspeed_3d -= 2*pConfig->landing_vspeed_acc*dT;
 
         if (phfc->ctrl_vspeed_3d <= phfc->pid_CollAlt.COmin) {
-          if (touch_and_go) {
+          if (phfc->touch_and_go_landing) {
             /* stay spooled */
             phfc->waypoint_stage = FM_TOUCH_AND_GO_WAIT;
+
+            phfc->touch_and_go_wait += gps.GetDayTimeInSecs();
+            phfc->touch_and_go_do_the_thing_cnt += gps.GetDayTimeInSecs();
           }
           else {
             if (phfc->playlist_status == PLAYLIST_PLAYING) {
@@ -1700,7 +1713,7 @@ static void ProcessLanding(float dT, bool touch_and_go)
         phfc->ctrl_collective_raw = phfc->pid_CollVspeed.COlast;
         phfc->ctrl_collective_3d = phfc->pid_CollVspeed.COlast;
 
-        if (touch_and_go) {
+        if (phfc->touch_and_go_landing) {
           /* stay spooled */
           phfc->waypoint_stage = FM_TOUCH_AND_GO_WAIT;
         }
@@ -1722,7 +1735,7 @@ static void ProcessLanding(float dT, bool touch_and_go)
 static void ProcessTouchAndGo(float dT)
 {
   if(phfc->touch_and_go_landing) {
-    ProcessLanding(dT,true);
+    ProcessLanding(dT);
   }
 
   if(phfc->waypoint_stage == FM_TOUCH_AND_GO_WAIT) {
@@ -1762,7 +1775,7 @@ static void ProcessTouchAndGo(float dT)
     phfc->touch_and_go_do_the_thing_cnt -= dT;
 
     // phfc->touch_and_go_do_the_thing flag is set by message_from_ground
-    if ( (phfc->touch_and_go_do_the_thing_cnt <= 0) && phfc->touch_and_go_do_the_thing) {
+    if ( (gps.GetDayTimeInSecs() >= phfc->touch_and_go_do_the_thing_cnt) && phfc->touch_and_go_do_the_thing) {
         phfc->touch_and_go_do_the_thing_cnt = 0;
 
         //do the thing
@@ -1771,7 +1784,7 @@ static void ProcessTouchAndGo(float dT)
         phfc->touch_and_go_do_the_thing = false;
       }
 
-    if(phfc->touch_and_go_wait <= 0) {
+    if(gps.GetDayTimeInSecs() >= phfc->touch_and_go_wait) {
       phfc->touch_and_go_wait = 0;
 
       phfc->message_timeout = DEFAULT_TAKEOFF_TIMEOUT;
@@ -1783,7 +1796,8 @@ static void ProcessTouchAndGo(float dT)
   }
 
   if(phfc->touch_and_go_takeoff) {
-    ProcessTakeoff(dT, true);
+
+    ProcessTakeoff(dT);
     if(phfc->waypoint_stage == FM_TAKEOFF_COMPLETE) {
       phfc->touch_and_go_takeoff = false;
     }
@@ -1843,11 +1857,11 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         phfc->message_timeout -= phfc->ticks_curr;
     }
 
-    if (phfc->waypoint_type == WAYPOINT_TAKEOFF) {
-      ProcessTakeoff(dT,false);
+    if (hfc->waypoint_type == WAYPOINT_TAKEOFF) {
+      ProcessTakeoff(dT);
     }
-    else if (phfc->waypoint_type == WAYPOINT_LANDING) {
-      ProcessLanding(dT,false);
+    else if (hfc->waypoint_type == WAYPOINT_LANDING) {
+      ProcessLanding(dT);
     }
     else if (phfc->waypoint_type == WAYPOINT_TOUCH_AND_GO) {
       ProcessTouchAndGo(dT);
@@ -4956,7 +4970,9 @@ static void InitializeRuntimeData(void)
     for (int i = 0; i < 3; i++) {
       phfc->compass_cal.compassMax[i] = -9999;
     }
-  }
+
+    phfc->delay_time = -1;
+}
 
   phfc->box_dropper_ = 0;
 
