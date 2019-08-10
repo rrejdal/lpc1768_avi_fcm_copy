@@ -4,7 +4,9 @@
 #include "defines.h"
 #include "PID.h"
 
-#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
+// These sizes are used with the linker and MUST NOT BE Exceeded
+#define MAX_CONFIG_SIZE  (2 * 1024) // 2KB Max config Size
+#define MAX_HFC_SIZE     (12 * 1024) // 12KB Max Flight Control Runtime data size
 
 #define LANDING_SITES		20
 #define SPEED2ANGLE_SIZE    56

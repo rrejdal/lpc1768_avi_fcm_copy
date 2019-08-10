@@ -35,13 +35,14 @@
 #define FLASH_CONFIG_SECTOR     29
 #define FLASH_CONFIG_SECTORS    (1 - 1)
 #define FLASH_CONFIG_SIZE       FLASH_SECTOR_SIZE_16_TO_29
-#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
+#define MAX_CONFIG_SIZE  (2 * 1024) // 4KB Max config Size
 
 // Compass Calibration Info
 #define FLASH_COMPASS_CAL_ADDR      FLASH_SECTOR_28
 #define FLASH_COMPASS_CAL_SECTOR    28
 #define FLASH_COMPASS_CAL_SECTORS   (1 - 1)
 #define FLASH_COMAPSS_CAL_SIZE      FLASH_SECTOR_SIZE_16_TO_29
+#define MAX_COMPASS_CAL             (256)
 
 // Odometer - Wasteful in resources, but cleaner to keep in own area of flash
 #define FLASH_ODOMETER_ADDR      FLASH_SECTOR_27
@@ -51,7 +52,7 @@
 
 IAP iap;    // Provides In Application Programming of the Flash.
 
-int __attribute__((__section__(".ramconfig"))) ram_config; // this is defined by the linker. DO NOT CHANGE!
+int __attribute__((__section__(".ramscratch"))) ram_scratch; // this is defined by the linker. DO NOT CHANGE!
 
 /**
   * @brief  Return a pointer to Config Data held in Flash .
@@ -68,7 +69,6 @@ int LoadConfiguration(const ConfigData **pConfig)
     }
 
     // Validate Config Checksum
-    KICK_WATCHDOG();
     unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
     pData += sizeof(ConfigurationDataHeader);
     if (pConfigData->header.checksum != crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)))) {
@@ -217,7 +217,7 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
     }
 
     // Copy Flash config into reserved RAM space (setup from Linker)
-    ConfigData *pConfigData = (ConfigData *)&ram_config;
+    ConfigData *pConfigData = (ConfigData *)&ram_scratch;
     if (pConfigData == NULL) {
         return -1;
     }
@@ -241,24 +241,29 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
 
     __disable_irq();
 
+    KICK_WATCHDOG();
     // Erase...
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
     if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
+
+    KICK_WATCHDOG();
 
     // Write...
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
-    if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+    // Write 1024 bytes at a time
+    for (int i=0; i < 2; i++) {
+      if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR]+(i*1024), MAX_CONFIG_SIZE/2) != CMD_SUCCESS) {
         return -1;
+      }
+      pConfigData += 1024;
     }
 
     __enable_irq();
@@ -281,7 +286,7 @@ int SaveNewConfig(void)
 
     // Grab pointer to reserved RAM space (setup from Linker)
     // This should contain new configuration data.
-    ConfigData *pConfigData = (ConfigData *)&ram_config;
+    ConfigData *pConfigData = (ConfigData *)&ram_scratch;
     if (pConfigData == NULL) {
         return -1;
     }
@@ -294,24 +299,30 @@ int SaveNewConfig(void)
 
     __disable_irq();
 
+    KICK_WATCHDOG();
+
     // Erase existing file
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
     if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
+
+    KICK_WATCHDOG();
 
     // Write new file
     if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
-    if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+    // Write 1024 bytes a a time
+    for (int i=0; i < 2; i++) {
+      if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR]+(i*1024), MAX_CONFIG_SIZE/2) != CMD_SUCCESS) {
         return -1;
+      }
+      pConfigData += 1024;
     }
 
     __enable_irq();
@@ -326,38 +337,31 @@ int SaveNewConfig(void)
   */
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
 {
-    if (sizeof(CompassCalibrationData) > MAX_CONFIG_SIZE) {
+    if (sizeof(CompassCalibrationData) > MAX_COMPASS_CAL) {
         return -1;
     }
-
-    CompassCalibrationData *pCalData = (CompassCalibrationData *)&ram_config;
-    if (pCalData == NULL) {
-        return -1;
-    }
-
-    KICK_WATCHDOG();
-    memset(pCalData, 0xFF, MAX_CONFIG_SIZE);
-    memcpy(pCalData, pCompass_cal, sizeof(CompassCalibrationData));
 
     __disable_irq();
+
+    KICK_WATCHDOG();
 
     // Erase...
     if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
     if (iap.erase(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
+
+    KICK_WATCHDOG();
 
     // Write...
     if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
-    if (iap.write((char *)pCalData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
+    if (iap.write((char *)pCompass_cal, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_COMPASS_CAL) != CMD_SUCCESS) {
         return -1;
     }
 
@@ -392,6 +396,7 @@ int EraseFlash(void)
 #define CRP_UNLOCK  0xFFFFFFFF
 #define CRP_OFFSET  0x000002FC
 
+// TODO::SP - look into this again w.r.t sector sizes
 int SetJtag(int state)
 {
     // Copy sector 0 to RAM, update 0x2FC with Flag
@@ -399,7 +404,7 @@ int SetJtag(int state)
     // sector 0 is only 4kB in size, we will make use of the reserved config RAM area
     // Grab pointer to reserved RAM space (setup from Linker)
     // This should contain new configuration data.
-    uint32_t *pRamScratch = (uint32_t *)&ram_config;
+    uint32_t *pRamScratch = (uint32_t *)&ram_scratch;
     if (pRamScratch == NULL) {
         return -1;
     }
@@ -411,7 +416,7 @@ int SetJtag(int state)
     }
 
     KICK_WATCHDOG();
-    memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
+    memcpy(pRamScratch, sector_start_adress[0], 2048);
 
     // TODO::SP - check value of state and write appropriate value
     uint32_t *tmp = pRamScratch;
@@ -426,22 +431,23 @@ int SetJtag(int state)
 
     __disable_irq();
 
+    KICK_WATCHDOG();
+
     // Erase existing file
     if (iap.prepare(0, 0) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
     if (iap.erase(0, 0) != CMD_SUCCESS) {
         return -1;
     }
 
     // Write new file
+    KICK_WATCHDOG();
     if (iap.prepare(0, 0) != CMD_SUCCESS) {
         return -1;
     }
 
-    KICK_WATCHDOG();
     if (iap.write((char *)pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15) != CMD_SUCCESS) {
         return -1;
     }
@@ -453,11 +459,9 @@ int SetJtag(int state)
 
 void InitializeOdometer(FlightControlData *hfc)
 {
-  uint32_t *pOdometerReading = (uint32_t *)&ram_config;
+  uint32_t *pOdometerReading = (uint32_t *)&ram_scratch;
 
-  KICK_WATCHDOG();
-  //memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
-  memcpy(pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], MAX_CONFIG_SIZE);
+  memcpy(pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], 256);
 
   if (*pOdometerReading == 0xffffffff) {
     // If flash value is default (erased) then initialize flight time odometer to 0
@@ -474,43 +478,38 @@ void InitializeOdometer(FlightControlData *hfc)
 // Max flight time recording is 1,193,046 hours
 int UpdateOdometerReading(uint32_t Odometer)
 {
-  uint32_t odo = Odometer;
-  uint32_t *pOdometerReading = (uint32_t *)&ram_config;
+  uint32_t *pOdometerReading = (uint32_t *)&ram_scratch;
   if (pOdometerReading == NULL) {
       return -1;
   }
 
-  KICK_WATCHDOG();
-  //memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
-  //memcpy(pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], FLASH_ODOMETER_SIZE);
-
- // if (*pOdometerReading == (Odometer / 1000)) {
+  if (*pOdometerReading == (Odometer / 1000)) {
     // If no change to flight time odometer - do nothing.
- //   return 0;
- // }
+    return 0;
+  }
 
   // Update the odometer reading (in seconds) back to flash.
-  //*pOdometerReading = Odometer / 1000;
+  *pOdometerReading = Odometer / 1000;
 
   __disable_irq();
 
+  KICK_WATCHDOG();
   // Erase...
   if (iap.prepare(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
       return -1;
   }
 
-  KICK_WATCHDOG();
   if (iap.erase(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
       return -1;
   }
 
+  KICK_WATCHDOG();
   // Write...
   if (iap.prepare(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
       return -1;
   }
 
-  KICK_WATCHDOG();
-  if (iap.write((char *)pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], FLASH_ODOMETER_SIZE) != CMD_SUCCESS) {
+  if (iap.write((char *)pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], 256) != CMD_SUCCESS) {
       return -1;
   }
 

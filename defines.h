@@ -270,6 +270,8 @@ typedef enum {
 #define BARO_FAIL         (1 << 17)
 
 #define COMPASS_CAL_WARN  (1 << 18)
+#define HFC_RAM_WARN      (1 << 19)
+#define CFG_RAM_WARN      (1 << 20)
 
 #define RESET_REASON_POR  (1 << 0)
 #define RESET_REASON_EXTR (1 << 1)

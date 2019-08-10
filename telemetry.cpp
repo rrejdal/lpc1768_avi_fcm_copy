@@ -2066,12 +2066,10 @@ void TelemSerial::Disarm(void)
 
     hfc->takeoff_height = pConfig->takeoff_height;
 
-    // TODO::SP: Error handling on Flash write error??
     LedTesterOn();
     UpdateFlashConfig(hfc);
 
-    //UpdateOdometerReading(hfc->OdometerReading);
-    UpdateOdometerReading(1234);
+    UpdateOdometerReading(hfc->OdometerReading);
     LedTesterOff();
   }
 

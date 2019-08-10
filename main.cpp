@@ -46,8 +46,8 @@
 #include "compass.h"
 
 // Linker defined sections. DO NOT ALTER
-extern int __attribute__((__section__(".ramconfig"))) ram_config;
-static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
+extern int __attribute__((__section__(".ramscratch"))) ram_scratch;
+static unsigned char *pRamConfigData = (unsigned char *)&ram_scratch;
 int __attribute__((__section__(".hfcruntime"))) _hfc_runtime;
 
 // Create required devices classes
@@ -108,8 +108,8 @@ static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax);
 static void Playlist_ProcessTop();
 static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint);
 static void AbortFlight(void);
-static void ProcessTakeoff(float dT, bool touch_and_go);
-static void ProcessLanding(float dT, bool touch_and_go);
+static void ProcessTakeoff(float dT);
+static void ProcessLanding(float dT);
 static void ProcessTouchAndGo(float dT);
 static void ProcessFlightMode(FlightControlData *hfc, float dT);
 static void SetSpeedAcc(float *value, float speed, float acc, float dT);
@@ -3723,10 +3723,7 @@ static void FailSafeMode(void)
 static void CompassCalibration(void)
 {
     int i;
-    int i_pitch = 0;        //index used for comp_pitch[] flags array
-    int i_roll  = 0;        //index used for comp_roll[] flags array
     int mag_range[3] = {0};
-    int min_range = 450;
     int max_range = 1430;
 
     if( phfc->comp_calibrate == NO_COMP_CALIBRATE ) {
@@ -3770,6 +3767,10 @@ static void CompassCalibration(void)
     }
 
 #if 0
+    //int i_pitch = 0;        //index used for comp_pitch[] flags array
+    //int i_roll  = 0;        //index used for comp_roll[] flags array
+    //int min_range = 450;
+
     // This procedure is no longer being used
 
     /*Set the pitch angle flag index and roll angle flag index to the
@@ -4392,7 +4393,7 @@ static void ConfigRx(void)
 static void ProcessUserCmnds(char c)
 {
     char request[20] = {0};
-    ConfigData *pRamConfigData = (ConfigData *)&ram_config;
+    ConfigData *pRamConfigData = (ConfigData *)&ram_scratch;
 
     // 'L' == Load Request
     if (c == 'L') {
@@ -4403,7 +4404,7 @@ static void ProcessUserCmnds(char c)
         serial.scanf("%19s", request);
         if (strcmp(request, "config_upload") == 0) {
             // Clear current RamConfig in preparation for new data.
-            memset((uint8_t *)&ram_config, 0xFF, MAX_CONFIG_SIZE);
+            memset((uint8_t *)&ram_scratch, 0xFF, MAX_CONFIG_SIZE);
 
             serial.attach(&ConfigRx);   // This handles incoming configuration file
 
@@ -4418,7 +4419,7 @@ static void ProcessUserCmnds(char c)
 
             while (!have_config) {}
 
-            unsigned char *pData = (unsigned char *)&ram_config;
+            unsigned char *pData = (unsigned char *)&ram_scratch;
             pData += sizeof(ConfigurationDataHeader);
             // CRC data and check.
             if (pRamConfigData->header.checksum
@@ -5090,7 +5091,7 @@ static uint32_t InitializeSystemData()
 
   // Clear out the Runtime RAM copy of the config Data
   KICK_WATCHDOG();
-  memset(pRamConfigData, 0x00, sizeof(ConfigData));
+  memset(pRamConfigData, 0x00, MAX_CONFIG_SIZE);
 
   if (LoadConfiguration(&pConfig) < 0) {
     ret_value = CONFIG_FAIL;
@@ -5154,8 +5155,17 @@ int main()
   SysTick_Run();
 
 #ifndef DEBUG
-//  InitializeWatchdog(0.5f);  // 0.5 sec timeout
+  InitializeWatchdog(0.5f);  // 0.5 sec timeout
 #endif
+
+  // Early detect if we have exceeded build limits
+  if (sizeof(FlightControlData) > MAX_HFC_SIZE) {
+    phfc->system_status_mask |= HFC_RAM_WARN;
+  }
+
+  if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
+    phfc->system_status_mask |= CFG_RAM_WARN;
+  }
 
   // Initialize system configuration, Runtime Data and Peripherals
   phfc->system_status_mask |= InitializeSystemData();
