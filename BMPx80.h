@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
-  * @file    config.h
+  * @file    BMPx80.cpp
   * @author  AVIDRONE FIRMWARE Team
-  * @brief   Provides support for FCM node of Avidrone FCS
+  * @brief   Provides support for Baro
   *
   ******************************************************************************
   * @attention
@@ -23,22 +23,47 @@
   *
   ******************************************************************************
   */
+#ifndef _BMPx80_H_
+#define _BMPx80_H_
+ 
+#include "mbed.h"
+#include "I2Ci.h"
+#include "structures.h"
 
-#ifndef CONFIG_H_
-#define CONFIG_H_
+#define BMP_NONE    0
+#define BMP_180     1
+#define BMP_280     2
 
-// ---- Public Interfaces ---- //
-int LoadConfiguration(const ConfigData **pConfig);
-int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
-int SaveNewConfig(void);
-int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
-void InitializeOdometer(FlightControlData *hfc);
-int UpdateOdometerReading(uint32_t OdometerCounter);
-int EraseFlash(void);
-int SetJtag(int state);
+class BMPx80
+{
+  public:
+    BMPx80(I2Ci *m_i2c);
+    uint32_t Init(const ConfigData *pConfig);
+    void Calibration280();
+    int GetTPA(float dT, float *pTemp, float *pPress, float *pAlt);
 
-// ---- Public Data ---- //
-#define CONFIG_VERSION   12
-#define COMPASS_CAL_VERSION 1
+  protected:
+    I2Ci *i2c;
+    int i2c_address;
+    uint8_t OSS;
 
-#endif /* CONFIG_H_ */
+    // These are constants used to calculate the temperature and pressure from the BMP-280 sensor
+    uint16_t    dig_T1;
+    int16_t     dig_T2, dig_T3;
+    uint16_t    dig_P1;
+    int16_t     dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
+
+    char state;
+    char bmp;
+    float duration;
+    float interval;
+    float timeout;
+    volatile char rawData[6];
+    volatile int status;
+    float temperature;
+    float pressure;
+    float altitude;
+    volatile char start_cmd[2];
+};
+
+#endif

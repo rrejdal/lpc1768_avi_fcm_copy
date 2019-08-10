@@ -124,6 +124,7 @@ void I2Ci::read_regs_nb(int address, char reg, volatile char *data, int length, 
 {
     data[0] = reg;
     write_nb(address, data, 1, NULL);
+
     read_nb(address, data, length, status);
 }
 
@@ -386,7 +387,9 @@ void I2Ci::IRQHandler( volatile I2CBuffer *Buffer, LPC_I2C_TypeDef *I2CMODULE)
 
             //Arbitration lost (situation looks pretty hopeless to me if you arrive here)
         case(0x38):
-            _start(I2CMODULE);
+            I2CMODULE->I2CONSET = 0x24; // Set STA and AA
+            I2CMODULE->I2CONCLR = 0x8;  // Clr SI Flag
+            //_start(I2CMODULE);
             break;
 
 

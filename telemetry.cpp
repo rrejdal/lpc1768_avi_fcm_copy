@@ -10,7 +10,7 @@
 #include "compass.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
-extern int UpdateOdometerReading(uint32 OdometerCounter);
+extern int UpdateOdometerReading(uint32_t OdometerCounter);
 
 extern GPS gps;
 extern XBus xbus;
@@ -2049,26 +2049,31 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
 
 void TelemSerial::Disarm(void)
 {
-	hfc->throttle_armed    = 0;
-	hfc->inhibitRCswitches = false;
-	hfc->waypoint_type   = WAYPOINT_NONE;
-	hfc->waypoint_stage = FM_TAKEOFF_NONE;
-	hfc->playlist_status = PLAYLIST_NONE;
-	hfc->LidarCtrlMode   = false;
-	hfc->fixedThrottleMode = THROTTLE_IDLE;
+  if (hfc->throttle_armed) {
+    hfc->throttle_armed    = 0;
+    hfc->inhibitRCswitches = false;
+    hfc->waypoint_type   = WAYPOINT_NONE;
+    hfc->waypoint_stage = FM_TAKEOFF_NONE;
+    hfc->playlist_status = PLAYLIST_NONE;
+    hfc->LidarCtrlMode   = false;
+    hfc->fixedThrottleMode = THROTTLE_IDLE;
 
-	hfc->touch_and_go_landing = false;
-	hfc->touch_and_go_takeoff = false;
+    hfc->touch_and_go_landing = false;
+    hfc->touch_and_go_takeoff = false;
 
-  hfc->auto_takeoff = false;
-  hfc->auto_landing = false;
+    hfc->auto_takeoff = false;
+    hfc->auto_landing = false;
 
-  hfc->takeoff_height = pConfig->takeoff_height;
+    hfc->takeoff_height = pConfig->takeoff_height;
 
-	// TODO::SP: Error handling on Flash write error??
-  UpdateFlashConfig(hfc);
+    // TODO::SP: Error handling on Flash write error??
+    LedTesterOn();
+    UpdateFlashConfig(hfc);
 
-  UpdateOdometerReading(hfc->OdometerReading);
+    //UpdateOdometerReading(hfc->OdometerReading);
+    UpdateOdometerReading(1234);
+    LedTesterOff();
+  }
 
 }
 

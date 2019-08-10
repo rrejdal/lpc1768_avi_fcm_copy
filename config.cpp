@@ -68,6 +68,7 @@ int LoadConfiguration(const ConfigData **pConfig)
     }
 
     // Validate Config Checksum
+    KICK_WATCHDOG();
     unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
     pData += sizeof(ConfigurationDataHeader);
     if (pConfigData->header.checksum != crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)))) {
@@ -221,6 +222,7 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
         return -1;
     }
 
+    KICK_WATCHDOG();
     // copy config data from Flash to RAM
     memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
 
@@ -232,6 +234,7 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
     UpdatePIDconfig(pConfigData, fcm_data);
 
     // Recalculate checksum on file
+    KICK_WATCHDOG();
     unsigned char *pData = (unsigned char *)pConfigData;
     pData += sizeof(ConfigurationDataHeader);
     pConfigData->header.checksum = crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)));
@@ -243,6 +246,7 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
@@ -252,6 +256,7 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
         return -1;
     }
@@ -294,6 +299,7 @@ int SaveNewConfig(void)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
@@ -303,6 +309,7 @@ int SaveNewConfig(void)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
         return -1;
     }
@@ -328,6 +335,7 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
         return -1;
     }
 
+    KICK_WATCHDOG();
     memset(pCalData, 0xFF, MAX_CONFIG_SIZE);
     memcpy(pCalData, pCompass_cal, sizeof(CompassCalibrationData));
 
@@ -338,6 +346,7 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.erase(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
         return -1;
     }
@@ -347,6 +356,7 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.write((char *)pCalData, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_CONFIG_SIZE) != CMD_SUCCESS) {
         return -1;
     }
@@ -365,6 +375,7 @@ int EraseFlash(void)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.erase(0, (29)) != CMD_SUCCESS) {
         return -1;
     }
@@ -399,6 +410,7 @@ int SetJtag(int state)
         return 0;
     }
 
+    KICK_WATCHDOG();
     memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
 
     // TODO::SP - check value of state and write appropriate value
@@ -419,6 +431,7 @@ int SetJtag(int state)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.erase(0, 0) != CMD_SUCCESS) {
         return -1;
     }
@@ -428,6 +441,7 @@ int SetJtag(int state)
         return -1;
     }
 
+    KICK_WATCHDOG();
     if (iap.write((char *)pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15) != CMD_SUCCESS) {
         return -1;
     }
@@ -439,11 +453,11 @@ int SetJtag(int state)
 
 void InitializeOdometer(FlightControlData *hfc)
 {
-  uint32 *pOdometerReading = (uint32 *)&ram_config;
+  uint32_t *pOdometerReading = (uint32_t *)&ram_config;
 
   KICK_WATCHDOG();
-  memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
-  memcpy(pOdometerReading, (void *)sector_start_adress[FLASH_ODOMETER_SECTOR], sizeof(int));
+  //memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
+  memcpy(pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], MAX_CONFIG_SIZE);
 
   if (*pOdometerReading == 0xffffffff) {
     // If flash value is default (erased) then initialize flight time odometer to 0
@@ -458,23 +472,25 @@ void InitializeOdometer(FlightControlData *hfc)
 // Update value of Odometer, which indicates total flight time of unit.
 // Odometer value is stored in Flash as the number of seconds.
 // Max flight time recording is 1,193,046 hours
-int UpdateOdometerReading(uint32 Odometer)
+int UpdateOdometerReading(uint32_t Odometer)
 {
-  uint32 *pOdometerReading = (uint32 *)&ram_config;
+  uint32_t odo = Odometer;
+  uint32_t *pOdometerReading = (uint32_t *)&ram_config;
   if (pOdometerReading == NULL) {
       return -1;
   }
 
-  memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
-  memcpy(pOdometerReading, (void *)sector_start_adress[FLASH_ODOMETER_SECTOR], sizeof(int));
+  KICK_WATCHDOG();
+  //memset(pOdometerReading, 0xFF, MAX_CONFIG_SIZE);
+  //memcpy(pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], FLASH_ODOMETER_SIZE);
 
-  if (*pOdometerReading == (Odometer / 1000)) {
+ // if (*pOdometerReading == (Odometer / 1000)) {
     // If no change to flight time odometer - do nothing.
-    return 0;
-  }
+ //   return 0;
+ // }
 
   // Update the odometer reading (in seconds) back to flash.
-  *pOdometerReading = Odometer / 1000;
+  //*pOdometerReading = Odometer / 1000;
 
   __disable_irq();
 
@@ -483,6 +499,7 @@ int UpdateOdometerReading(uint32 Odometer)
       return -1;
   }
 
+  KICK_WATCHDOG();
   if (iap.erase(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
       return -1;
   }
@@ -492,6 +509,7 @@ int UpdateOdometerReading(uint32 Odometer)
       return -1;
   }
 
+  KICK_WATCHDOG();
   if (iap.write((char *)pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], FLASH_ODOMETER_SIZE) != CMD_SUCCESS) {
       return -1;
   }

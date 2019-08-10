@@ -1357,6 +1357,10 @@ typedef struct
 
     float servo_mon_voltage[MAX_CAN_SERVO_NODES];
 
+    uint32_t imu_error_count;
+    uint32_t baro_error_count;
+    bool failsafe;
+
 } FlightControlData;
 
 

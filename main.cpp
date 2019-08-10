@@ -1,3 +1,4 @@
+#include <BMPx80.h>
 /**
   ******************************************************************************
   * @file    main.cpp
@@ -32,7 +33,6 @@
 #include "IMU.h"
 #include "xbus.h"
 #include "PID.h"
-#include "BMP180.h"
 #include "pGPS.h"
 #include "telemetry.h"
 #include "avican.h"
@@ -132,6 +132,8 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata);
 static void CanbusISRHandler(void);
 static int CanbusNodeTypeStatus(int node_type);
 static void CanbusNodeMonitor(float dT);
+static void SystemMonitor(float dT);
+static void FailSafeMode(void);
 static void CompassCalibration(void);
 static void ArmedTimeout(float dT);
 static void FlightOdometer(void);
@@ -160,8 +162,13 @@ FlightControlData *phfc = NULL;
 const ConfigData *pConfig = NULL;
 
 // ---- Constants ---- //
-#define CAN_NODE_TIMEOUT 0.5f // 0.5 second
+#define CAN_NODE_TIMEOUT 1.0f // 1.0 second
 #define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
+#define IMU_CHECK_TIMEOUT 1.0f  // 1.0 seconds
+#define IMU_ERROR_THRESHOLD 800 // threshold of IMU errors within IMU_CHECK_TIMEOUT
+
+#define BARO_CHECK_TIMEOUT 1.0f  // 1.0 seconds
+#define BARO_ERROR_THRESHOLD 8   // threshold of IMU errors within BARO_CHECK_TIMEOUT
 
 #define CAN_SERVO_FRONT 0
 #define CAN_SERVO_REAR  1
@@ -494,12 +501,16 @@ static void WriteToServos(int node_type, int num_nodes)
     FCM_SERVO_CH6.pulsewidth_us((int)(1500.5f + fcm_pwm_values[0][5] * 500));
   }
   else {
+    int node_fail_mask = (node_type == AVI_SERVO_NODETYPE) ? SERVO_NODE_FAIL : PWR_NODE_FAIL;
+
     if (pwm_out ^= 1) {
       for (int i=0; i < num_nodes; i++) {
         memcpy(can_tx_message.data, &pwm_values[i][0], 8);
 
         can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SERVOS_0_3, AVI_MSGID_CDP);
-        Canbus->write(can_tx_message);
+        if ((phfc->system_status_mask & (node_fail_mask << i)) == 0) {
+          Canbus->write(can_tx_message);
+        }
       }
     }
     else {
@@ -507,7 +518,9 @@ static void WriteToServos(int node_type, int num_nodes)
         memcpy(can_tx_message.data, &pwm_values[i][4], 8);
 
         can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SERVOS_4_7, AVI_MSGID_CDP);
-        Canbus->write(can_tx_message);
+        if ((phfc->system_status_mask & (node_fail_mask << i)) == 0) {
+          Canbus->write(can_tx_message);
+        }
       }
     }
   }
@@ -799,6 +812,12 @@ static void ServoMixer(void)
 // @retval
 static inline void ServoOutput(void)
 {
+
+  // If failsafe mode set - no need to keep updating servos
+  if (phfc->failsafe == true) {
+    return;
+  }
+
   // Output Servo mixer data, depending upon hardware in use.
   if (pConfig->can_servo) {
     WriteToServos(AVI_SERVO_NODETYPE, pConfig->num_servo_nodes);
@@ -3178,6 +3197,7 @@ static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdat
 {
   uint8_t hardware_status;
   if (node_type == AVI_GPS_NODETYPE) {
+
     hardware_status = pdata[0];
 
     if ((hardware_status & 0x1) == 0)
@@ -3514,6 +3534,38 @@ static int CanbusNodeTypeStatus(int node_type)
 // @brief
 // @param
 // @retval
+static void SystemMonitor(float dT)
+{
+  static float imu_check_timeout = IMU_CHECK_TIMEOUT;
+  static float baro_check_timeout = BARO_CHECK_TIMEOUT;
+
+  // Check Canbus node operations
+  CanbusNodeMonitor(dT);
+
+  // Check IMU operations
+  imu_check_timeout -= dT;
+  if (imu_check_timeout <= 0) {
+    if (phfc->imu_error_count > IMU_ERROR_THRESHOLD) {
+      phfc->system_status_mask |= IMU_FAIL;
+      // WARNING - THIS IS LAST RESORT AND WILL SEND FAILSAFE TO CANBUS NODES
+      //  - ULTIMATELY KILLING POWER AND AUTOROTATING
+      FailSafeMode();
+    }
+    imu_check_timeout = IMU_CHECK_TIMEOUT;
+  }
+
+  baro_check_timeout -= dT;
+  if (baro_check_timeout <= 0) {
+    if (phfc->baro_error_count > BARO_ERROR_THRESHOLD) {
+      phfc->system_status_mask |= BARO_FAIL;
+    }
+    baro_check_timeout = BARO_CHECK_TIMEOUT;
+  }
+}
+
+// @brief
+// @param
+// @retval
 static void CanbusNodeMonitor(float dT)
 {
   static unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM] = {0};
@@ -3606,6 +3658,20 @@ static void CanbusNodeMonitor(float dT)
       Canbus->write(can_tx_message);
       gps_reconfig_active = 0;
     }
+  }
+}
+
+// @brief
+// @param
+// @retval
+static void FailSafeMode(void)
+{
+  for (int node_id = 0; node_id < pConfig->num_servo_nodes; node_id++) {
+    CanbusFailsafe(AVI_SERVO_NODETYPE, node_id);
+  }
+
+  for (int node_id = 0; node_id < pConfig->num_power_nodes; node_id++) {
+    CanbusFailsafe(AVI_PWR_NODETYPE, node_id);
   }
 }
 
@@ -3851,12 +3917,20 @@ static void DoFlightControl()
 
     KICK_WATCHDOG();
 
-    if (!mpu.readMotion7f_finish(phfc->accRaw, phfc->gyroRaw, &phfc->gyro_temperature)) {
-      phfc->system_status_mask |= IMU_FAIL;
+    if (!(phfc->system_status_mask & IMU_FAIL)) {
+      if (!mpu.readMotion7f_finish(phfc->accRaw, phfc->gyroRaw, &phfc->gyro_temperature)) {
+        phfc->imu_error_count++;
+      }
+      else {
+        phfc->imu_error_count = 0;
+      }
     }
 
-    ticks = Ticks_us_minT(1000, &utilization);   // defines loop time in uS, 1000Hz
+    //LedTesterOff();
+    ticks = Ticks_us_minT(1000, &utilization);   // defines loop time in uS, 1000Hz (1ms)
 
+    //LedTesterToggle();
+    //LedTesterOn();
     if (!(phfc->system_status_mask & IMU_FAIL)) {
       mpu.readMotion7_start();
     }
@@ -3882,69 +3956,66 @@ static void DoFlightControl()
     FlightOdometer();
 
     /* copy and clear the new data flag set by GPS to a new variable to avoid a race */
-    //gps_data = gps.GpsUpdate(ticks, &phfc->gps_new_data);
     phfc->gps_new_data = gps.GpsUpdate();
 
-    //if (phfc->gps_new_data) {
-        //if ((phfc->print_counter %500) == 0) {
-            //debug_print("GPS[%d]\r\n", gps_msg);
-            //debug_print("GPS: lat[%d]:lon[%d], latf[%f]:lonf[%f], latD[%f]:lonD[%f]\r\n",
-            //         gps.gps_data_.lat, gps.gps_data_.lon, gps.gps_data_.latF, gps.gps_data_.lonF,
-            //         gps.gps_data_.latD, gps.gps_data_.lonD);
-        //}
-    //}
+    // Check for new Compass Data
+    if (compass->HaveNewData()) {
+      phfc->compass_heading = compass->GetHeadingDeg(phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
 
-    if (pConfig->sensor_mode == 0 /*FLY_ALL_SENSORS*/) {
-        if (compass->HaveNewData()) {
-            phfc->compass_heading = compass->GetHeadingDeg(phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
+      if (phfc->compass_heading_lp == 0) {
+          phfc->compass_heading_lp = phfc->compass_heading;
+      }
+      else {
+          // phfc->compass_heading_lp = LP_16_Wrap180(phfc->compass_heading, phfc->compass_heading_lp);
+          phfc->compass_heading_lp = LP_Wrap180(phfc->compass_heading, phfc->compass_heading_lp, pConfig->heading_avgs);
+      }
 
-            if (phfc->compass_heading_lp == 0) {
-                phfc->compass_heading_lp = phfc->compass_heading;
-            }
-            else {
-                // phfc->compass_heading_lp = LP_16_Wrap180(phfc->compass_heading, phfc->compass_heading_lp);
-                phfc->compass_heading_lp = LP_Wrap180(phfc->compass_heading, phfc->compass_heading_lp, pConfig->heading_avgs);
-            }
+      // debug_print("Comp: %+5.1f %+5.1f\r\n", phfc->compass_heading, phfc->compass_heading_lp);
+      CompassCalibration();
 
-            // debug_print("Comp: %+5.1f %+5.1f\r\n", phfc->compass_heading, phfc->compass_heading_lp);
-            CompassCalibration();
-
-            phfc->compass_heading_raw[pConfig->compass_selection] = compass->GetRawHeadingXY(pConfig->compass_selection);
-            if (pConfig->compass_selection == 0) {
-              if (compass->HaveNewData(1)) {
-                phfc->compass_heading_raw[1] = compass->GetRawHeadingXY(1);
-              }
-            }
-            else {
-              if (compass->HaveNewData(0)) {
-                phfc->compass_heading_raw[0] = compass->GetRawHeadingXY(0);
-              }
-            }
+      phfc->compass_heading_raw[pConfig->compass_selection] = compass->GetRawHeadingXY(pConfig->compass_selection);
+      if (pConfig->compass_selection == 0) {
+        if (compass->HaveNewData(1)) {
+          phfc->compass_heading_raw[1] = compass->GetRawHeadingXY(1);
         }
+      }
+      else {
+        if (compass->HaveNewData(0)) {
+          phfc->compass_heading_raw[0] = compass->GetRawHeadingXY(0);
+        }
+      }
     }
 
     if (pConfig->baro_enable == 1) {
-        phfc->baro_dT += dT;
-        baro_altitude_raw_prev = phfc->baro_altitude_raw_lp;
+      phfc->baro_dT += dT;
+      baro_altitude_raw_prev = phfc->baro_altitude_raw_lp;
 
-        if (baro.GetTPA(dT, &phfc->baro_temperature, &phfc->baro_pressure, &phfc->baro_altitude_raw)) {   // runs at approximately 32Hz
-            //    phfc->baro_vspeedDF = DerivativeFilter11(phfc->baro_altitude_raw, phfc->baro_derivative_filter)/phfc->baro_dT;
-
-            if (phfc->baro_altitude_raw_lp < -999) {
-                phfc->altitude_baro = phfc->baro_altitude_raw_lp = baro_altitude_raw_prev = phfc->baro_altitude_raw;
-            }
-
-            phfc->baro_altitude_raw_lp = LP4_1000(&phfc->lp_baro4, phfc->baro_altitude_raw);
-            phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
-            phfc->baro_vspeed_lp = LP4_1000(&phfc->lp_baro_vspeed4,phfc->baro_vspeed);
-
-            //    phfc->baro_altitude_raw_lp = (phfc->baro_altitude_raw + 7*phfc->baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
-            //    phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
-            //    debug_print("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", phfc->baro_temperature, phfc->baro_pressure, phfc->baro_altitude_raw, phfc->baro_altitude_raw_lp, phfc->baro_vspeed, phfc->baro_dT);
-            //    debug_print("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", phfc->IMUspeedGroundENU[2], phfc->altitude, phfc->baro_altitude_rawLP4, phfc->baro_altitude_raw_lp);
-
-            phfc->baro_dT = 0;
+      // Baro updates every 25ms
+      int result = 0;
+      if ((result = baro.GetTPA(dT, &phfc->baro_temperature, &phfc->baro_pressure, &phfc->baro_altitude_raw)) == 1) {
+        //    phfc->baro_vspeedDF = DerivativeFilter11(phfc->baro_altitude_raw, phfc->baro_derivative_filter)/phfc->baro_dT;
+        if (phfc->baro_altitude_raw_lp < -999) {
+            phfc->altitude_baro = phfc->baro_altitude_raw_lp = baro_altitude_raw_prev = phfc->baro_altitude_raw;
         }
+
+        phfc->baro_altitude_raw_lp = LP4_1000(&phfc->lp_baro4, phfc->baro_altitude_raw);
+        phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
+        phfc->baro_vspeed_lp = LP4_1000(&phfc->lp_baro_vspeed4,phfc->baro_vspeed);
+
+        //    phfc->baro_altitude_raw_lp = (phfc->baro_altitude_raw + 7*phfc->baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
+        //    phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
+        //    debug_print("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", phfc->baro_temperature, phfc->baro_pressure, phfc->baro_altitude_raw, phfc->baro_altitude_raw_lp, phfc->baro_vspeed, phfc->baro_dT);
+        //    debug_print("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", phfc->IMUspeedGroundENU[2], phfc->altitude, phfc->baro_altitude_rawLP4, phfc->baro_altitude_raw_lp);
+
+        phfc->baro_dT = 0;
+        phfc->baro_error_count = 0;
+      }
+      else {
+        if (result == -1) {
+          // Keep track of timeout reads
+          phfc->baro_error_count++;
+        }
+      }
     }
 
 
@@ -4261,7 +4332,7 @@ static void DoFlightControl()
     }
 #endif
 
-    CanbusNodeMonitor(dT);
+    SystemMonitor(dT);
 
     phfc->gps_new_data = false;
     phfc->print_counter++;
@@ -4751,6 +4822,10 @@ static void CanbusFailsafe(int node_type, int node_id)
   can_tx_message.len = 0;
 
   can_tx_message.id = AVI_CAN_ID(node_type, BASE_NODE_ID + node_id, AVI_FAILSAFE, AVI_MSGID_CTRL);
+  phfc->failsafe = true;
+  // TODO::SP - Remove this test code
+  phfc->box_dropper_ = 1;
+  FCM_DROP_BOX_CTRL(phfc->box_dropper_);
   Canbus->write(can_tx_message);
 }
 
@@ -4999,6 +5074,10 @@ static void InitializeRuntimeData(void)
 
   phfc->num_motors = 0;
 
+  phfc->imu_error_count = 0;
+  phfc->baro_error_count = 0;
+  phfc->failsafe = false;
+
   LPC_RIT->RICOUNTER = 0;
 }
 
@@ -5075,7 +5154,7 @@ int main()
   SysTick_Run();
 
 #ifndef DEBUG
-  InitializeWatchdog(0.5f);  // 0.5 sec timeout
+//  InitializeWatchdog(0.5f);  // 0.5 sec timeout
 #endif
 
   // Initialize system configuration, Runtime Data and Peripherals
@@ -5096,6 +5175,7 @@ int main()
   SysTick_Run();
 
   SetFcmLedState(phfc->system_reset_reason);
+  LedTesterOff();
 
   // Initialize FCM local IO
   InitFcmIO();

@@ -22,13 +22,28 @@ DigitalOut  led4(LED_4);
 DigitalOut  ArmedLed(LED_3);
 
 DigitalOut  leds[4] = {led1, led2, led3, led4};
+DigitalOut  ledtester(MC_LED);
 
 void SetFcmLedState(uint32_t state_mask)
 {
   for(int i=0; i < 4; i++) {
     leds[i] = state_mask & (1 << i);
   }
+}
 
+void LedTesterOn(void)
+{
+  ledtester = 0;
+}
+
+void LedTesterOff(void)
+{
+  ledtester = 1;
+}
+
+void LedTesterToggle(void)
+{
+  ledtester = !ledtester;
 }
 
 float DistanceCourse(double lat1, double long1, double lat2, double long2, float *course)
