@@ -38,7 +38,7 @@ int EraseFlash(void);
 int SetJtag(int state);
 
 // ---- Public Data ---- //
-#define CONFIG_VERSION   12
+#define CONFIG_VERSION   15
 #define COMPASS_CAL_VERSION 1
 
 #endif /* CONFIG_H_ */

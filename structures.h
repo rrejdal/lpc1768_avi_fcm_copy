@@ -966,7 +966,8 @@ typedef struct ConfigurationData {
 
     int servo_revert_ch7_ch8[2];
 
-    int servo_failsafe_pwm[8];
+    int servo_failsafe_pwm[2][8]; // (On Tandems: Index 0 is front, 1 is rear)
+
     int enable_servomon_check[2];
 
 //} __attribute__((packed)) ConfigData;

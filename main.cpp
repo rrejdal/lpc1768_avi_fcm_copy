@@ -3899,9 +3899,9 @@ static void ArmedTimeout(float dT)
 // @retval
 static void FlightOdometer(void)
 {
-  if (phfc->throttle_armed && (GetMotorsState() || (phfc->fixedThrottleMode > THROTTLE_DEAD))) {
+  //if (phfc->throttle_armed && (GetMotorsState() || (phfc->fixedThrottleMode > THROTTLE_DEAD))) {
     phfc->OdometerReading++;
-  }
+  //}
 }
 
 // @brief
@@ -4528,6 +4528,8 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+            usb_print("MUST NOW POWER OFF/ON");
+            NVIC_SystemReset();
         }
         else if (strcmp(request, "lock") == 0) {
             if (SetJtag(LOCK_JTAG) == 0) {
@@ -4536,6 +4538,8 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+            usb_print("MUST NOW POWER OFF/ON");
+            NVIC_SystemReset();
         }
         else if (strcmp(request, "eraseall") == 0) {
             if (EraseFlash() == 0) {
@@ -4544,6 +4548,7 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+            usb_print("MUST NOW POWER OFF/ON");
         }
         else if (strcmp(request, "odoreset") == 0) {
           phfc->OdometerReading = 0;
@@ -4605,16 +4610,9 @@ static uint32_t InitCanbus(void)
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
         failsafe = (short int *)&node_cfg_data.data[0];
-
         for (int j=0; j < 4; j++) {
-          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+          *failsafe++ = pConfig->servo_failsafe_pwm[node_id-1][j+(i*4)];
         }
-        // SP::TODO - until config values are available, override with these defaults.
-        failsafe = (short int *)&node_cfg_data.data[0];
-        *failsafe++ = 1000;
-        *failsafe++ = 1500;
-        *failsafe++ = 1500;
-        *failsafe = 1500;
 
         node_cfg_data.len = 8;
         wait_ms(10);
@@ -4642,17 +4640,9 @@ static uint32_t InitCanbus(void)
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
         failsafe = (short int *)&node_cfg_data.data[0];
-
         for (int j=0; j < 4; j++) {
-          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+          *failsafe++ = pConfig->servo_failsafe_pwm[node_id-1][j+(i*4)];
         }
-
-        // SP::TODO - until config values are available, override with these defaults.
-        failsafe = (short int *)&node_cfg_data.data[0];
-        *failsafe++ = 1000;
-        *failsafe++ = 1500;
-        *failsafe++ = 1500;
-        *failsafe = 1500;
 
         node_cfg_data.len = 8;
         wait_ms(10);

@@ -2066,11 +2066,8 @@ void TelemSerial::Disarm(void)
 
     hfc->takeoff_height = pConfig->takeoff_height;
 
-    LedTesterOn();
     UpdateFlashConfig(hfc);
-
     UpdateOdometerReading(hfc->OdometerReading);
-    LedTesterOff();
   }
 
 }
