@@ -171,6 +171,9 @@ const ConfigData *pConfig = NULL;
 #define BARO_CHECK_TIMEOUT 1.0f  // 1.0 seconds
 #define BARO_ERROR_THRESHOLD 8   // threshold of IMU errors within BARO_CHECK_TIMEOUT
 
+#define WATCHDOG_TIMEOUT 0.5f // if we don't kick preston for 0.5 seconds he will bite us!
+#define WD_RESET_LIMIT 3  // After being bitten 3 time - attempt failsafe and give up
+
 #define CAN_SERVO_FRONT 0
 #define CAN_SERVO_REAR  1
 #define FCM_SERVO       2
@@ -4591,7 +4594,7 @@ static uint32_t InitCanbus(void)
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
 
-  if (phfc->system_reset_reason == RESET_REASON_WD) {
+  if (phfc->system_reset_reason & RESET_REASON_WD) {
     return ret_mask;
   }
 
@@ -4702,7 +4705,7 @@ static uint32_t InitCanbusNode(int node_type, int node_id, int timeout)
   can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_LOW, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
-  wait_ms(10);
+  wait_ms(20);
   can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_HIGH, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
@@ -4818,9 +4821,7 @@ static void CanbusFailsafe(int node_type, int node_id)
 
   can_tx_message.id = AVI_CAN_ID(node_type, BASE_NODE_ID + node_id, AVI_FAILSAFE, AVI_MSGID_CTRL);
   phfc->failsafe = true;
-  // TODO::SP - Remove this test code
-  phfc->box_dropper_ = 1;
-  FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+
   Canbus->write(can_tx_message);
 }
 
@@ -4833,7 +4834,7 @@ static void InitializeRuntimeData(void)
 
   // If we are warm resetting, DO NOT re-init data. We are trying to
   // keep running under a warm reset.
-  if (last_reset == RESET_REASON_WD) {
+  if (last_reset & RESET_REASON_WD) {
     phfc->system_reset_reason = last_reset;
     phfc->system_status_mask = 0;
     phfc->soft_reset_counter++;
@@ -5188,7 +5189,7 @@ int main()
   SysTick_Run();
 
 #ifndef DEBUG
-  InitializeWatchdog(0.5f);  // 0.5 sec timeout
+  InitializeWatchdog(WATCHDOG_TIMEOUT);
 #endif
 
   // Early detect if we have exceeded build limits
@@ -5208,6 +5209,13 @@ int main()
     // Pass Go and Do not collect $200
     // NO RETURN FROM THIS CALL
     RunDefaultSystem();
+  }
+
+  // If we've experienced a snowball of watchdog resets
+  // all we can do is assume something very bad is happening and attempt to
+  // put any control systems to failsafe mode.
+  if (phfc->soft_reset_counter >= WD_RESET_LIMIT) {
+    FailSafeMode();
   }
 
   phfc->system_status_mask |= InitCanbus();
