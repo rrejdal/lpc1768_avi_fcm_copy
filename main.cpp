@@ -3892,17 +3892,16 @@ static void ArmedTimeout(float dT)
   }
 }
 
-// Called every ms and increments the flight time counter,
-//   Counter is only started and incremented when we are
-//   armed and motors are ON or Throttle is in RAMP or FLY mode
-// @brief
+// @brief Called every ms and increments the flight time counter,
+//        - Counter is only started and incremented when we are
+//        - armed and motors are ON or Throttle is in RAMP or FLY mode
 // @param
 // @retval
 static void FlightOdometer(void)
 {
-  //if (phfc->throttle_armed && (GetMotorsState() || (phfc->fixedThrottleMode > THROTTLE_DEAD))) {
+  if (phfc->throttle_armed && (GetMotorsState() || (phfc->fixedThrottleMode > THROTTLE_DEAD))) {
     phfc->OdometerReading++;
-  //}
+  }
 }
 
 // @brief
@@ -5144,7 +5143,6 @@ static uint32_t InitializeSystemData()
 // @retval
 static void RunDefaultSystem(void)
 {
-  int ticks;
   int utilization = 0;
   int count = 0;
 
@@ -5153,18 +5151,16 @@ static void RunDefaultSystem(void)
   telem.Initialize(phfc, NULL);
   telemetry.baud(38400);
 
-  telem.Generate_AircraftCfg();
-
   while (1) {
 
     KICK_WATCHDOG();
 
-    ticks = Ticks_us_minT(1000, &utilization);
+    Ticks_us_minT(1000, &utilization);
 
     // Generate default aircraft cfg message to AGS every 1 seconds
-    if (((count % 1000) == 0) && !telem.IsTypeInQ(TELEMETRY_AIRCRAFT_CFG)) {
-      telem.Generate_AircraftCfg();
-      telem.AddMessage((unsigned char*)&phfc->aircraftConfig, sizeof(T_AircraftConfig), TELEMETRY_AIRCRAFT_CFG, 1);
+    if (((++count % 1000) == 0) && !telem.IsTypeInQ(TELEMETRY_AIRCRAFT_CFG)) {
+      telem.Generate_DefaultCfg();
+      telem.AddMessage((unsigned char*)&phfc->aircraftConfig, sizeof(T_AircraftConfig), TELEMETRY_AIRCRAFT_CFG, 0);
     }
 
     telem.Update();
@@ -5174,7 +5170,6 @@ static void RunDefaultSystem(void)
       ProcessUserCmnds(serial.getc());
     }
 
-    ++count;
   }
 }
 
