@@ -4552,8 +4552,12 @@ static void ProcessUserCmnds(char c)
         }
         else if (strcmp(request, "odoreset") == 0) {
           phfc->OdometerReading = 0;
-          UpdateOdometerReading(phfc->OdometerReading);
-          usb_print("ACK");
+          if (UpdateOdometerReading(phfc->OdometerReading) == 0) {
+            usb_print("ACK");
+          }
+          else {
+            usb_print("NACK");
+          }
         }
         else if (strcmp(request, "forcereset") == 0) {
           NVIC_SystemReset(); // force software reset

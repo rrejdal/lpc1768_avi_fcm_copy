@@ -55,6 +55,9 @@ IAP iap;    // Provides In Application Programming of the Flash.
 int __attribute__((__section__(".ramscratch"))) ram_scratch; // this is defined by the linker. DO NOT CHANGE!
 extern int __attribute__((__section__(".hfcruntime"))) _hfc_runtime;
 
+static int erase_sectors(int start, int num_sectors);
+static int write_sectors(int start, int num_sectors, char *src, int offset, int size);
+
 /**
   * @brief  Return a pointer to Config Data held in Flash .
   * @param  **pConfigData: pointer to Config Data in Flash
@@ -62,28 +65,28 @@ extern int __attribute__((__section__(".hfcruntime"))) _hfc_runtime;
   */
 int LoadConfiguration(const ConfigData **pConfig)
 {
-    // Map fcm ConfigData structure onto the flash and validate its version
-    ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
+  // Map fcm ConfigData structure onto the flash and validate its version
+  ConfigData *pConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
 
-    if ((pConfigData->header.total_size <= 0) || (pConfigData->header.total_size >= MAX_CONFIG_SIZE)) {
-        return -3;
-    }
+  if ((pConfigData->header.total_size <= 0) || (pConfigData->header.total_size >= MAX_CONFIG_SIZE)) {
+      return -3;
+  }
 
-    // Validate Config Checksum
-    unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
-    pData += sizeof(ConfigurationDataHeader);
-    if (pConfigData->header.checksum != crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)))) {
-    	return -1;
-    }
+  // Validate Config Checksum
+  unsigned char *pData = (unsigned char *)FLASH_CONFIG_ADDR;
+  pData += sizeof(ConfigurationDataHeader);
+  if (pConfigData->header.checksum != crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)))) {
+    return -1;
+  }
 
-    // If our version is > then the file version then we cannot process it.
-    if (CONFIG_VERSION > pConfigData->header.version) {
-        return -2;
-    }
+  // If our version is > then the file version then we cannot process it.
+  if (CONFIG_VERSION > pConfigData->header.version) {
+      return -2;
+  }
 
-    *pConfig = pConfigData;
+  *pConfig = pConfigData;
 
-    return 0;
+  return 0;
 }
 
 /**
@@ -93,14 +96,14 @@ int LoadConfiguration(const ConfigData **pConfig)
   */
 int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal)
 {
-    CompassCalibrationData *pCompass = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
+  CompassCalibrationData *pCompass = (CompassCalibrationData *)FLASH_COMPASS_CAL_ADDR;
 
-    if ((COMPASS_CAL_VERSION > pCompass->version) || !pCompass->valid) {
-        return -1;
-    }
+  if ((COMPASS_CAL_VERSION > pCompass->version) || !pCompass->valid) {
+      return -1;
+  }
 
-    *pCompass_cal = pCompass;
-    return 0;
+  *pCompass_cal = pCompass;
+  return 0;
 }
 
 /**
@@ -113,9 +116,9 @@ int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal)
   */
 static void UpdatePIDconfigValues(float *pPid_params, float Kp, float Ki, float Kd)
 {
-    *pPid_params++ = Kp;
-    *pPid_params++ = Ki;
-    *pPid_params++ = Kd;
+  *pPid_params++ = Kp;
+  *pPid_params++ = Ki;
+  *pPid_params++ = Kd;
 }
 
 /**
@@ -127,8 +130,8 @@ static void UpdatePIDconfigValues(float *pPid_params, float Kp, float Ki, float 
   */
 static void UpdatePDconfigValues(float *pPid_params, float Kp, float Kd)
 {
-    *pPid_params++ = Kp;
-    *pPid_params++ = Kd;
+  *pPid_params++ = Kp;
+  *pPid_params++ = Kd;
 }
 
 /**
@@ -139,45 +142,82 @@ static void UpdatePDconfigValues(float *pPid_params, float Kp, float Kd)
   */
 static void UpdatePIDconfig(ConfigData *pConfigData, FlightControlData *fcm_data)
 {
-    UpdatePIDconfigValues(pConfigData->pitchrate_pid_params,
-                                fcm_data->pid_PitchRate.Kp, fcm_data->pid_PitchRate.Ki, fcm_data->pid_PitchRate.Kd);
+  UpdatePIDconfigValues(pConfigData->pitchrate_pid_params,
+                              fcm_data->pid_PitchRate.Kp, fcm_data->pid_PitchRate.Ki, fcm_data->pid_PitchRate.Kd);
 
-    UpdatePIDconfigValues(pConfigData->rollrate_pid_params,
-                              fcm_data->pid_RollRate.Kp, fcm_data->pid_RollRate.Ki, fcm_data->pid_RollRate.Kd);
+  UpdatePIDconfigValues(pConfigData->rollrate_pid_params,
+                            fcm_data->pid_RollRate.Kp, fcm_data->pid_RollRate.Ki, fcm_data->pid_RollRate.Kd);
 
-    UpdatePIDconfigValues(pConfigData->yawrate_pid_params,
-                              fcm_data->pid_YawRate.Kp, fcm_data->pid_YawRate.Ki, fcm_data->pid_YawRate.Kd);
+  UpdatePIDconfigValues(pConfigData->yawrate_pid_params,
+                            fcm_data->pid_YawRate.Kp, fcm_data->pid_YawRate.Ki, fcm_data->pid_YawRate.Kd);
 
-    UpdatePIDconfigValues(pConfigData->pitchangle_pid_params,
-                              fcm_data->pid_PitchAngle.Kp, fcm_data->pid_PitchAngle.Ki, fcm_data->pid_PitchAngle.Kd);
+  UpdatePIDconfigValues(pConfigData->pitchangle_pid_params,
+                            fcm_data->pid_PitchAngle.Kp, fcm_data->pid_PitchAngle.Ki, fcm_data->pid_PitchAngle.Kd);
 
-    UpdatePIDconfigValues(pConfigData->rollangle_pid_params,
-                              fcm_data->pid_RollAngle.Kp, fcm_data->pid_RollAngle.Ki, fcm_data->pid_RollAngle.Kd);
+  UpdatePIDconfigValues(pConfigData->rollangle_pid_params,
+                            fcm_data->pid_RollAngle.Kp, fcm_data->pid_RollAngle.Ki, fcm_data->pid_RollAngle.Kd);
 
-    UpdatePIDconfigValues(pConfigData->pitchspeed_pid_params,
-                              fcm_data->pid_PitchSpeed.Kp, fcm_data->pid_PitchSpeed.Ki, fcm_data->pid_PitchSpeed.Kd);
+  UpdatePIDconfigValues(pConfigData->pitchspeed_pid_params,
+                            fcm_data->pid_PitchSpeed.Kp, fcm_data->pid_PitchSpeed.Ki, fcm_data->pid_PitchSpeed.Kd);
 
-    UpdatePIDconfigValues(pConfigData->rollspeed_pid_params,
-                              fcm_data->pid_RollSpeed.Kp, fcm_data->pid_RollSpeed.Ki, fcm_data->pid_RollSpeed.Kd);
+  UpdatePIDconfigValues(pConfigData->rollspeed_pid_params,
+                            fcm_data->pid_RollSpeed.Kp, fcm_data->pid_RollSpeed.Ki, fcm_data->pid_RollSpeed.Kd);
 
-    UpdatePIDconfigValues(pConfigData->collvspeed_pid_params,
-                              fcm_data->pid_CollVspeed.Kp, fcm_data->pid_CollVspeed.Ki, fcm_data->pid_CollVspeed.Kd);
+  UpdatePIDconfigValues(pConfigData->collvspeed_pid_params,
+                            fcm_data->pid_CollVspeed.Kp, fcm_data->pid_CollVspeed.Ki, fcm_data->pid_CollVspeed.Kd);
 
-    UpdatePIDconfigValues(pConfigData->imu_pid_params,
-                              fcm_data->pid_IMU[0].Kp, fcm_data->pid_IMU[0].Ki, fcm_data->pid_IMU[0].Kd);
+  UpdatePIDconfigValues(pConfigData->imu_pid_params,
+                            fcm_data->pid_IMU[0].Kp, fcm_data->pid_IMU[0].Ki, fcm_data->pid_IMU[0].Kd);
 
-    UpdatePIDconfigValues(pConfigData->imu_yaw_pid_params,
-                              fcm_data->pid_IMU[2].Kp, fcm_data->pid_IMU[2].Ki, fcm_data->pid_IMU[2].Kd);
+  UpdatePIDconfigValues(pConfigData->imu_yaw_pid_params,
+                            fcm_data->pid_IMU[2].Kp, fcm_data->pid_IMU[2].Ki, fcm_data->pid_IMU[2].Kd);
 
-    UpdatePDconfigValues(pConfigData->yawangle_pid_params, fcm_data->pid_YawAngle.Kp, fcm_data->pid_YawAngle.Kd);
+  UpdatePDconfigValues(pConfigData->yawangle_pid_params, fcm_data->pid_YawAngle.Kp, fcm_data->pid_YawAngle.Kd);
 
-    UpdatePDconfigValues(pConfigData->collalt_pid_params, fcm_data->pid_CollAlt.Kp, fcm_data->pid_CollAlt.Kd);
+  UpdatePDconfigValues(pConfigData->collalt_pid_params, fcm_data->pid_CollAlt.Kp, fcm_data->pid_CollAlt.Kd);
 
-    UpdatePDconfigValues(pConfigData->dist2T_pid_params, fcm_data->pid_Dist2T.Kp, fcm_data->pid_Dist2T.Kd);
+  UpdatePDconfigValues(pConfigData->dist2T_pid_params, fcm_data->pid_Dist2T.Kp, fcm_data->pid_Dist2T.Kd);
 
-    UpdatePDconfigValues(pConfigData->dist2P_pid_params, fcm_data->pid_Dist2P.Kp, fcm_data->pid_Dist2P.Kd);
+  UpdatePDconfigValues(pConfigData->dist2P_pid_params, fcm_data->pid_Dist2P.Kp, fcm_data->pid_Dist2P.Kd);
 
-    UpdatePDconfigValues(pConfigData->pitchCruise_pid_params, fcm_data->pid_PitchCruise.Kp, fcm_data->pid_PitchCruise.Kd);
+  UpdatePDconfigValues(pConfigData->pitchCruise_pid_params, fcm_data->pid_PitchCruise.Kp, fcm_data->pid_PitchCruise.Kd);
+}
+
+// @brief
+// @param  none
+// @retval none
+static int erase_sectors(int start, int num_sectors)
+{
+  int iap_result;
+  int end = --num_sectors + start;
+
+  KICK_WATCHDOG();
+
+  if ((iap_result = iap.prepare(start, end)) != CMD_SUCCESS) {
+    return iap_result;
+  }
+
+  iap_result = iap.erase(start, end);
+
+  return iap_result;
+}
+
+// @brief
+// @param  none
+// @retval none
+static int write_sectors(int start, int num_sectors, char *src, int offset, int size)
+{
+  int iap_result;
+  int end = --num_sectors + start;
+
+  KICK_WATCHDOG();
+
+  if ((iap_result = iap.prepare(start, end)) != CMD_SUCCESS) {
+   return iap_result;
+  }
+
+  iap_result = iap.write(src, sector_start_adress[start] + offset, size);
+  return iap_result;
 
 }
 
@@ -188,72 +228,59 @@ static void UpdatePIDconfig(ConfigData *pConfigData, FlightControlData *fcm_data
   */
 int UpdateFlashConfig(FlightControlData *fcm_data)
 {
-  LedTesterOn();
+  int iap_result;
 
-    // Re-Write config with PID update values from Telemetry.
-    ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
-
-    if (CONFIG_VERSION > pFlashConfigData->header.version) {
-        return -2;
-    }
-
-    if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
-        return -1;
-    }
-
-    // Copy Flash config into reserved RAM space (setup from Linker)
-    ConfigData *pConfigData = (ConfigData *)&ram_scratch;
-    if (pConfigData == NULL) {
-        return -1;
-    }
-
-    KICK_WATCHDOG();
-    // copy config data from Flash to RAM
-    memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
-
-    if (!fcm_data->pid_params_changed) {
-        return 0;
-    }
-
-    // Overwrite PID config values
-    UpdatePIDconfig(pConfigData, fcm_data);
-
-    // Recalculate checksum on file
-    unsigned char *pData = (unsigned char *)pConfigData;
-    pData += sizeof(ConfigurationDataHeader);
-    pConfigData->header.checksum = crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)));
-
-    __disable_irq();
-
-    KICK_WATCHDOG();
-    // Erase...
-    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
-
-    if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
-
-    KICK_WATCHDOG();
-
-    // Write...
-    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
-
-    // Write 1024 bytes at a time
-    for (int i=0; i < 2; i++) {
-      if (iap.write((char *)pConfigData, sector_start_adress[FLASH_CONFIG_SECTOR]+(i*1024), MAX_CONFIG_SIZE/2) != CMD_SUCCESS) {
-        return -1;
-      }
-      pConfigData += 1024;
-    }
-
-    LedTesterOff();
-    __enable_irq();
-
+  // If no params have been updated, do nothing
+  if (!fcm_data->pid_params_changed) {
     return 0;
+  }
+
+  // Re-Write config with PID update values from Telemetry.
+  ConfigData *pFlashConfigData = (ConfigData *)FLASH_CONFIG_ADDR;
+
+  if (CONFIG_VERSION > pFlashConfigData->header.version) {
+    return -2;
+  }
+
+  if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
+    return -1;
+  }
+
+  // Copy Flash config into reserved RAM space (setup from Linker)
+  ConfigData *pConfigData = (ConfigData *)&ram_scratch;
+  if (pConfigData == NULL) {
+      return -1;
+  }
+
+  KICK_WATCHDOG();
+  // copy config data from Flash to RAM
+  memcpy(pConfigData, pFlashConfigData, MAX_CONFIG_SIZE);
+
+  // Overwrite PID config values
+  UpdatePIDconfig(pConfigData, fcm_data);
+
+  // Recalculate checksum on file
+  unsigned char *pData = (unsigned char *)pConfigData;
+  pData += sizeof(ConfigurationDataHeader);
+  pConfigData->header.checksum = crc32b(pData, (pConfigData->header.total_size - sizeof(ConfigurationDataHeader)));
+
+  __disable_irq();
+
+  if ((iap_result = erase_sectors(FLASH_CONFIG_SECTOR, 1)) != CMD_SUCCESS) {
+    return iap_result;
+  }
+
+  // 1st block
+  if ((iap_result = write_sectors(FLASH_CONFIG_SECTOR, 1, (char *)&ram_scratch, 0, 1024)) != CMD_SUCCESS) {
+    return iap_result;
+  }
+
+  // 2nd block
+  iap_result = write_sectors(FLASH_CONFIG_SECTOR, 1, (char *)&ram_scratch+0x400, 0x400, 1024);
+
+  __enable_irq();
+
+  return 0;
 }
 
 /**
@@ -264,74 +291,43 @@ int UpdateFlashConfig(FlightControlData *fcm_data)
   */
 int SaveNewConfig(void)
 {
-    if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
-        // Config File has exceeded Max Size
-        return -1;
-    }
+  int iap_result;
 
-    // Grab pointer to reserved RAM space (setup from Linker)
-    // This should contain new configuration data.
-    ConfigData *pConfigData = (ConfigData *)&ram_scratch;
-    if (pConfigData == NULL) {
-        return -1;
-    }
+  if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
+    // Config File has exceeded Max Size
+    return -1;
+  }
 
-    // Validate its version
-    // If our version is > then the file version then we cannot process it.
-    if (CONFIG_VERSION != pConfigData->header.version) {
-        return -2;
-    }
+  // Grab pointer to reserved RAM space (setup from Linker)
+  // This should contain new configuration data.
+  ConfigData *pConfigData = (ConfigData *)&ram_scratch;
+  if (pConfigData == NULL) {
+    return -1;
+  }
 
-    __disable_irq();
+  // Validate its version
+  // If our version is > then the file version then we cannot process it.
+  if (CONFIG_VERSION != pConfigData->header.version) {
+    return -2;
+  }
 
-    KICK_WATCHDOG();
+  __disable_irq();
 
-    // Erase existing file
-    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
+  if ((iap_result = erase_sectors(FLASH_CONFIG_SECTOR, 1)) != CMD_SUCCESS) {
+    return iap_result;
+  }
 
-    if (iap.erase(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
+  // 1st block
+  if ((iap_result = write_sectors(FLASH_CONFIG_SECTOR, 1, (char *)&ram_scratch, 0, 1024)) != CMD_SUCCESS) {
+    return iap_result;
+  }
 
-    // 1st block
-    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-      return -1;
-    }
+  // 2nd block
+  iap_result = write_sectors(FLASH_CONFIG_SECTOR, 1, (char *)&ram_scratch+0x400, 0x400, 1024);
 
-    if (iap.write((char *)0x10007800, (char *)0x78000, 1024) != CMD_SUCCESS) {
-      return -1;
-    }
+  __enable_irq();
 
-    if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-      return -1;
-    }
-
-    if (iap.write((char *)0x10007C00, (char *)0x78400, 1024) != CMD_SUCCESS) {
-      return -1;
-    }
-
-#if 0
-    // Write 1024 bytes a a time
-    char *src_data = (char *)pConfigData;
-    for (int i=0; i < 2; i++) {
-
-      KICK_WATCHDOG();
-
-      if (iap.prepare(FLASH_CONFIG_SECTOR, (FLASH_CONFIG_SECTOR + FLASH_CONFIG_SECTORS)) != CMD_SUCCESS) {
-          return -1;
-      }
-
-      if (iap.write(src_data, sector_start_adress[FLASH_CONFIG_SECTOR]+(i*256), MAX_CONFIG_SIZE/2) != CMD_SUCCESS) {
-        return -1;
-      }
-      src_data += 0x400;
-    }
-#endif
-    __enable_irq();
-
-    return 0;
+  return iap_result;
 }
 
 /**
@@ -341,37 +337,23 @@ int SaveNewConfig(void)
   */
 int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
 {
-    if (sizeof(CompassCalibrationData) > MAX_COMPASS_CAL) {
-        return -1;
-    }
+  int iap_result;
 
-    __disable_irq();
+  if (sizeof(CompassCalibrationData) > MAX_COMPASS_CAL) {
+    return -1;
+  }
 
-    KICK_WATCHDOG();
+  __disable_irq();
 
-    // Erase...
-    if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
+  if ((iap_result = erase_sectors(FLASH_COMPASS_CAL_SECTOR, 1)) != CMD_SUCCESS) {
+    return iap_result;
+  }
 
-    if (iap.erase(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
+  iap_result = write_sectors(FLASH_COMPASS_CAL_SECTOR, 1, (char *)pCompass_cal, 0, 256);
 
-    KICK_WATCHDOG();
+  __enable_irq();
 
-    // Write...
-    if (iap.prepare(FLASH_COMPASS_CAL_SECTOR, (FLASH_COMPASS_CAL_SECTOR + FLASH_COMPASS_CAL_SECTORS)) != CMD_SUCCESS) {
-        return -1;
-    }
-
-    if (iap.write((char *)pCompass_cal, sector_start_adress[FLASH_COMPASS_CAL_SECTOR], MAX_COMPASS_CAL) != CMD_SUCCESS) {
-        return -1;
-    }
-
-    __enable_irq();
-
-    return 0;
+  return iap_result;
 }
 
 // @brief
@@ -379,21 +361,15 @@ int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal)
 // @retval none
 int EraseFlash(void)
 {
-  KICK_WATCHDOG();
+  int iap_result;
+
   __disable_irq();
 
-  // Erase...
-  if (iap.prepare(0, (29)) != CMD_SUCCESS) {
-    return -1;
-  }
-
-  if (iap.erase(0, (29)) != CMD_SUCCESS) {
-    return -1;
-  }
+  iap_result = erase_sectors(0, 30);
 
   __enable_irq();
 
-  return 0;
+  return iap_result;
 }
 
 
@@ -408,61 +384,50 @@ int EraseFlash(void)
 // @retval none
 int SetJtag(int state)
 {
-    // Copy sector 0 to RAM, update 0x2FC with Flag
-    // Erase Sector 0 and then re-write it
-    // sector 0 is 4kB in size, make use of the reserved hfc area (which is total 12K)
-    // The hfc area will be blown away and hence MUST do a reset after using this routine.
-    // Grab pointer to reserved RAM space (setup from Linker)
-    // This should contain new configuration data.
-    uint32_t *pRamScratch = (uint32_t *)&_hfc_runtime;
-    if (pRamScratch == NULL) {
-        return -1;
-    }
+  int iap_result;
 
-    // Determine if lock state is already set to desired, return if nothing to do.
-    uint32_t *pCRP_key = (uint32_t *)CRP_OFFSET;
-    if (*pCRP_key == CRP_2) {
-        return 0;
-    }
+  // Copy sector 0 to RAM, update 0x2FC with Flag
+  // Erase Sector 0 and then re-write it
+  // sector 0 is 4kB in size, make use of the reserved hfc area (which is total 12K)
+  // The hfc area will be blown away and hence MUST do a reset after using this routine.
+  // Grab pointer to reserved RAM space (setup from Linker)
+  // This should contain new configuration data.
+  uint32_t *pRamScratch = (uint32_t *)&_hfc_runtime;
+  if (pRamScratch == NULL) {
+      return -1;
+  }
 
-    KICK_WATCHDOG();
-    memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
+  // Determine if lock state is already set to desired, return if nothing to do.
+  uint32_t *pCRP_key = (uint32_t *)CRP_OFFSET;
+  if (*pCRP_key == CRP_2) {
+      return 0;
+  }
 
-    // TODO::SP - check value of state and write appropriate value
-    uint32_t *tmp = pRamScratch;
-    tmp += (CRP_OFFSET/4);
+  KICK_WATCHDOG();
+  memcpy(pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15);
 
-    if (state == LOCK_JTAG) {
-        *tmp = (uint32_t)CRP_2;
-    }
-    else {
-        *tmp = (uint32_t)CRP_UNLOCK;
-    }
+  // TODO::SP - check value of state and write appropriate value
+  uint32_t *tmp = pRamScratch;
+  tmp += (CRP_OFFSET/4);
 
-    __disable_irq();
+  if (state == LOCK_JTAG) {
+    *tmp = (uint32_t)CRP_2;
+  }
+  else {
+    *tmp = (uint32_t)CRP_UNLOCK;
+  }
 
-    // Erase existing file
-    if (iap.prepare(0, 0) != CMD_SUCCESS) {
-        return -1;
-    }
+  __disable_irq();
 
-    if (iap.erase(0, 0) != CMD_SUCCESS) {
-        return -1;
-    }
+  if ((iap_result = erase_sectors(0, 1)) != CMD_SUCCESS) {
+    return iap_result;
+  }
 
-    // Write new file
-    KICK_WATCHDOG();
-    if (iap.prepare(0, 0) != CMD_SUCCESS) {
-        return -1;
-    }
+  iap_result = write_sectors(0, 1, (char *)pRamScratch, 0, 4096);
 
-    if (iap.write((char *)pRamScratch, sector_start_adress[0], FLASH_SECTOR_SIZE_0_TO_15) != CMD_SUCCESS) {
-        return -1;
-    }
+  __enable_irq();
 
-    __enable_irq();
-
-    return 0;
+  return iap_result;
 }
 
 // @brief
@@ -481,7 +446,6 @@ void InitializeOdometer(FlightControlData *hfc)
   else {
     hfc->OdometerReading = *pOdometerReading * 1000;
   }
-
 }
 
 // Update value of Odometer, which indicates total flight time of unit.
@@ -489,6 +453,8 @@ void InitializeOdometer(FlightControlData *hfc)
 // Max flight time recording is 1,193,046 hours
 int UpdateOdometerReading(uint32_t Odometer)
 {
+  int iap_result;
+
   uint32_t *pOdometerReading = (uint32_t *)&ram_scratch;
   if (pOdometerReading == NULL) {
       return -1;
@@ -503,32 +469,16 @@ int UpdateOdometerReading(uint32_t Odometer)
   *pOdometerReading = Odometer / 1000;
 
   __disable_irq();
-  LedTesterOn();
 
-  KICK_WATCHDOG();
-  // Erase...
-  if (iap.prepare(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
-      return -1;
+  if ((iap_result = erase_sectors(FLASH_ODOMETER_SECTOR, 1)) != CMD_SUCCESS) {\
+    return iap_result;
   }
 
-  if (iap.erase(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
-      return -1;
-  }
+  iap_result = write_sectors(FLASH_ODOMETER_SECTOR, 1, (char *)pOdometerReading, 0, 256);
 
-  KICK_WATCHDOG();
-  // Write...
-  if (iap.prepare(FLASH_ODOMETER_SECTOR, (FLASH_ODOMETER_SECTOR + FLASH_ODOMETER_SECTORS)) != CMD_SUCCESS) {
-      return -1;
-  }
-
-  if (iap.write((char *)pOdometerReading, sector_start_adress[FLASH_ODOMETER_SECTOR], 256) != CMD_SUCCESS) {
-      return -1;
-  }
-
-  LedTesterOff();
   __enable_irq();
 
-  return 0;
+  return iap_result;
 }
 
 /************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/
