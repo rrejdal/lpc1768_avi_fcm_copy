@@ -8,6 +8,7 @@
 #include "defines.h"
 #include "main.h"
 #include "compass.h"
+#include "avican.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
 extern int UpdateOdometerReading(uint32_t OdometerCounter);
@@ -711,29 +712,29 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->fcm_version_num = (MAJOR_VERSION << 16) | (MINOR_VERSION << 8) | (BUILD_VERSION);
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_SN, 0, serialNum);
-    msg->servo0_version_num = getNodeVersionNum(PN_SN, 0);
+    getNodeSerialNum(AVI_SERVO_NODETYPE, 0, serialNum);
+    msg->servo0_version_num = getNodeVersionNum(AVI_SERVO_NODETYPE, 0);
     msg->servo0_serialnum_0 = serialNum[0];
     msg->servo0_serialnum_1 = serialNum[1];
     msg->servo0_serialnum_2 = serialNum[2];
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_SN, 1, serialNum);
-    msg->servo1_version_num = getNodeVersionNum(PN_SN, 1);
+    getNodeSerialNum(AVI_SERVO_NODETYPE, 1, serialNum);
+    msg->servo1_version_num = getNodeVersionNum(AVI_SERVO_NODETYPE, 1);
     msg->servo1_serialnum_0 = serialNum[0];
     msg->servo1_serialnum_1 = serialNum[1];
     msg->servo1_serialnum_2 = serialNum[2];
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_GPS, 0, serialNum);
-    msg->gps_version_num = getNodeVersionNum(PN_GPS, 0);
+    getNodeSerialNum(AVI_GPS_NODETYPE, 0, serialNum);
+    msg->gps_version_num = getNodeVersionNum(AVI_GPS_NODETYPE, 0);
     msg->gps_serialnum_0 = serialNum[0];
     msg->gps_serialnum_1 = serialNum[1];
     msg->gps_serialnum_2 = serialNum[2];
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_PWR, 0, serialNum);
-    msg->pwr_version_num = getNodeVersionNum(PN_PWR, 0);
+    getNodeSerialNum(AVI_PWR_NODETYPE, 0, serialNum);
+    msg->pwr_version_num = getNodeVersionNum(AVI_PWR_NODETYPE, 0);
     msg->pwr_serialnum_0 = serialNum[0];
     msg->pwr_serialnum_1 = serialNum[1];
     msg->pwr_serialnum_2 = serialNum[2];

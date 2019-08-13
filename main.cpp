@@ -4495,20 +4495,20 @@ static void ProcessUserCmnds(char c)
         usb_print("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
             usb_print("Type[ SN], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        phfc->board_info[PN_SN][i].major_version, phfc->board_info[PN_SN][i].minor_version, phfc->board_info[PN_SN][i].build_version,
-                        phfc->board_info[PN_SN][i].serial_number2, phfc->board_info[PN_SN][i].serial_number1, phfc->board_info[PN_SN][i].serial_number0);
+                        phfc->board_info[AVI_SERVO_NODETYPE][i].major_version, phfc->board_info[AVI_SERVO_NODETYPE][i].minor_version, phfc->board_info[AVI_SERVO_NODETYPE][i].build_version,
+                        phfc->board_info[AVI_SERVO_NODETYPE][i].serial_number2, phfc->board_info[AVI_SERVO_NODETYPE][i].serial_number1, phfc->board_info[AVI_SERVO_NODETYPE][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_gps_nodes; i++) {
             usb_print("Type[GPS], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        phfc->board_info[PN_GPS][i].major_version, phfc->board_info[PN_GPS][i].minor_version, phfc->board_info[PN_GPS][i].build_version,
-                        phfc->board_info[PN_GPS][i].serial_number2, phfc->board_info[PN_GPS][i].serial_number1, phfc->board_info[PN_GPS][i].serial_number0);
+                        phfc->board_info[AVI_GPS_NODETYPE][i].major_version, phfc->board_info[AVI_GPS_NODETYPE][i].minor_version, phfc->board_info[AVI_GPS_NODETYPE][i].build_version,
+                        phfc->board_info[AVI_GPS_NODETYPE][i].serial_number2, phfc->board_info[AVI_GPS_NODETYPE][i].serial_number1, phfc->board_info[AVI_GPS_NODETYPE][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_power_nodes; i++) {
             usb_print("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        phfc->board_info[PN_PWR][i].major_version, phfc->board_info[PN_PWR][i].minor_version, phfc->board_info[PN_PWR][i].build_version,
-                        phfc->board_info[PN_PWR][i].serial_number2, phfc->board_info[PN_PWR][i].serial_number1, phfc->board_info[PN_PWR][i].serial_number0);
+                        phfc->board_info[AVI_PWR_NODETYPE][i].major_version, phfc->board_info[AVI_PWR_NODETYPE][i].minor_version, phfc->board_info[AVI_PWR_NODETYPE][i].build_version,
+                        phfc->board_info[AVI_PWR_NODETYPE][i].serial_number2, phfc->board_info[AVI_PWR_NODETYPE][i].serial_number1, phfc->board_info[AVI_PWR_NODETYPE][i].serial_number0);
             usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",phfc->power.Vslope,phfc->power.Voffset,phfc->power.Islope,phfc->power.Ioffset);
         }
 

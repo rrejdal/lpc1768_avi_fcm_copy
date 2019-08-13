@@ -18,18 +18,16 @@ extern USBSerial   serial;
 
 #define PLAYLIST_SIZE   512
 
-#define PN_GPS  0x03
-#define PN_SN   0x02
-#define PN_FCM  0x05
-#define PN_IMU  0x04
-#define PN_PWR  0x06
+
+
+
 
 #define MAX_NUM_CASTLE_LINKS 2
 #define MAX_NUM_GPS          1
 #define MAX_NUM_COMPASS      2
 #define MAX_CAN_SERVO_NODES  2
 #define MAX_BOARD_TYPES      7
-#define MAX_NODE_NUM         7
+#define MAX_NODE_NUM         3
 #define MAX_SERVO_OUTPUTS  8
 
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
