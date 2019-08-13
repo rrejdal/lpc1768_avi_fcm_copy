@@ -748,6 +748,19 @@ void TelemSerial::Generate_AircraftCfg(void)
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 
+void TelemSerial::Generate_DefaultCfg(void)
+{
+    T_AircraftConfig *msg = &hfc->aircraftConfig;
+
+    /* payload */
+    memset(msg, 0x0, sizeof(T_AircraftConfig));
+
+    msg->system_status_mask = hfc->system_status_mask;
+    msg->system_reset_reason = hfc->system_reset_reason;
+
+    InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
+}
+
 int TelemSerial::CalibrateCompass(void)
 {
     T_Telem_Calibrate *msg = &hfc->telemCalibrate;

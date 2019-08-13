@@ -144,6 +144,7 @@ static void ProcessUserCmnds(char c);
 static void InitializeRuntimeData(void);
 static uint32_t InitializeSystemData();
 static uint32_t InitCanbus(void);
+static void RunDefaultSystem(void);
 
 // ---- Local Data ---- //
 AviMixer *mixer = NULL;
@@ -158,7 +159,7 @@ static int power_update_avail = 0;
 volatile static int rx_in = 0;
 volatile static bool have_config = false;
 
-FlightControlData *phfc = NULL;
+FlightControlData *phfc = (FlightControlData *)&_hfc_runtime;  // This area is Reserved by the linker!;
 const ConfigData *pConfig = NULL;
 
 // ---- Constants ---- //
@@ -4831,8 +4832,6 @@ static void InitializeRuntimeData(void)
 {
   uint32_t last_reset = GetResetReason();
 
-  phfc = (FlightControlData *)&_hfc_runtime;  // This area is Reserved by the linker!
-
   // If we are warm resetting, DO NOT re-init data. We are trying to
   // keep running under a warm reset.
   if (last_reset == RESET_REASON_WD) {
@@ -5087,8 +5086,11 @@ static uint32_t InitializeSystemData()
   KICK_WATCHDOG();
   memset(pRamConfigData, 0x00, MAX_CONFIG_SIZE);
 
+  // If we fail to load configuration, don't attempt to continue to setup
+  // runtime data, since we will likely fw crash due missing data.
+  // Instead, return and let higer layers handle it.
   if (LoadConfiguration(&pConfig) < 0) {
-    ret_value = CONFIG_FAIL;
+    return CONFIG_FAIL;
   }
 
   // Initialize Runtime Data
@@ -5134,12 +5136,54 @@ static uint32_t InitializeSystemData()
   return ret_value;
 }
 
+// @brief No return from here, runs minimal system with telem
+//        to provide AGS info that boot failed due to config error
+//        Serial USB connected to enable config updates to be processed
+//        THIS IS A LAST RESORT PROCESS AND SHOULD NEVER RUN!
+// @param
+// @retval
+static void RunDefaultSystem(void)
+{
+  int ticks;
+  int utilization = 0;
+  int count = 0;
+
+  SysTick_Run();
+
+  telem.Initialize(phfc, NULL);
+  telemetry.baud(38400);
+
+  telem.Generate_AircraftCfg();
+
+  while (1) {
+
+    KICK_WATCHDOG();
+
+    ticks = Ticks_us_minT(1000, &utilization);
+
+    // Generate default aircraft cfg message to AGS every 1 seconds
+    if (((count % 1000) == 0) && !telem.IsTypeInQ(TELEMETRY_AIRCRAFT_CFG)) {
+      telem.Generate_AircraftCfg();
+      telem.AddMessage((unsigned char*)&phfc->aircraftConfig, sizeof(T_AircraftConfig), TELEMETRY_AIRCRAFT_CFG, 1);
+    }
+
+    telem.Update();
+
+    // Process Serial commands if USB is available
+    if (serial.connected() && serial.readable()) {
+      ProcessUserCmnds(serial.getc());
+    }
+
+    ++count;
+  }
+}
 
 // @brief
 // @param
 // @retval
 int main()
 {
+
 #if defined (CRP_LOCK)
   SetJtag(LOCK_JTAG);
 #endif
@@ -5164,22 +5208,25 @@ int main()
   // Initialize system configuration, Runtime Data and Peripherals
   phfc->system_status_mask |= InitializeSystemData();
 
+  if (phfc->system_status_mask & CONFIG_FAIL) {
+    // If config did not load - go direct to Jail and do not
+    // Pass Go and Do not collect $200
+    // NO RETURN FROM THIS CALL
+    RunDefaultSystem();
+  }
+
   phfc->system_status_mask |= InitCanbus();
 
   phfc->system_status_mask |= mpu.init(pConfig, MPU6050_DLPF_BW_188, &phfc->imu_serial_num);
 
   phfc->system_status_mask |= baro.Init(pConfig);
 
-  //if (phfc->system_status_mask)
-  //  SetFcmLedState(0xf);
-  //else
-  //  SetFcmLedState(0x1);
-
   // need to recall this to ensure RICOUNTER is re-initialized before commencing control loop
   SysTick_Run();
 
   SetFcmLedState(phfc->system_reset_reason);
-  LedTesterOff();
+
+  LedTesterOff(); // This is the old lcd led
 
   // Initialize FCM local IO
   InitFcmIO();
