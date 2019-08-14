@@ -5056,10 +5056,9 @@ static void InitializeRuntimeData(void)
     for (int i = 0; i < 3; i++) {
       phfc->compass_cal.compassMax[i] = -9999;
     }
+  }
 
-    phfc->delay_time = -1;
-}
-
+  phfc->delay_time = -1;
   phfc->box_dropper_ = 0;
 
   phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
