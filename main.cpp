@@ -3574,11 +3574,13 @@ static void SystemMonitor(float dT)
     phfc->system_status_mask |= LIDAR_FRONT_FAIL;
   }
 
-  if (phfc->lidar_online_mask & 0x2) {
-    phfc->system_status_mask &= ~LIDAR_REAR_FAIL;
-  }
-  else {
-    phfc->system_status_mask |= LIDAR_REAR_FAIL;
+  if (phfc->num_lidars == 2) {
+    if (phfc->lidar_online_mask & 0x2) {
+      phfc->system_status_mask &= ~LIDAR_REAR_FAIL;
+    }
+    else {
+      phfc->system_status_mask |= LIDAR_REAR_FAIL;
+    }
   }
 }
 
