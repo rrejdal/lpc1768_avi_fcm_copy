@@ -294,7 +294,7 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_BATTERY      16  // battery level/voltage too low
 #define MSG2GROUND_PFCHECK_ANGLE        17  // level limit exceeded
 #define MSG2GROUND_PFCHECK_HW_FAIL      18  // System hardware failure
-#define MSG2GROUND_PFCHECK_CAN_POWER    19  // failed to send msg to power module
+#define MSG2GROUND_PFCHECK_RSVD         19  // UNUSED
 #define MSG2GROUND_PFCHECK_IMU_GPS_ALT  20  // IMU and GPS altitude have to within 2m
 #define MSG2GROUND_PFCHECK_GPS_NOFIX    21  // not all GPS units have a lock
 #define MSG2GROUND_PFCHECK_GPS_PDOP     22  // not all GPS units have PDOP<2

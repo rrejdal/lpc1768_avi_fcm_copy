@@ -271,6 +271,9 @@ typedef enum {
 #define HFC_RAM_WARN      (1 << 19)
 #define CFG_RAM_WARN      (1 << 20)
 
+#define LIDAR_FRONT_FAIL  (1 << 21)
+#define LIDAR_REAR_FAIL   (1 << 22)
+
 #define RESET_REASON_POR  (1 << 0)
 #define RESET_REASON_EXTR (1 << 1)
 #define RESET_REASON_WD   (1 << 2)
