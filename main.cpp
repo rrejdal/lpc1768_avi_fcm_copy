@@ -2638,7 +2638,28 @@ static void ServoUpdate(float dT)
           float angle = phfc->rw_cfg.Speed2AngleLUT[min((int)(ABS(phfc->ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
           if (phfc->ctrl_out[SPEED][PITCH]<0)
               angle = -angle;
-          phfc->pid_PitchCruise.COofs = angle;
+
+          // Maximum allowable pitch angle to trim off during a turn in cruise mode
+          float max_cruise_turn_pitch_trim = 10.0f; //TODO: make configurable
+
+          //Add pitch to slow the UAV when it is turning sharply in cruise mode.
+          //Added pitch is proportional to the requested YAW rate (turn rate) and inversely
+          //proportonal to dyn_yaw_rate which is actually a limit on the YAW RATE based on speed
+          float cruise_turn_pitch_trim = max_cruise_turn_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+
+          phfc->Debug[5] = cruise_turn_pitch_trim;
+          phfc->Debug[6] = angle;
+
+          if ( ABS(phfc->ctrl_yaw_rate) >= TURN_YAW_RATE_THRESHOLD ) {
+            // "angle" pulled from Speed2AngleLUT is positive for positive speed, even though in reality
+            // a NEGATIVE PITCH ANGLE would yield a positive speed. For this reason, cruise_turn_pitch_trim
+            // is subtracted from "angle" to a minimum of 0 degrees so that UAV does not go nose up
+            phfc->pid_PitchCruise.COofs = max(0,angle - cruise_turn_pitch_trim);
+          }
+          else {
+            phfc->pid_PitchCruise.COofs = angle;
+          }
+
           phfc->ctrl_out[ANGLE][PITCH] = -PID_P_Acc(&phfc->pid_PitchCruise, phfc->ctrl_out[SPEED][PITCH], phfc->speedHeliRFU[1], dT, false, false); // speed forward
 //          if (!(phfc->print_counter&0x3f))
 //              debug_print("S %f A %f out %f\n", phfc->ctrl_out[SPEED][PITCH], angle, phfc->ctrl_out[ANGLE][PITCH]);
@@ -2688,6 +2709,7 @@ static void ServoUpdate(float dT)
               phfc->Debug[0] = phfc->ctrl_yaw_rate;
               phfc->Debug[1] = phfc->bankPitch;
               phfc->Debug[2] = phfc->bankRoll;
+              phfc->Debug[3] = phfc->dyn_yaw_rate;
 
               phfc->ctrl_out[ANGLE][PITCH] -= phfc->bankPitch;
               phfc->ctrl_out[ANGLE][ROLL]  += phfc->bankRoll;
