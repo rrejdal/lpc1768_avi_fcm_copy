@@ -92,11 +92,12 @@
 #define TELEM_PARAM_CTRL_VSPEED_PID_D	7
 #define TELEM_PARAM_CTRL_THR_OFFSET     8
 #define TELEM_PARAM_CTRL_CRUISE_LIMIT   9
-#define TELEM_PARAM_CTRL_YAW_ACC       10
-#define TELEM_PARAM_CTRL_NOSE2WP       11
-#define TELEM_PARAM_CTRL_WINDLIMIT     12
-#define TELEM_PARAM_CTRL_BAT_CAPACITY  13
-#define TELEM_PARAM_CTRL_WINDTAB_SCALE 14
+#define TELEM_PARAM_CTRL_CRUISE_MAX_PITCH_TRIM 10
+#define TELEM_PARAM_CTRL_YAW_ACC       11
+#define TELEM_PARAM_CTRL_NOSE2WP       12
+#define TELEM_PARAM_CTRL_WINDLIMIT     13
+#define TELEM_PARAM_CTRL_BAT_CAPACITY  14
+#define TELEM_PARAM_CTRL_WINDTAB_SCALE 15
 
 #define TELEM_PARAM_PID_TUNE        4
 
@@ -970,6 +971,8 @@ typedef struct ConfigurationData {
 
     int enable_servomon_check[2];
 
+    float max_cruise_turn_pitch_trim; // Maximum allowable pitch angle to trim off during a turn in cruise mode
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
@@ -1018,6 +1021,8 @@ typedef struct
     float TurnAccParams[3];
     float joystick_max_speed;
     //float gyro_ofs[3];
+
+    float max_cruise_turn_pitch_trim;
 } ModifiableConfigData;
 
 typedef struct
