@@ -2082,6 +2082,9 @@ void TelemSerial::Disarm(void)
 
     UpdateFlashConfig(hfc);
     UpdateOdometerReading(hfc->OdometerReading);
+
+    hfc->ctrl_collective_raw = pConfig->CollZeroAngle;
+    hfc->ctrl_collective_3d  = pConfig->CollZeroAngle;
   }
 
 }

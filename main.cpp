@@ -4945,6 +4945,9 @@ static void InitializeRuntimeData(void)
   phfc->throttle_value   = -pConfig->Stick100range;
   phfc->collective_value = -pConfig->Stick100range;
 
+  phfc->ctrl_collective_raw = pConfig->CollZeroAngle;    // set to current position
+  phfc->ctrl_collective_3d  = pConfig->CollZeroAngle;   // target
+
   //Give a 10 percent (up to 1000mAh) buffer on the battery capacity
   phfc->power.capacity_total = ((pConfig->battery_capacity-min(pConfig->battery_capacity*0.1,1000)) / 1000.0f * 3600); // As
   phfc->power.energy_total   = (phfc->power.capacity_total * pConfig->battery_cells * 3.7f);  // Ws
