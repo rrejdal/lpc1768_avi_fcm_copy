@@ -2643,6 +2643,7 @@ static void ServoUpdate(float dT)
           //Added pitch is proportional to the requested YAW rate (turn rate) and inversely
           //proportional to dyn_yaw_rate which is actually a limit on the YAW RATE based on speed
           float cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_turn_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+          //float cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_turn_pitch_trim*ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude)/phfc->ctrl_out[POS][COLL];
 
           phfc->Debug[5] = cruise_turn_pitch_trim;
           phfc->Debug[6] = angle;
@@ -4643,7 +4644,7 @@ static uint32_t InitCanbus(void)
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
       // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
-      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_5 | PWM_CHANNEL_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
       wait_ms(10);
@@ -5111,6 +5112,8 @@ static void InitializeRuntimeData(void)
   phfc->failsafe = false;
 
   phfc->rw_cfg.max_cruise_turn_pitch_trim = pConfig->max_cruise_turn_pitch_trim;
+
+  GenerateSpeed2AngleLUT();
 
 
   LPC_RIT->RICOUNTER = 0;
