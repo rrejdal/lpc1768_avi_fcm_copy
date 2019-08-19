@@ -973,6 +973,10 @@ typedef struct ConfigurationData {
 
     float max_cruise_turn_pitch_trim; // Maximum allowable pitch angle to trim off during a turn in cruise mode
 
+    //for single rotor heli's, a roll angle (deg) trim is required to compensate
+    //for the tail rotor thrust during takeoff (only during takeoff).
+    float tail_rotor_roll_trim;
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 

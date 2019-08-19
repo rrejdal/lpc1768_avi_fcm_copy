@@ -1544,7 +1544,7 @@ static void ProcessTakeoff(float dT)
         if ((phfc->ctrl_collective_raw>limit) || (phfc->IMUspeedGroundENU[2]>0.2f))
         {
             phfc->ctrl_angle_pitch_3d = phfc->pid_PitchSpeed.COofs;
-            phfc->ctrl_angle_roll_3d  = phfc->pid_RollSpeed.COofs;
+            phfc->ctrl_angle_roll_3d  = phfc->pid_RollSpeed.COofs + pConfig->tail_rotor_roll_trim;
 
             phfc->waypoint_stage = FM_TAKEOFF_LEVEL;
         }
