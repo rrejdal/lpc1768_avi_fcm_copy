@@ -1320,7 +1320,7 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
                 CheckRangeAndSetF(&hfc->rw_cfg.cruise_speed_limit, p->data, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_MAX_PITCH_TRIM)
-                CheckRangeAndSetF(&hfc->rw_cfg.max_cruise_turn_pitch_trim, p->data, 0, 100);
+                CheckRangeAndSetF(&hfc->rw_cfg.max_cruise_pitch_trim, p->data, 0, 100);
             else
             if (sub_param==TELEM_PARAM_CTRL_YAW_ACC)
                 CheckRangeAndSetF(&hfc->pid_YawAngle.acceleration, p->data, 0.1f, 10000);
