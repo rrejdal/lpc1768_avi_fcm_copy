@@ -1,3 +1,4 @@
+#include <BMPx80.h>
 /**
   ******************************************************************************
   * @file    main.cpp
@@ -32,7 +33,6 @@
 #include "IMU.h"
 #include "xbus.h"
 #include "PID.h"
-#include "BMP180.h"
 #include "pGPS.h"
 #include "telemetry.h"
 #include "avican.h"
@@ -46,8 +46,8 @@
 #include "compass.h"
 
 // Linker defined sections. DO NOT ALTER
-extern int __attribute__((__section__(".ramconfig"))) ram_config;
-static unsigned char *pRamConfigData = (unsigned char *)&ram_config;
+extern int __attribute__((__section__(".ramscratch"))) ram_scratch;
+static unsigned char *pRamConfigData = (unsigned char *)&ram_scratch;
 int __attribute__((__section__(".hfcruntime"))) _hfc_runtime;
 
 // Create required devices classes
@@ -108,8 +108,8 @@ static void CheckRangeAndSetB(byte *pvalue, int value, int vmin, int vmax);
 static void Playlist_ProcessTop();
 static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint);
 static void AbortFlight(void);
-static void ProcessTakeoff(float dT, bool touch_and_go);
-static void ProcessLanding(float dT, bool touch_and_go);
+static void ProcessTakeoff(float dT);
+static void ProcessLanding(float dT);
 static void ProcessTouchAndGo(float dT);
 static void ProcessFlightMode(FlightControlData *hfc, float dT);
 static void SetSpeedAcc(float *value, float speed, float acc, float dT);
@@ -132,6 +132,8 @@ static void UpdatePowerNodeVI(int node_id, unsigned char *pdata);
 static void CanbusISRHandler(void);
 static int CanbusNodeTypeStatus(int node_type);
 static void CanbusNodeMonitor(float dT);
+static void SystemMonitor(float dT);
+static void FailSafeMode(void);
 static void CompassCalibration(void);
 static void ArmedTimeout(float dT);
 static void FlightOdometer(void);
@@ -142,6 +144,7 @@ static void ProcessUserCmnds(char c);
 static void InitializeRuntimeData(void);
 static uint32_t InitializeSystemData();
 static uint32_t InitCanbus(void);
+static void RunDefaultSystem(void);
 
 // ---- Local Data ---- //
 AviMixer *mixer = NULL;
@@ -156,12 +159,20 @@ static int power_update_avail = 0;
 volatile static int rx_in = 0;
 volatile static bool have_config = false;
 
-FlightControlData *phfc = NULL;
+FlightControlData *phfc = (FlightControlData *)&_hfc_runtime;  // This area is Reserved by the linker!;
 const ConfigData *pConfig = NULL;
 
 // ---- Constants ---- //
-#define CAN_NODE_TIMEOUT 0.5f // 0.5 second
+#define CAN_NODE_TIMEOUT 1.0f // 1.0 second
 #define ABORT_TIMEOUT_SEC  5.0f // After 5 seconds, if we have no valid connection/instructions abort the flight.
+#define IMU_CHECK_TIMEOUT 1.0f  // 1.0 seconds
+#define IMU_ERROR_THRESHOLD 800 // threshold of IMU errors within IMU_CHECK_TIMEOUT
+
+#define BARO_CHECK_TIMEOUT 1.0f  // 1.0 seconds
+#define BARO_ERROR_THRESHOLD 8   // threshold of IMU errors within BARO_CHECK_TIMEOUT
+
+#define WATCHDOG_TIMEOUT 0.5f // if we don't kick preston for 0.5 seconds he will bite us!
+#define WD_RESET_LIMIT 3  // After being bitten 3 time - attempt failsafe and give up
 
 #define CAN_SERVO_FRONT 0
 #define CAN_SERVO_REAR  1
@@ -494,12 +505,16 @@ static void WriteToServos(int node_type, int num_nodes)
     FCM_SERVO_CH6.pulsewidth_us((int)(1500.5f + fcm_pwm_values[0][5] * 500));
   }
   else {
+    int node_fail_mask = (node_type == AVI_SERVO_NODETYPE) ? SERVO_NODE_FAIL : PWR_NODE_FAIL;
+
     if (pwm_out ^= 1) {
       for (int i=0; i < num_nodes; i++) {
         memcpy(can_tx_message.data, &pwm_values[i][0], 8);
 
         can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SERVOS_0_3, AVI_MSGID_CDP);
-        Canbus->write(can_tx_message);
+        if ((phfc->system_status_mask & (node_fail_mask << i)) == 0) {
+          Canbus->write(can_tx_message);
+        }
       }
     }
     else {
@@ -507,7 +522,9 @@ static void WriteToServos(int node_type, int num_nodes)
         memcpy(can_tx_message.data, &pwm_values[i][4], 8);
 
         can_tx_message.id = AVI_CAN_ID(node_type, (DEFAULT_NODE_ID + i), AVI_SERVOS_4_7, AVI_MSGID_CDP);
-        Canbus->write(can_tx_message);
+        if ((phfc->system_status_mask & (node_fail_mask << i)) == 0) {
+          Canbus->write(can_tx_message);
+        }
       }
     }
   }
@@ -799,6 +816,12 @@ static void ServoMixer(void)
 // @retval
 static inline void ServoOutput(void)
 {
+
+  // If failsafe mode set - no need to keep updating servos
+  if (phfc->failsafe == true) {
+    return;
+  }
+
   // Output Servo mixer data, depending upon hardware in use.
   if (pConfig->can_servo) {
     WriteToServos(AVI_SERVO_NODETYPE, pConfig->num_servo_nodes);
@@ -3178,6 +3201,7 @@ static void UpdateHardwareStatus(int node_id, int node_type, unsigned char *pdat
 {
   uint8_t hardware_status;
   if (node_type == AVI_GPS_NODETYPE) {
+
     hardware_status = pdata[0];
 
     if ((hardware_status & 0x1) == 0)
@@ -3514,6 +3538,55 @@ static int CanbusNodeTypeStatus(int node_type)
 // @brief
 // @param
 // @retval
+static void SystemMonitor(float dT)
+{
+  static float imu_check_timeout = IMU_CHECK_TIMEOUT;
+  static float baro_check_timeout = BARO_CHECK_TIMEOUT;
+
+  // Check Canbus node operations
+  CanbusNodeMonitor(dT);
+
+  // Check IMU operations
+  imu_check_timeout -= dT;
+  if (imu_check_timeout <= 0) {
+    if (phfc->imu_error_count > IMU_ERROR_THRESHOLD) {
+      phfc->system_status_mask |= IMU_FAIL;
+      // WARNING - THIS IS LAST RESORT AND WILL SEND FAILSAFE TO CANBUS NODES
+      //  - ULTIMATELY KILLING POWER AND AUTOROTATING
+      FailSafeMode();
+    }
+    imu_check_timeout = IMU_CHECK_TIMEOUT;
+  }
+
+  baro_check_timeout -= dT;
+  if (baro_check_timeout <= 0) {
+    if (phfc->baro_error_count > BARO_ERROR_THRESHOLD) {
+      phfc->system_status_mask |= BARO_FAIL;
+    }
+    baro_check_timeout = BARO_CHECK_TIMEOUT;
+  }
+
+  // update lidar status into the system mask
+  if (phfc->lidar_online_mask & 0x1) {
+    phfc->system_status_mask &= ~LIDAR_FRONT_FAIL;
+  }
+  else {
+    phfc->system_status_mask |= LIDAR_FRONT_FAIL;
+  }
+
+  if (phfc->num_lidars == 2) {
+    if (phfc->lidar_online_mask & 0x2) {
+      phfc->system_status_mask &= ~LIDAR_REAR_FAIL;
+    }
+    else {
+      phfc->system_status_mask |= LIDAR_REAR_FAIL;
+    }
+  }
+}
+
+// @brief
+// @param
+// @retval
 static void CanbusNodeMonitor(float dT)
 {
   static unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM] = {0};
@@ -3609,6 +3682,20 @@ static void CanbusNodeMonitor(float dT)
   }
 }
 
+// @brief
+// @param
+// @retval
+static void FailSafeMode(void)
+{
+  for (int node_id = 0; node_id < pConfig->num_servo_nodes; node_id++) {
+    CanbusFailsafe(AVI_SERVO_NODETYPE, node_id);
+  }
+
+  for (int node_id = 0; node_id < pConfig->num_power_nodes; node_id++) {
+    CanbusFailsafe(AVI_PWR_NODETYPE, node_id);
+  }
+}
+
 /*Function used for making new and on-going compass calibration
  * adjustments to the compass gains and offsets
  * A new Compass Calibration is initiated by going to the COMPASS
@@ -3657,10 +3744,7 @@ static void CanbusNodeMonitor(float dT)
 static void CompassCalibration(void)
 {
     int i;
-    int i_pitch = 0;        //index used for comp_pitch[] flags array
-    int i_roll  = 0;        //index used for comp_roll[] flags array
     int mag_range[3] = {0};
-    int min_range = 450;
     int max_range = 1430;
 
     if( phfc->comp_calibrate == NO_COMP_CALIBRATE ) {
@@ -3704,6 +3788,10 @@ static void CompassCalibration(void)
     }
 
 #if 0
+    //int i_pitch = 0;        //index used for comp_pitch[] flags array
+    //int i_roll  = 0;        //index used for comp_roll[] flags array
+    //int min_range = 450;
+
     // This procedure is no longer being used
 
     /*Set the pitch angle flag index and roll angle flag index to the
@@ -3824,10 +3912,9 @@ static void ArmedTimeout(float dT)
   }
 }
 
-// Called every ms and increments the flight time counter,
-//   Counter is only started and incremented when we are
-//   armed and motors are ON or Throttle is in RAMP or FLY mode
-// @brief
+// @brief Called every ms and increments the flight time counter,
+//        - Counter is only started and incremented when we are
+//        - armed and motors are ON or Throttle is in RAMP or FLY mode
 // @param
 // @retval
 static void FlightOdometer(void)
@@ -3851,12 +3938,20 @@ static void DoFlightControl()
 
     KICK_WATCHDOG();
 
-    if (!mpu.readMotion7f_finish(phfc->accRaw, phfc->gyroRaw, &phfc->gyro_temperature)) {
-      phfc->system_status_mask |= IMU_FAIL;
+    if (!(phfc->system_status_mask & IMU_FAIL)) {
+      if (!mpu.readMotion7f_finish(phfc->accRaw, phfc->gyroRaw, &phfc->gyro_temperature)) {
+        phfc->imu_error_count++;
+      }
+      else {
+        phfc->imu_error_count = 0;
+      }
     }
 
-    ticks = Ticks_us_minT(1000, &utilization);   // defines loop time in uS, 1000Hz
+    //LedTesterOff();
+    ticks = Ticks_us_minT(1000, &utilization);   // defines loop time in uS, 1000Hz (1ms)
 
+    //LedTesterToggle();
+    //LedTesterOn();
     if (!(phfc->system_status_mask & IMU_FAIL)) {
       mpu.readMotion7_start();
     }
@@ -3882,69 +3977,66 @@ static void DoFlightControl()
     FlightOdometer();
 
     /* copy and clear the new data flag set by GPS to a new variable to avoid a race */
-    //gps_data = gps.GpsUpdate(ticks, &phfc->gps_new_data);
     phfc->gps_new_data = gps.GpsUpdate();
 
-    //if (phfc->gps_new_data) {
-        //if ((phfc->print_counter %500) == 0) {
-            //debug_print("GPS[%d]\r\n", gps_msg);
-            //debug_print("GPS: lat[%d]:lon[%d], latf[%f]:lonf[%f], latD[%f]:lonD[%f]\r\n",
-            //         gps.gps_data_.lat, gps.gps_data_.lon, gps.gps_data_.latF, gps.gps_data_.lonF,
-            //         gps.gps_data_.latD, gps.gps_data_.lonD);
-        //}
-    //}
+    // Check for new Compass Data
+    if (compass->HaveNewData()) {
+      phfc->compass_heading = compass->GetHeadingDeg(phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
 
-    if (pConfig->sensor_mode == 0 /*FLY_ALL_SENSORS*/) {
-        if (compass->HaveNewData()) {
-            phfc->compass_heading = compass->GetHeadingDeg(phfc->IMUorient[PITCH], phfc->IMUorient[ROLL]);
+      if (phfc->compass_heading_lp == 0) {
+          phfc->compass_heading_lp = phfc->compass_heading;
+      }
+      else {
+          // phfc->compass_heading_lp = LP_16_Wrap180(phfc->compass_heading, phfc->compass_heading_lp);
+          phfc->compass_heading_lp = LP_Wrap180(phfc->compass_heading, phfc->compass_heading_lp, pConfig->heading_avgs);
+      }
 
-            if (phfc->compass_heading_lp == 0) {
-                phfc->compass_heading_lp = phfc->compass_heading;
-            }
-            else {
-                // phfc->compass_heading_lp = LP_16_Wrap180(phfc->compass_heading, phfc->compass_heading_lp);
-                phfc->compass_heading_lp = LP_Wrap180(phfc->compass_heading, phfc->compass_heading_lp, pConfig->heading_avgs);
-            }
+      // debug_print("Comp: %+5.1f %+5.1f\r\n", phfc->compass_heading, phfc->compass_heading_lp);
+      CompassCalibration();
 
-            // debug_print("Comp: %+5.1f %+5.1f\r\n", phfc->compass_heading, phfc->compass_heading_lp);
-            CompassCalibration();
-
-            phfc->compass_heading_raw[pConfig->compass_selection] = compass->GetRawHeadingXY(pConfig->compass_selection);
-            if (pConfig->compass_selection == 0) {
-              if (compass->HaveNewData(1)) {
-                phfc->compass_heading_raw[1] = compass->GetRawHeadingXY(1);
-              }
-            }
-            else {
-              if (compass->HaveNewData(0)) {
-                phfc->compass_heading_raw[0] = compass->GetRawHeadingXY(0);
-              }
-            }
+      phfc->compass_heading_raw[pConfig->compass_selection] = compass->GetRawHeadingXY(pConfig->compass_selection);
+      if (pConfig->compass_selection == 0) {
+        if (compass->HaveNewData(1)) {
+          phfc->compass_heading_raw[1] = compass->GetRawHeadingXY(1);
         }
+      }
+      else {
+        if (compass->HaveNewData(0)) {
+          phfc->compass_heading_raw[0] = compass->GetRawHeadingXY(0);
+        }
+      }
     }
 
     if (pConfig->baro_enable == 1) {
-        phfc->baro_dT += dT;
-        baro_altitude_raw_prev = phfc->baro_altitude_raw_lp;
+      phfc->baro_dT += dT;
+      baro_altitude_raw_prev = phfc->baro_altitude_raw_lp;
 
-        if (baro.GetTPA(dT, &phfc->baro_temperature, &phfc->baro_pressure, &phfc->baro_altitude_raw)) {   // runs at approximately 32Hz
-            //    phfc->baro_vspeedDF = DerivativeFilter11(phfc->baro_altitude_raw, phfc->baro_derivative_filter)/phfc->baro_dT;
-
-            if (phfc->baro_altitude_raw_lp < -999) {
-                phfc->altitude_baro = phfc->baro_altitude_raw_lp = baro_altitude_raw_prev = phfc->baro_altitude_raw;
-            }
-
-            phfc->baro_altitude_raw_lp = LP4_1000(&phfc->lp_baro4, phfc->baro_altitude_raw);
-            phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
-            phfc->baro_vspeed_lp = LP4_1000(&phfc->lp_baro_vspeed4,phfc->baro_vspeed);
-
-            //    phfc->baro_altitude_raw_lp = (phfc->baro_altitude_raw + 7*phfc->baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
-            //    phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
-            //    debug_print("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", phfc->baro_temperature, phfc->baro_pressure, phfc->baro_altitude_raw, phfc->baro_altitude_raw_lp, phfc->baro_vspeed, phfc->baro_dT);
-            //    debug_print("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", phfc->IMUspeedGroundENU[2], phfc->altitude, phfc->baro_altitude_rawLP4, phfc->baro_altitude_raw_lp);
-
-            phfc->baro_dT = 0;
+      // Baro updates every 25ms
+      int result = 0;
+      if ((result = baro.GetTPA(dT, &phfc->baro_temperature, &phfc->baro_pressure, &phfc->baro_altitude_raw)) == 1) {
+        //    phfc->baro_vspeedDF = DerivativeFilter11(phfc->baro_altitude_raw, phfc->baro_derivative_filter)/phfc->baro_dT;
+        if (phfc->baro_altitude_raw_lp < -999) {
+            phfc->altitude_baro = phfc->baro_altitude_raw_lp = baro_altitude_raw_prev = phfc->baro_altitude_raw;
         }
+
+        phfc->baro_altitude_raw_lp = LP4_1000(&phfc->lp_baro4, phfc->baro_altitude_raw);
+        phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
+        phfc->baro_vspeed_lp = LP4_1000(&phfc->lp_baro_vspeed4,phfc->baro_vspeed);
+
+        //    phfc->baro_altitude_raw_lp = (phfc->baro_altitude_raw + 7*phfc->baro_altitude_raw_lp)*0.125f;   // about 0.25 second lowpass
+        //    phfc->baro_vspeed          = (phfc->baro_altitude_raw_lp - baro_altitude_raw_prev)/phfc->baro_dT;
+        //    debug_print("T %5.1f P %5.0f Alt %6.2f AltLP %6.2f vs %+3.1f dT %5.3f\r\n", phfc->baro_temperature, phfc->baro_pressure, phfc->baro_altitude_raw, phfc->baro_altitude_raw_lp, phfc->baro_vspeed, phfc->baro_dT);
+        //    debug_print("vs %+5.3f  aB %+5.3f  aBrawLP4 %+5.3f  aBrawLP %+5.3f\n", phfc->IMUspeedGroundENU[2], phfc->altitude, phfc->baro_altitude_rawLP4, phfc->baro_altitude_raw_lp);
+
+        phfc->baro_dT = 0;
+        phfc->baro_error_count = 0;
+      }
+      else {
+        if (result == -1) {
+          // Keep track of timeout reads
+          phfc->baro_error_count++;
+        }
+      }
     }
 
 
@@ -4261,7 +4353,7 @@ static void DoFlightControl()
     }
 #endif
 
-    CanbusNodeMonitor(dT);
+    SystemMonitor(dT);
 
     phfc->gps_new_data = false;
     phfc->print_counter++;
@@ -4321,7 +4413,7 @@ static void ConfigRx(void)
 static void ProcessUserCmnds(char c)
 {
     char request[20] = {0};
-    ConfigData *pRamConfigData = (ConfigData *)&ram_config;
+    ConfigData *pRamConfigData = (ConfigData *)&ram_scratch;
 
     // 'L' == Load Request
     if (c == 'L') {
@@ -4332,7 +4424,7 @@ static void ProcessUserCmnds(char c)
         serial.scanf("%19s", request);
         if (strcmp(request, "config_upload") == 0) {
             // Clear current RamConfig in preparation for new data.
-            memset((uint8_t *)&ram_config, 0xFF, MAX_CONFIG_SIZE);
+            memset((uint8_t *)&ram_scratch, 0xFF, MAX_CONFIG_SIZE);
 
             serial.attach(&ConfigRx);   // This handles incoming configuration file
 
@@ -4347,7 +4439,7 @@ static void ProcessUserCmnds(char c)
 
             while (!have_config) {}
 
-            unsigned char *pData = (unsigned char *)&ram_config;
+            unsigned char *pData = (unsigned char *)&ram_scratch;
             pData += sizeof(ConfigurationDataHeader);
             // CRC data and check.
             if (pRamConfigData->header.checksum
@@ -4423,20 +4515,20 @@ static void ProcessUserCmnds(char c)
         usb_print("\r\nCANBus Board Info..\r\n");
         for (int i = 0; i < pConfig->num_servo_nodes; i++) {
             usb_print("Type[ SN], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        phfc->board_info[PN_SN][i].major_version, phfc->board_info[PN_SN][i].minor_version, phfc->board_info[PN_SN][i].build_version,
-                        phfc->board_info[PN_SN][i].serial_number2, phfc->board_info[PN_SN][i].serial_number1, phfc->board_info[PN_SN][i].serial_number0);
+                        phfc->board_info[AVI_SERVO_NODETYPE][i].major_version, phfc->board_info[AVI_SERVO_NODETYPE][i].minor_version, phfc->board_info[AVI_SERVO_NODETYPE][i].build_version,
+                        phfc->board_info[AVI_SERVO_NODETYPE][i].serial_number2, phfc->board_info[AVI_SERVO_NODETYPE][i].serial_number1, phfc->board_info[AVI_SERVO_NODETYPE][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_gps_nodes; i++) {
             usb_print("Type[GPS], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        phfc->board_info[PN_GPS][i].major_version, phfc->board_info[PN_GPS][i].minor_version, phfc->board_info[PN_GPS][i].build_version,
-                        phfc->board_info[PN_GPS][i].serial_number2, phfc->board_info[PN_GPS][i].serial_number1, phfc->board_info[PN_GPS][i].serial_number0);
+                        phfc->board_info[AVI_GPS_NODETYPE][i].major_version, phfc->board_info[AVI_GPS_NODETYPE][i].minor_version, phfc->board_info[AVI_GPS_NODETYPE][i].build_version,
+                        phfc->board_info[AVI_GPS_NODETYPE][i].serial_number2, phfc->board_info[AVI_GPS_NODETYPE][i].serial_number1, phfc->board_info[AVI_GPS_NODETYPE][i].serial_number0);
         }
 
         for (int i = 0; i < pConfig->num_power_nodes; i++) {
             usb_print("Type[PWR], Node[%d], Version[%02x:%02x:%02x], SERIAL[%08x:%08x:%08x]\r\n", i+1,
-                        phfc->board_info[PN_PWR][i].major_version, phfc->board_info[PN_PWR][i].minor_version, phfc->board_info[PN_PWR][i].build_version,
-                        phfc->board_info[PN_PWR][i].serial_number2, phfc->board_info[PN_PWR][i].serial_number1, phfc->board_info[PN_PWR][i].serial_number0);
+                        phfc->board_info[AVI_PWR_NODETYPE][i].major_version, phfc->board_info[AVI_PWR_NODETYPE][i].minor_version, phfc->board_info[AVI_PWR_NODETYPE][i].build_version,
+                        phfc->board_info[AVI_PWR_NODETYPE][i].serial_number2, phfc->board_info[AVI_PWR_NODETYPE][i].serial_number1, phfc->board_info[AVI_PWR_NODETYPE][i].serial_number0);
             usb_print("---V[slope=%f,offset=%f], I[slope=%f,offset=%f]\r\n",phfc->power.Vslope,phfc->power.Voffset,phfc->power.Islope,phfc->power.Ioffset);
         }
 
@@ -4456,6 +4548,8 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+            usb_print("MUST NOW POWER OFF/ON");
+            NVIC_SystemReset();
         }
         else if (strcmp(request, "lock") == 0) {
             if (SetJtag(LOCK_JTAG) == 0) {
@@ -4464,6 +4558,8 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+            usb_print("MUST NOW POWER OFF/ON");
+            NVIC_SystemReset();
         }
         else if (strcmp(request, "eraseall") == 0) {
             if (EraseFlash() == 0) {
@@ -4472,11 +4568,16 @@ static void ProcessUserCmnds(char c)
             else {
                 usb_print("NACK");
             }
+            usb_print("MUST NOW POWER OFF/ON");
         }
         else if (strcmp(request, "odoreset") == 0) {
           phfc->OdometerReading = 0;
-          UpdateOdometerReading(phfc->OdometerReading);
-          usb_print("ACK");
+          if (UpdateOdometerReading(phfc->OdometerReading) == 0) {
+            usb_print("ACK");
+          }
+          else {
+            usb_print("NACK");
+          }
         }
         else if (strcmp(request, "forcereset") == 0) {
           NVIC_SystemReset(); // force software reset
@@ -4510,7 +4611,7 @@ static uint32_t InitCanbus(void)
   Canbus->reset();
   Canbus->attach(CanbusISRHandler);
 
-  if (phfc->system_reset_reason == RESET_REASON_WD) {
+  if (phfc->system_reset_reason & RESET_REASON_WD) {
     return ret_mask;
   }
 
@@ -4533,16 +4634,9 @@ static uint32_t InitCanbus(void)
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
         failsafe = (short int *)&node_cfg_data.data[0];
-
         for (int j=0; j < 4; j++) {
-          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+          *failsafe++ = pConfig->servo_failsafe_pwm[node_id-1][j+(i*4)];
         }
-        // SP::TODO - until config values are available, override with these defaults.
-        failsafe = (short int *)&node_cfg_data.data[0];
-        *failsafe++ = 1000;
-        *failsafe++ = 1500;
-        *failsafe++ = 1500;
-        *failsafe = 1500;
 
         node_cfg_data.len = 8;
         wait_ms(10);
@@ -4570,17 +4664,9 @@ static uint32_t InitCanbus(void)
       int seq_id = AVI_FAILSAFE_0_3;
       for (int i=0; i < 2; i++) {
         failsafe = (short int *)&node_cfg_data.data[0];
-
         for (int j=0; j < 4; j++) {
-          *failsafe++ = pConfig->servo_failsafe_pwm[j+(i*4)];
+          *failsafe++ = pConfig->servo_failsafe_pwm[node_id-1][j+(i*4)];
         }
-
-        // SP::TODO - until config values are available, override with these defaults.
-        failsafe = (short int *)&node_cfg_data.data[0];
-        *failsafe++ = 1000;
-        *failsafe++ = 1500;
-        *failsafe++ = 1500;
-        *failsafe = 1500;
 
         node_cfg_data.len = 8;
         wait_ms(10);
@@ -4636,7 +4722,7 @@ static uint32_t InitCanbusNode(int node_type, int node_id, int timeout)
   can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_LOW, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
-  wait_ms(10);
+  wait_ms(20);
   can_tx_message.id = AVI_CAN_ID(node_type, node_id, AVI_HWID_HIGH, AVI_MSGID_SDP);
   Canbus->write(can_tx_message);
 
@@ -4751,6 +4837,8 @@ static void CanbusFailsafe(int node_type, int node_id)
   can_tx_message.len = 0;
 
   can_tx_message.id = AVI_CAN_ID(node_type, BASE_NODE_ID + node_id, AVI_FAILSAFE, AVI_MSGID_CTRL);
+  phfc->failsafe = true;
+
   Canbus->write(can_tx_message);
 }
 
@@ -4761,11 +4849,9 @@ static void InitializeRuntimeData(void)
 {
   uint32_t last_reset = GetResetReason();
 
-  phfc = (FlightControlData *)&_hfc_runtime;  // This area is Reserved by the linker!
-
   // If we are warm resetting, DO NOT re-init data. We are trying to
   // keep running under a warm reset.
-  if (last_reset == RESET_REASON_WD) {
+  if (last_reset & RESET_REASON_WD) {
     phfc->system_reset_reason = last_reset;
     phfc->system_status_mask = 0;
     phfc->soft_reset_counter++;
@@ -4858,6 +4944,9 @@ static void InitializeRuntimeData(void)
 
   phfc->throttle_value   = -pConfig->Stick100range;
   phfc->collective_value = -pConfig->Stick100range;
+
+  phfc->ctrl_collective_raw = pConfig->CollZeroAngle;    // set to current position
+  phfc->ctrl_collective_3d  = pConfig->CollZeroAngle;   // target
 
   //Give a 10 percent (up to 1000mAh) buffer on the battery capacity
   phfc->power.capacity_total = ((pConfig->battery_capacity-min(pConfig->battery_capacity*0.1,1000)) / 1000.0f * 3600); // As
@@ -4970,10 +5059,9 @@ static void InitializeRuntimeData(void)
     for (int i = 0; i < 3; i++) {
       phfc->compass_cal.compassMax[i] = -9999;
     }
+  }
 
-    phfc->delay_time = -1;
-}
-
+  phfc->delay_time = -1;
   phfc->box_dropper_ = 0;
 
   phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
@@ -4999,6 +5087,10 @@ static void InitializeRuntimeData(void)
 
   phfc->num_motors = 0;
 
+  phfc->imu_error_count = 0;
+  phfc->baro_error_count = 0;
+  phfc->failsafe = false;
+
   LPC_RIT->RICOUNTER = 0;
 }
 
@@ -5011,10 +5103,13 @@ static uint32_t InitializeSystemData()
 
   // Clear out the Runtime RAM copy of the config Data
   KICK_WATCHDOG();
-  memset(pRamConfigData, 0x00, sizeof(ConfigData));
+  memset(pRamConfigData, 0x00, MAX_CONFIG_SIZE);
 
+  // If we fail to load configuration, don't attempt to continue to setup
+  // runtime data, since we will likely fw crash due missing data.
+  // Instead, return and let higer layers handle it.
   if (LoadConfiguration(&pConfig) < 0) {
-    ret_value = CONFIG_FAIL;
+    return CONFIG_FAIL;
   }
 
   // Initialize Runtime Data
@@ -5060,12 +5155,50 @@ static uint32_t InitializeSystemData()
   return ret_value;
 }
 
+// @brief No return from here, runs minimal system with telem
+//        to provide AGS info that boot failed due to config error
+//        Serial USB connected to enable config updates to be processed
+//        THIS IS A LAST RESORT PROCESS AND SHOULD NEVER RUN!
+// @param
+// @retval
+static void RunDefaultSystem(void)
+{
+  int utilization = 0;
+  int count = 0;
+
+  SysTick_Run();
+
+  telem.Initialize(phfc, NULL);
+  telemetry.baud(38400);
+
+  while (1) {
+
+    KICK_WATCHDOG();
+
+    Ticks_us_minT(1000, &utilization);
+
+    // Generate default aircraft cfg message to AGS every 1 seconds
+    if (((++count % 1000) == 0) && !telem.IsTypeInQ(TELEMETRY_AIRCRAFT_CFG)) {
+      telem.Generate_DefaultCfg();
+      telem.AddMessage((unsigned char*)&phfc->aircraftConfig, sizeof(T_AircraftConfig), TELEMETRY_AIRCRAFT_CFG, 0);
+    }
+
+    telem.Update();
+
+    // Process Serial commands if USB is available
+    if (serial.connected() && serial.readable()) {
+      ProcessUserCmnds(serial.getc());
+    }
+
+  }
+}
 
 // @brief
 // @param
 // @retval
 int main()
 {
+
 #if defined (CRP_LOCK)
   SetJtag(LOCK_JTAG);
 #endif
@@ -5075,11 +5208,34 @@ int main()
   SysTick_Run();
 
 #ifndef DEBUG
-  InitializeWatchdog(0.5f);  // 0.5 sec timeout
+  InitializeWatchdog(WATCHDOG_TIMEOUT);
 #endif
+
+  // Early detect if we have exceeded build limits
+  if (sizeof(FlightControlData) > MAX_HFC_SIZE) {
+    phfc->system_status_mask |= HFC_RAM_WARN;
+  }
+
+  if (sizeof(ConfigData) > MAX_CONFIG_SIZE) {
+    phfc->system_status_mask |= CFG_RAM_WARN;
+  }
 
   // Initialize system configuration, Runtime Data and Peripherals
   phfc->system_status_mask |= InitializeSystemData();
+
+  if (phfc->system_status_mask & CONFIG_FAIL) {
+    // If config did not load - go direct to Jail and do not
+    // Pass Go and Do not collect $200
+    // NO RETURN FROM THIS CALL
+    RunDefaultSystem();
+  }
+
+  // If we've experienced a snowball of watchdog resets
+  // all we can do is assume something very bad is happening and attempt to
+  // put any control systems to failsafe mode.
+  if (phfc->soft_reset_counter >= WD_RESET_LIMIT) {
+    FailSafeMode();
+  }
 
   phfc->system_status_mask |= InitCanbus();
 
@@ -5087,15 +5243,12 @@ int main()
 
   phfc->system_status_mask |= baro.Init(pConfig);
 
-  //if (phfc->system_status_mask)
-  //  SetFcmLedState(0xf);
-  //else
-  //  SetFcmLedState(0x1);
-
   // need to recall this to ensure RICOUNTER is re-initialized before commencing control loop
   SysTick_Run();
 
   SetFcmLedState(phfc->system_reset_reason);
+
+  LedTesterOff(); // This is the old lcd led
 
   // Initialize FCM local IO
   InitFcmIO();

@@ -62,6 +62,9 @@ MPU6050::MPU6050(I2Ci *m_i2c, int mux_reg_setting, int m_gyro_scale, int m_acc_s
         gyroP_temp_coeffs[i] = 0;
         gyroR_temp_coeffs[i] = 0;
         gyroY_temp_coeffs[i] = 0;
+
+        last_acc_raw[i] = 0;
+        last_gyro_raw[i] = 0;
     }
 
     rotation_angle = 0;
@@ -69,6 +72,7 @@ MPU6050::MPU6050(I2Ci *m_i2c, int mux_reg_setting, int m_gyro_scale, int m_acc_s
 
     buffer = 0;
     orient_index = 0;
+
 }
 
 bool MPU6050::is_ok()
@@ -233,6 +237,11 @@ void MPU6050::readMotion7_start()
     if (mux) {
         i2c->write_reg_blocking(MUX_ADDRESS, mux_chan);
     }
+
+    for (int i=0; i < sizeof(m7buffer); i++) {
+      m7buffer[i] = 0;
+    }
+
     i2c->read_regs_nb(i2c_address, MPU6050_ACCEL_XOUT_H, m7buffer, sizeof(m7buffer), &status);
 }
 
@@ -256,30 +265,45 @@ bool MPU6050::readMotion7_finish(short int acc[3], short int gyro[3], short int 
     gyro[0] = (((short int)m7buffer[8]) << 8) | m7buffer[9];
     gyro[1] = (((short int)m7buffer[10])<< 8) | m7buffer[11];
     gyro[2] = (((short int)m7buffer[12])<< 8) | m7buffer[13];
+
     return true;
 }
 
 bool MPU6050::readMotion7f_finish(float acc[3], float gyro[3], float *temp)
 {
-    short int t;
-    short int a[3];
-    short int g[3];
+  short int t;
+  short int a[3];
+  short int g[3];
 
-    if (!readMotion7_finish(a, g, &t)) {
-        return false;
+  if (!readMotion7_finish(a, g, &t)) {
+      return false;
+  }
+
+  int freeze_mask = 0;
+  for (int i=0; i < 3; i++) {
+    if ((a[i] == last_acc_raw[i]) && (g[i] == last_gyro_raw[i])) {
+      freeze_mask |= 1<<i;
     }
 
-    acc[0]  = a[0]*acc_scale_factor[acc_scale];
-    acc[1]  = a[1]*acc_scale_factor[acc_scale];
-    acc[2]  = a[2]*acc_scale_factor[acc_scale];
+    last_acc_raw[i] = a[i];
+    last_gyro_raw[i] = g[i];
+  }
 
-    *temp   = t*0.00294117647f + 36.53f;
+  if (freeze_mask == 0x7) {
+    return false;
+  }
 
-    gyro[0] = g[0]*gyro_scale_factor[gyro_scale];
-    gyro[1] = g[1]*gyro_scale_factor[gyro_scale];
-    gyro[2] = g[2]*gyro_scale_factor[gyro_scale];
+  acc[0]  = a[0]*acc_scale_factor[acc_scale];
+  acc[1]  = a[1]*acc_scale_factor[acc_scale];
+  acc[2]  = a[2]*acc_scale_factor[acc_scale];
 
-    return true;
+  *temp   = t*0.00294117647f + 36.53f;
+
+  gyro[0] = g[0]*gyro_scale_factor[gyro_scale];
+  gyro[1] = g[1]*gyro_scale_factor[gyro_scale];
+  gyro[2] = g[2]*gyro_scale_factor[gyro_scale];
+
+  return true;
 }
 
 

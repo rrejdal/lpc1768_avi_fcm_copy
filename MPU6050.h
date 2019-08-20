@@ -186,6 +186,9 @@ class MPU6050
         float rotation_angle;
         bool mux;
         char mux_chan;
+
+        short int last_acc_raw[3];
+        short int last_gyro_raw[3];
 };
 
 

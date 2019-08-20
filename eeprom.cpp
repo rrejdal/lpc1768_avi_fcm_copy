@@ -3,6 +3,7 @@
 #include "defines.h"
 #include "utils.h"
 
+#define PN_IMU  0x04
 
 EEPROM::EEPROM(I2Ci *m_i2c, EEPROM_TYPE m_type)
 {

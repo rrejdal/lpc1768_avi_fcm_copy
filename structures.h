@@ -4,7 +4,9 @@
 #include "defines.h"
 #include "PID.h"
 
-#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
+// These sizes are used with the linker and MUST NOT BE Exceeded
+#define MAX_CONFIG_SIZE  (2 * 1024) // 2KB Max config Size
+#define MAX_HFC_SIZE     (12 * 1024) // 12KB Max Flight Control Runtime data size
 
 #define LANDING_SITES		20
 #define SPEED2ANGLE_SIZE    56
@@ -292,7 +294,7 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_BATTERY      16  // battery level/voltage too low
 #define MSG2GROUND_PFCHECK_ANGLE        17  // level limit exceeded
 #define MSG2GROUND_PFCHECK_HW_FAIL      18  // System hardware failure
-#define MSG2GROUND_PFCHECK_CAN_POWER    19  // failed to send msg to power module
+#define MSG2GROUND_PFCHECK_RSVD         19  // UNUSED
 #define MSG2GROUND_PFCHECK_IMU_GPS_ALT  20  // IMU and GPS altitude have to within 2m
 #define MSG2GROUND_PFCHECK_GPS_NOFIX    21  // not all GPS units have a lock
 #define MSG2GROUND_PFCHECK_GPS_PDOP     22  // not all GPS units have PDOP<2
@@ -964,7 +966,8 @@ typedef struct ConfigurationData {
 
     int servo_revert_ch7_ch8[2];
 
-    int servo_failsafe_pwm[8];
+    int servo_failsafe_pwm[2][8]; // (On Tandems: Index 0 is front, 1 is rear)
+
     int enable_servomon_check[2];
 
 //} __attribute__((packed)) ConfigData;
@@ -1356,6 +1359,10 @@ typedef struct
     int num_motors;
 
     float servo_mon_voltage[MAX_CAN_SERVO_NODES];
+
+    uint32_t imu_error_count;
+    uint32_t baro_error_count;
+    bool failsafe;
 
 } FlightControlData;
 

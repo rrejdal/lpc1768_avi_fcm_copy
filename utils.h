@@ -57,5 +57,9 @@ bool N1WithinPercentOfN2(float n1, float percentage, float n2);
 uint32_t GetResetReason(void);
 
 void SetFcmLedState(uint32_t state_mask);
+void LedTesterOn(void);
+void LedTesterOff(void);
+void LedTesterToggle(void);
+
 
 #endif

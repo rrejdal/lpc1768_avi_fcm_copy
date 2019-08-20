@@ -8,9 +8,10 @@
 #include "defines.h"
 #include "main.h"
 #include "compass.h"
+#include "avican.h"
 
 extern int UpdateFlashConfig(FlightControlData *fcm_data);
-extern int UpdateOdometerReading(uint32 OdometerCounter);
+extern int UpdateOdometerReading(uint32_t OdometerCounter);
 
 extern GPS gps;
 extern XBus xbus;
@@ -711,29 +712,29 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->fcm_version_num = (MAJOR_VERSION << 16) | (MINOR_VERSION << 8) | (BUILD_VERSION);
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_SN, 0, serialNum);
-    msg->servo0_version_num = getNodeVersionNum(PN_SN, 0);
+    getNodeSerialNum(AVI_SERVO_NODETYPE, 0, serialNum);
+    msg->servo0_version_num = getNodeVersionNum(AVI_SERVO_NODETYPE, 0);
     msg->servo0_serialnum_0 = serialNum[0];
     msg->servo0_serialnum_1 = serialNum[1];
     msg->servo0_serialnum_2 = serialNum[2];
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_SN, 1, serialNum);
-    msg->servo1_version_num = getNodeVersionNum(PN_SN, 1);
+    getNodeSerialNum(AVI_SERVO_NODETYPE, 1, serialNum);
+    msg->servo1_version_num = getNodeVersionNum(AVI_SERVO_NODETYPE, 1);
     msg->servo1_serialnum_0 = serialNum[0];
     msg->servo1_serialnum_1 = serialNum[1];
     msg->servo1_serialnum_2 = serialNum[2];
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_GPS, 0, serialNum);
-    msg->gps_version_num = getNodeVersionNum(PN_GPS, 0);
+    getNodeSerialNum(AVI_GPS_NODETYPE, 0, serialNum);
+    msg->gps_version_num = getNodeVersionNum(AVI_GPS_NODETYPE, 0);
     msg->gps_serialnum_0 = serialNum[0];
     msg->gps_serialnum_1 = serialNum[1];
     msg->gps_serialnum_2 = serialNum[2];
 
     serialNum[0] = serialNum[1]= serialNum[2] = 0;
-    getNodeSerialNum(PN_PWR, 0, serialNum);
-    msg->pwr_version_num = getNodeVersionNum(PN_PWR, 0);
+    getNodeSerialNum(AVI_PWR_NODETYPE, 0, serialNum);
+    msg->pwr_version_num = getNodeVersionNum(AVI_PWR_NODETYPE, 0);
     msg->pwr_serialnum_0 = serialNum[0];
     msg->pwr_serialnum_1 = serialNum[1];
     msg->pwr_serialnum_2 = serialNum[2];
@@ -741,6 +742,19 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->imu_serial_num = hfc->imu_serial_num;
 
     msg->odometerReading = (hfc->OdometerReading /1000);
+
+    msg->system_status_mask = hfc->system_status_mask;
+    msg->system_reset_reason = hfc->system_reset_reason;
+
+    InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
+}
+
+void TelemSerial::Generate_DefaultCfg(void)
+{
+    T_AircraftConfig *msg = &hfc->aircraftConfig;
+
+    /* payload */
+    memset(msg, 0x0, sizeof(T_AircraftConfig));
 
     msg->system_status_mask = hfc->system_status_mask;
     msg->system_reset_reason = hfc->system_reset_reason;
@@ -2049,26 +2063,29 @@ void TelemSerial::CommandLanding(bool final, bool setWP)
 
 void TelemSerial::Disarm(void)
 {
-	hfc->throttle_armed    = 0;
-	hfc->inhibitRCswitches = false;
-	hfc->waypoint_type   = WAYPOINT_NONE;
-	hfc->waypoint_stage = FM_TAKEOFF_NONE;
-	hfc->playlist_status = PLAYLIST_NONE;
-	hfc->LidarCtrlMode   = false;
-	hfc->fixedThrottleMode = THROTTLE_IDLE;
+  if (hfc->throttle_armed) {
+    hfc->throttle_armed    = 0;
+    hfc->inhibitRCswitches = false;
+    hfc->waypoint_type   = WAYPOINT_NONE;
+    hfc->waypoint_stage = FM_TAKEOFF_NONE;
+    hfc->playlist_status = PLAYLIST_NONE;
+    hfc->LidarCtrlMode   = false;
+    hfc->fixedThrottleMode = THROTTLE_IDLE;
 
-	hfc->touch_and_go_landing = false;
-	hfc->touch_and_go_takeoff = false;
+    hfc->touch_and_go_landing = false;
+    hfc->touch_and_go_takeoff = false;
 
-  hfc->auto_takeoff = false;
-  hfc->auto_landing = false;
+    hfc->auto_takeoff = false;
+    hfc->auto_landing = false;
 
-  hfc->takeoff_height = pConfig->takeoff_height;
+    hfc->takeoff_height = pConfig->takeoff_height;
 
-	// TODO::SP: Error handling on Flash write error??
-  UpdateFlashConfig(hfc);
+    UpdateFlashConfig(hfc);
+    UpdateOdometerReading(hfc->OdometerReading);
 
-  UpdateOdometerReading(hfc->OdometerReading);
+    hfc->ctrl_collective_raw = pConfig->CollZeroAngle;
+    hfc->ctrl_collective_3d  = pConfig->CollZeroAngle;
+  }
 
 }
 
@@ -2460,8 +2477,9 @@ void TelemSerial::ProcessCommands(void)
     {
         if (sub_cmd == RESET_SUBID) {
             // NOTE::SP: Causes a MICRO Soft Reset
-            //NVIC_SystemReset();
-            //InitializeWatchdog(1.0f);
+#ifdef DEBUG
+            InitializeWatchdog(0.5f);
+#endif
             while(1);
         }
     }
