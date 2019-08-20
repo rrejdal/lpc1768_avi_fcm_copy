@@ -2642,8 +2642,8 @@ static void ServoUpdate(float dT)
           //Add pitch to slow the UAV when it is turning sharply in cruise mode.
           //Added pitch is proportional to the requested YAW rate (turn rate) and inversely
           //proportional to dyn_yaw_rate which is actually a limit on the YAW RATE based on speed
-          float cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_turn_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
-          //float cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_turn_pitch_trim*ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude)/phfc->ctrl_out[POS][COLL];
+          float cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+          //float cruise_alt_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim*ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude)/phfc->ctrl_out[POS][COLL];
 
           phfc->Debug[5] = cruise_turn_pitch_trim;
           phfc->Debug[6] = angle;
@@ -5111,7 +5111,7 @@ static void InitializeRuntimeData(void)
   phfc->baro_error_count = 0;
   phfc->failsafe = false;
 
-  phfc->rw_cfg.max_cruise_turn_pitch_trim = pConfig->max_cruise_turn_pitch_trim;
+  phfc->rw_cfg.max_cruise_pitch_trim = pConfig->max_cruise_pitch_trim;
 
   GenerateSpeed2AngleLUT();
 

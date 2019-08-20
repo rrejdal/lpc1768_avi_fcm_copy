@@ -971,7 +971,7 @@ typedef struct ConfigurationData {
 
     int enable_servomon_check[2];
 
-    float max_cruise_turn_pitch_trim; // Maximum allowable pitch angle to trim off during a turn in cruise mode
+    float max_cruise_pitch_trim; // Maximum allowable pitch angle to trim off during a turn in cruise mode
 
     //for single rotor heli's, a roll angle (deg) trim is required to compensate
     //for the tail rotor thrust during takeoff (only during takeoff).
@@ -1026,7 +1026,7 @@ typedef struct
     float joystick_max_speed;
     //float gyro_ofs[3];
 
-    float max_cruise_turn_pitch_trim;
+    float max_cruise_pitch_trim;
 } ModifiableConfigData;
 
 typedef struct
