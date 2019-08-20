@@ -3,3 +3,7 @@
 Debug/
 .settings/
 .metadata/
+
+.scannerwork/
+
+bw-output/
