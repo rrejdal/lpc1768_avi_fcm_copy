@@ -16,16 +16,19 @@ extern USBSerial   serial;
 #define usb_print(fmt, ...) \
             do { serial.printf(fmt, ##__VA_ARGS__); } while (0)
 
-#define CONFIG_VERSION   14
-#define COMPASS_CAL_VERSION 1
-
-#define PC_BAUDRATE          115200
-#define GPS_BAUDRATE         38400
-
 #define PLAYLIST_SIZE   512
 
-#define LOOP_PERIOD     1000    // 1000Hz   830 // in mS
 
+
+
+
+#define MAX_NUM_CASTLE_LINKS 2
+#define MAX_NUM_GPS          1
+#define MAX_NUM_COMPASS      2
+#define MAX_CAN_SERVO_NODES  2
+#define MAX_BOARD_TYPES      7
+#define MAX_NODE_NUM         3
+#define MAX_SERVO_OUTPUTS  8
 
 //#define THRUST_VECTORING    // enables thrust vectoring during turns, airplane mode otherwise
 
@@ -82,11 +85,14 @@ extern USBSerial   serial;
 #define CCPM_QUAD              3
 #define CCPM_HEX               4
 #define CCPM_OCTO              5
-#define MIXERTANDEM            6
-#define CCPM120TANDEMTESTBENCH 7
+#define CCPM_TANDEM            6
 
 #define PROP_FIXED_PITCH       0 // collective channel drives throttle, throttle lever gates it
 #define PROP_VARIABLE_PITCH    1 // lever drives throttle, collective channel drives blade pitch
+
+#define TANDEM_210TL     0
+#define TANDEM_E6        1   // No longer Supported
+#define TANDEM_COPYCAT   2   // Single Rotar Heli, built with 210TL hardware for testing
 
 // control modes
 #define CTRL_MODE_INHIBIT       0   // inhibit servo control, set to mid pos, or min for throttle
@@ -110,29 +116,6 @@ extern USBSerial   serial;
 
 #define LANDING_THRESHOLD_HEIGHT_FIXED_PROP 0.1f //in meters, used in landing
 #define LANDING_THRESHOLD_HEIGHT_VARIABLE_PROP 0.2f //in meters, used in landing
-
-/* display modes defines */
-#define DISPLAY_SPLASH		  0
-#define DISPLAY_STATUS        1
-#define DISPLAY_POWER         2
-#define DISPLAY_CONTROLS      3
-#define DISPLAY_XBUS          4
-#define DISPLAY_GPS1          5
-#define DISPLAY_GPS2          6
-#define DISPLAY_GPS3          7
-#define DISPLAY_BARO          8
-#define DISPLAY_COMPASS       9
-#define DISPLAY_CALIB         10
-#define DISPLAY_WAYPOINT      11
-#define DISPLAY_ENG           12
-#define DISPLAY_PAGES         13
-
-#define FLY_ALL_SENSORS 0
-#define FLY_NO_COMPASS  1
-
-#define GROUND_SENSOR_NONE      0
-#define GROUND_SENSOR_LIDAR     1
-#define GROUND_SENSOR_SONAR     2
 
 /* constants */
 #define D2R 0.017453292f
@@ -242,6 +225,12 @@ typedef enum {
     RPM_FAIL,
 } rpmSpoolState;
 
+/* Passed in the GPS CANbus CFG Message, 1byte */
+#define GPS_SEL_CHIP_0          (1 << 0)
+#define GPS_SEL_CHIP_1          (1 << 1)
+#define GPS_SEL_CHIP_AUTO       (GPS_SEL_CHIP_0 | GPS_SEL_CHIP_1)
+#define COMPASS_SEL_MASK(x)     ((x) << 2)
+
 // Variable Pitch (Tandem) airframes
 #define RPM_SPOOL_TIMEOUT    30.0f  // Wait upto x seconds to reach desired RPM
 #define RPM_HOLD_TIMEOUT     3.0f   // Hold RPM for 3 seconds before continuing takeoff sequence
@@ -251,5 +240,45 @@ typedef enum {
 #define DEFAULT_LANDING_TIMEOUT 30000000  // 30 Seconds
 #define DEFAULT_TOUCH_AND_GO_LANDING_TIMEOUT 3000000 // 3 Seconds
 #define DEFAULT_FIXED_PROP_SPOOL_TIME 4  // 4 seconds
+
+// System Failure Status flags
+#define CONFIG_FAIL       (1 << 0)
+
+#define NAV_NODE_FAIL       (1 << 1)
+#define N2_NAV_NODE_FAIL    (1 << 2)
+
+#define SERVO_NODE_FAIL     (1 << 3)
+#define N2_SERVO_NODE_FAIL  (1 << 4)
+
+#define PWR_NODE_FAIL       (1 << 5)
+#define N2_PWR_NODE_FAIL    (1 << 6)
+
+#define N1_GPS0_FAIL      (1 << 7)
+#define N1_GPS1_FAIL      (1 << 8)
+#define N1_COMPASS0_FAIL  (1 << 9)
+#define N1_COMPASS1_FAIL  (1 << 10)
+
+#define N2_GPS0_FAIL      (1 << 11)
+#define N2_GPS1_FAIL      (1 << 12)
+#define N2_COMPASS0_FAIL  (1 << 13)
+#define N2_COMPASS1_FAIL  (1 << 14)
+
+#define IMU_FAIL          (1 << 15)
+#define IMU_WARN          (1 << 16)
+#define BARO_FAIL         (1 << 17)
+
+#define COMPASS_CAL_WARN  (1 << 18)
+#define HFC_RAM_WARN      (1 << 19)
+#define CFG_RAM_WARN      (1 << 20)
+
+#define LIDAR_FRONT_FAIL  (1 << 21)
+#define LIDAR_REAR_FAIL   (1 << 22)
+
+#define RESET_REASON_POR  (1 << 0)
+#define RESET_REASON_EXTR (1 << 1)
+#define RESET_REASON_WD   (1 << 2)
+#define RESET_REASON_BODR (1 << 3)
+#define RESET_REASON_SYS  (1 << 4)
+#define RESET_REASON_LOCK (1 << 5)
 
 #endif

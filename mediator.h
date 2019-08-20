@@ -1,6 +1,6 @@
 /**
   ******************************************************************************
-  * @file    main.h
+  * @file    mediator.h
   * @author  AVIDRONE FIRMWARE Team
   * @brief   Provides support for FCM node of Avidrone FCS
   *
@@ -24,26 +24,25 @@
   ******************************************************************************
   */
 
-#ifndef MAIN_H_
-#define MAIN_H_
+#ifndef MEDIATOR_H_
+#define MEDIATOR_H_
 
-// ---- Public Interfaces ---- //
-void ResetIterms(void);
-void GenerateSpeed2AngleLUT(void);
-void AltitudeUpdate(float alt_rate, float dT);
-void HeadingUpdate(float heading_rate, float dT);
-void CompassCalDone(void);
-int  TakeoffControlModes(void);
-int  GetMotorsState(void);
-bool LidarOnline(void);
-void NVIC_WatchdogHandler(void);
-int getNodeVersionNum(int type, int nodeId);
-void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
-void CompassCalDone(void);
+typedef uint16_t Item;
+typedef struct Mediator_t
+{
+   Item* data;  //circular queue of values
+   int*  pos;   //index into `heap` for each value
+   int*  heap;  //max/median/min heap holding indexes into `data`.
+   int   N;     //allocated size.
+   int   idx;   //position in circular queue
+   int   minCt; //count of items in min heap
+   int   maxCt; //count of items in max heap
+} Mediator;
 
-// ---- Public Data ---- //
+// Public interfaces..
+Mediator* MediatorNew(int nItems);
+void MediatorInsert(Mediator* m, Item v);
+Item MediatorMedian(Mediator* m);
 
-// ---- Public Macros ---- //
-#define IN_THE_AIR(X) ( ( (( X ) > 0.2) && (GetMotorsState() == 1) ) ? 1 : 0 )
 
-#endif /* MAIN_H_ */
+#endif /* MEDIATOR_H_ */

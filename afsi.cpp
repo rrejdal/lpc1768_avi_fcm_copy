@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include "utils.h"
 #include "mymath.h"
-#include "HMC5883L.h"
 #include "pGPS.h"
 #include "IMU.h"
 #include "defines.h"
@@ -10,7 +9,7 @@
 #include "telemetry.h"
 #include "pGPS.h"
 
-extern FlightControlData hfc;
+extern FlightControlData *phfc;
 extern ConfigData *pConfig;
 extern GPS gps;
 extern XBus xbus;
@@ -294,24 +293,24 @@ int AFSI_Serial::GetCRC(uint8_t *data, int len, uint8_t *CRC)
 
 void AFSI_Serial::EnableAFSI(uint8_t cmd) {
 
-    ctrl_out[AFSI_SPEED_RIGHT] = hfc.ctrl_out[SPEED][ROLL];
-    ctrl_out[AFSI_SPEED_FWD] = hfc.ctrl_out[SPEED][PITCH];
-    ctrl_out[AFSI_ALTITUDE] = hfc.ctrl_out[POS][COLL];
-    ctrl_out[AFSI_HEADING] = hfc.ctrl_out[ANGLE][YAW];
+    ctrl_out[AFSI_SPEED_RIGHT] = phfc->ctrl_out[SPEED][ROLL];
+    ctrl_out[AFSI_SPEED_FWD] = phfc->ctrl_out[SPEED][PITCH];
+    ctrl_out[AFSI_ALTITUDE] = phfc->ctrl_out[POS][COLL];
+    ctrl_out[AFSI_HEADING] = phfc->ctrl_out[ANGLE][YAW];
 
     if ((cmd != AFSI_CTRL_ID_ARM) && (cmd != AFSI_CTRL_ID_DISARM) && (cmd != AFSI_CTRL_ID_TAKEOFF) ) {
       /* altitude hold and yaw angle */
-      SetCtrlMode(&hfc, pConfig, PITCH, CTRL_MODE_SPEED);
-      SetCtrlMode(&hfc, pConfig, ROLL,  CTRL_MODE_SPEED);
-      SetCtrlMode(&hfc, pConfig, YAW,   CTRL_MODE_ANGLE);
-      SetCtrlMode(&hfc, pConfig, COLL,  CTRL_MODE_POSITION);
+      SetCtrlMode(phfc, pConfig, PITCH, CTRL_MODE_SPEED);
+      SetCtrlMode(phfc, pConfig, ROLL,  CTRL_MODE_SPEED);
+      SetCtrlMode(phfc, pConfig, YAW,   CTRL_MODE_ANGLE);
+      SetCtrlMode(phfc, pConfig, COLL,  CTRL_MODE_POSITION);
       /* set target altitude and heading to the current one */
-      hfc.ctrl_out[ANGLE][YAW] = hfc.IMUorient[YAW]*R2D;
+      phfc->ctrl_out[ANGLE][YAW] = phfc->IMUorient[YAW]*R2D;
     }
 
-    if (hfc.playlist_status==PLAYLIST_PLAYING) {
+    if (phfc->playlist_status==PLAYLIST_PLAYING) {
       telem->PlaylistSaveState();
-      hfc.playlist_status = PLAYLIST_PAUSED;
+      phfc->playlist_status = PLAYLIST_PAUSED;
     }
 
     telem->SelectCtrlSource(CTRL_SOURCE_AFSI);
@@ -348,8 +347,8 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             debug_print("alt = %f\r\n",alt);
 
             if (CheckRangeF(alt, AFSI_MIN_ALT, AFSI_MAX_ALT)) {
-                hfc.takeoff_height = alt;
-                hfc.auto_takeoff = true;
+                phfc->takeoff_height = alt;
+                phfc->auto_takeoff = true;
                 telem->CommandTakeoffArm();
             }
             else {
@@ -359,9 +358,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
 
         case  AFSI_CTRL_ID_LAND:
             telem->SetZeroSpeed();
-            hfc.waypoint_type = WAYPOINT_LANDING;
-            hfc.waypoint_stage = FM_LANDING_STOP;
-            hfc.auto_landing = true;
+            phfc->waypoint_type = WAYPOINT_LANDING;
+            phfc->waypoint_stage = FM_LANDING_STOP;
+            phfc->auto_landing = true;
             debug_print("LANDING!\r\n");
             break;
 
@@ -381,11 +380,11 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
                 /* since this is asynchronous to the main loop, the control_mode
                  * change might be detected and the init skipped,
                  * thus it needs to be done here */
-                if (hfc.control_mode[PITCH] < CTRL_MODE_POSITION) {
-                    PID_SetForEnable(&hfc.pid_Dist2T, 0, 0, hfc.gps_speed);
-                    PID_SetForEnable(&hfc.pid_Dist2P, 0, 0, 0);
-                    hfc.speedCtrlPrevEN[0] = 0;
-                    hfc.speedCtrlPrevEN[1] = 0;
+                if (phfc->control_mode[PITCH] < CTRL_MODE_POSITION) {
+                    PID_SetForEnable(&phfc->pid_Dist2T, 0, 0, phfc->gps_speed);
+                    PID_SetForEnable(&phfc->pid_Dist2P, 0, 0, 0);
+                    phfc->speedCtrlPrevEN[0] = 0;
+                    phfc->speedCtrlPrevEN[1] = 0;
                 }
 
                 telem->SetWaypoint(lat, lon, -9999, WAYPOINT_GOTO, false);
@@ -437,9 +436,9 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             debug_print("speed_to_home = %f\r\n",speed);
 
             if (CheckRangeF(speed, AFSI_MIN_SPEED, AFSI_MAX_SPEED) && (speed > 0) ) {
-                hfc.pid_Dist2T.COmax = speed;
+                phfc->pid_Dist2T.COmax = speed;
                 telem->ApplyDefaults();
-                telem->SetWaypoint(hfc.home_pos[0], hfc.home_pos[1], -9999, WAYPOINT_GOTO, 0);
+                telem->SetWaypoint(phfc->home_pos[0], phfc->home_pos[1], -9999, WAYPOINT_GOTO, 0);
             }
             else {
                 return 0;
@@ -470,7 +469,7 @@ int AFSI_Serial::ProcessAsfiCtrlCommands(AFSI_MSG *msg)
             break;
 
         case AFSI_CTRL_ID_RESUME:
-            if (hfc.playlist_status == PLAYLIST_PAUSED) {
+            if (phfc->playlist_status == PLAYLIST_PAUSED) {
                 telem->PlaylistRestoreState();
             }
 
@@ -532,12 +531,12 @@ void AFSI_Serial::GeneratePwrStatus(void) {
     msg_stat_pwr.hdr.id        = AFSI_STAT_ID_PWR;
     msg_stat_pwr.hdr.len       = AFSI_STAT_PAYL_LEN_PWR;
 
-    msg_stat_pwr.bat_capacity_used  = (hfc.power.capacity_used/3600.0f) * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.total_bat_capacity = (hfc.power.capacity_total/3600.0f)* AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.bat_percent_used   = hfc.power.battery_level  * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.current            = hfc.power.Iesc           * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.voltage            = hfc.power.Vmain          * AFSI_STAT_SCALE_PWR;
-    msg_stat_pwr.flight_time        = hfc.power.flight_time_left;
+    msg_stat_pwr.bat_capacity_used  = (phfc->power.capacity_used/3600.0f) * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.total_bat_capacity = (phfc->power.capacity_total/3600.0f)* AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.bat_percent_used   = phfc->power.battery_level  * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.current            = phfc->power.Iesc           * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.voltage            = phfc->power.Vmain          * AFSI_STAT_SCALE_PWR;
+    msg_stat_pwr.flight_time        = phfc->power.flight_time_left;
 
     GetCRC( (uint8_t*)&(msg_stat_pwr.hdr.msg_class),
             msg_stat_pwr.hdr.len + AFSI_HEADER_LEN,
@@ -589,24 +588,24 @@ void AFSI_Serial::GenerateSensorsStatus(void)
     msg_stat_sensors.hdr.id          = AFSI_STAT_ID_SEN;
     msg_stat_sensors.hdr.len         = AFSI_STAT_PAYL_LEN_SEN;
 
-    msg_stat_sensors.gyro_temp       = hfc.gyro_temp_lp          * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.baro_temp       = hfc.baro_temperature      * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.esc_temp        = hfc.esc_temp              * AFSI_STAT_SCALE_TEMP;
-    msg_stat_sensors.baro_pressure   = hfc.baro_pressure;
-    msg_stat_sensors.wind_speed      = hfc.wind_speed            * AFSI_STAT_SCALE_WIND;
-    msg_stat_sensors.wind_course     = hfc.wind_course           * AFSI_STAT_SCALE_WIND;
-    msg_stat_sensors.rpm             = hfc.RPM;
-    msg_stat_sensors.lidar_altitude  = hfc.altitude_lidar        * AFSI_STAT_SCALE_LIDAR;
-    msg_stat_sensors.compass_heading = hfc.compass_heading       * AFSI_STAT_SCALE_COMPASS;
-    msg_stat_sensors.altitude        = hfc.altitude              * AFSI_STAT_SCALE_ALT;
+    msg_stat_sensors.gyro_temp       = phfc->gyro_temp_lp          * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.baro_temp       = phfc->baro_temperature      * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.esc_temp        = phfc->esc_temp              * AFSI_STAT_SCALE_TEMP;
+    msg_stat_sensors.baro_pressure   = phfc->baro_pressure;
+    msg_stat_sensors.wind_speed      = phfc->wind_speed            * AFSI_STAT_SCALE_WIND;
+    msg_stat_sensors.wind_course     = phfc->wind_course           * AFSI_STAT_SCALE_WIND;
+    msg_stat_sensors.rpm             = phfc->RPM;
+    msg_stat_sensors.lidar_altitude  = phfc->altitude_lidar        * AFSI_STAT_SCALE_LIDAR;
+    msg_stat_sensors.compass_heading = phfc->compass_heading       * AFSI_STAT_SCALE_COMPASS;
+    msg_stat_sensors.altitude        = phfc->altitude              * AFSI_STAT_SCALE_ALT;
 
-    msg_stat_sensors.right_speed     = hfc.speedHeliRFU[RIGHT]   * AFSI_STAT_SCALE_SPEED;
-    msg_stat_sensors.fwd_speed       = hfc.speedHeliRFU[FORWARD] * AFSI_STAT_SCALE_SPEED;
-    msg_stat_sensors.vertical_speed  = hfc.speedHeliRFU[UP]      * AFSI_STAT_SCALE_SPEED;
+    msg_stat_sensors.right_speed     = phfc->speedHeliRFU[RIGHT]   * AFSI_STAT_SCALE_SPEED;
+    msg_stat_sensors.fwd_speed       = phfc->speedHeliRFU[FORWARD] * AFSI_STAT_SCALE_SPEED;
+    msg_stat_sensors.vertical_speed  = phfc->speedHeliRFU[UP]      * AFSI_STAT_SCALE_SPEED;
 
-    msg_stat_sensors.imu_pitch       = hfc.IMUorient[PITCH]*R2D  * AFSI_STAT_SCALE_DEGREES;
-    msg_stat_sensors.imu_roll        = hfc.IMUorient[ROLL]*R2D   * AFSI_STAT_SCALE_DEGREES;
-    msg_stat_sensors.imu_yaw         = hfc.IMUorient[YAW]*R2D    * AFSI_STAT_SCALE_DEGREES;
+    msg_stat_sensors.imu_pitch       = phfc->IMUorient[PITCH]*R2D  * AFSI_STAT_SCALE_DEGREES;
+    msg_stat_sensors.imu_roll        = phfc->IMUorient[ROLL]*R2D   * AFSI_STAT_SCALE_DEGREES;
+    msg_stat_sensors.imu_yaw         = phfc->IMUorient[YAW]*R2D    * AFSI_STAT_SCALE_DEGREES;
 
 
     GetCRC( (uint8_t*)&(msg_stat_sensors.hdr.msg_class),
@@ -622,9 +621,9 @@ void AFSI_Serial::GenerateSensorsStatus(void)
 
 void AFSI_Serial::GenerateFcmStatus(void)
 {
-    uint8_t waypoint_ctrl_mode = (hfc.ctrl_source == CTRL_SOURCE_AUTOPILOT) ? 1 : 0;
+    uint8_t waypoint_ctrl_mode = (phfc->ctrl_source == CTRL_SOURCE_AUTOPILOT) ? 1 : 0;
 
-    uint8_t joystick_ctrl_mode = (hfc.ctrl_source == CTRL_SOURCE_JOYSTICK) ? 1 : 0;
+    uint8_t joystick_ctrl_mode = (phfc->ctrl_source == CTRL_SOURCE_JOYSTICK) ? 1 : 0;
 
     msg_stat_fcm.hdr.sync1            = AFSI_SYNC_BYTE_1;
     msg_stat_fcm.hdr.sync2            = AFSI_SYNC_BYTE_2;
@@ -632,18 +631,18 @@ void AFSI_Serial::GenerateFcmStatus(void)
     msg_stat_fcm.hdr.id               = AFSI_STAT_ID_FCM;
     msg_stat_fcm.hdr.len              = AFSI_STAT_PAYL_LEN_FCM;
 
-    msg_stat_fcm.ctrl_mode_pitch      = hfc.control_mode[PITCH];
-    msg_stat_fcm.ctrl_mode_roll       = hfc.control_mode[ROLL];
-    msg_stat_fcm.ctrl_mode_yaw        = hfc.control_mode[YAW];
-    msg_stat_fcm.ctrl_mode_collective = hfc.control_mode[COLL];
-    msg_stat_fcm.ctrl_mode_throttle   = hfc.control_mode[THRO];
+    msg_stat_fcm.ctrl_mode_pitch      = phfc->control_mode[PITCH];
+    msg_stat_fcm.ctrl_mode_roll       = phfc->control_mode[ROLL];
+    msg_stat_fcm.ctrl_mode_yaw        = phfc->control_mode[YAW];
+    msg_stat_fcm.ctrl_mode_collective = phfc->control_mode[COLL];
+    msg_stat_fcm.ctrl_mode_throttle   = phfc->control_mode[THRO];
 
     msg_stat_fcm.ctrl_status   =   (          xbus.RcLinkOnline() & 1 ) |
                                    (          (waypoint_ctrl_mode)   << 1 ) |
-                                   ( ( (!hfc.throttle_armed) & 1   ) << 2 ) |
+                                   ( ( (!phfc->throttle_armed) & 1   ) << 2 ) |
                                    (     (joystick_ctrl_mode & 1   ) << 3 ) |
-                                   (   ( hfc.playlist_status & 0x3 ) << 4 ) |
-                                   (   ( hfc.rc_ctrl_request & 1   ) << 6 );
+                                   (   ( phfc->playlist_status & 0x3 ) << 4 ) |
+                                   (   ( phfc->rc_ctrl_request & 1   ) << 6 );
 
     GetCRC( (uint8_t*)&(msg_stat_fcm.hdr.msg_class),
             msg_stat_fcm.hdr.len + AFSI_HEADER_LEN,

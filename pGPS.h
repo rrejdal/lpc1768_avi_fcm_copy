@@ -105,7 +105,7 @@ public:
 
 
     int Init(int number_of_channels);
-    void AddGpsData(int channel, int msg_id, char *msg);
+    void AddGpsData(int channel, int seq_id, char *msg);
     GpsData GpsUpdate(int dTus, char* new_data_flag);
 
     int GpsUpdate(void);

@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
-  * @file    main.h
+  * @file    BMPx80.cpp
   * @author  AVIDRONE FIRMWARE Team
-  * @brief   Provides support for FCM node of Avidrone FCS
+  * @brief   Provides support for Baro
   *
   ******************************************************************************
   * @attention
@@ -23,27 +23,47 @@
   *
   ******************************************************************************
   */
+#ifndef _BMPx80_H_
+#define _BMPx80_H_
+ 
+#include "mbed.h"
+#include "I2Ci.h"
+#include "structures.h"
 
-#ifndef MAIN_H_
-#define MAIN_H_
+#define BMP_NONE    0
+#define BMP_180     1
+#define BMP_280     2
 
-// ---- Public Interfaces ---- //
-void ResetIterms(void);
-void GenerateSpeed2AngleLUT(void);
-void AltitudeUpdate(float alt_rate, float dT);
-void HeadingUpdate(float heading_rate, float dT);
-void CompassCalDone(void);
-int  TakeoffControlModes(void);
-int  GetMotorsState(void);
-bool LidarOnline(void);
-void NVIC_WatchdogHandler(void);
-int getNodeVersionNum(int type, int nodeId);
-void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
-void CompassCalDone(void);
+class BMPx80
+{
+  public:
+    BMPx80(I2Ci *m_i2c);
+    uint32_t Init(const ConfigData *pConfig);
+    void Calibration280();
+    int GetTPA(float dT, float *pTemp, float *pPress, float *pAlt);
 
-// ---- Public Data ---- //
+  protected:
+    I2Ci *i2c;
+    int i2c_address;
+    uint8_t OSS;
 
-// ---- Public Macros ---- //
-#define IN_THE_AIR(X) ( ( (( X ) > 0.2) && (GetMotorsState() == 1) ) ? 1 : 0 )
+    // These are constants used to calculate the temperature and pressure from the BMP-280 sensor
+    uint16_t    dig_T1;
+    int16_t     dig_T2, dig_T3;
+    uint16_t    dig_P1;
+    int16_t     dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
 
-#endif /* MAIN_H_ */
+    char state;
+    char bmp;
+    float duration;
+    float interval;
+    float timeout;
+    volatile char rawData[6];
+    volatile int status;
+    float temperature;
+    float pressure;
+    float altitude;
+    volatile char start_cmd[2];
+};
+
+#endif

@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
-  * @file    version.h
+  * @file    config.h
   * @author  AVIDRONE FIRMWARE Team
-  * @brief   Header for version.c
+  * @brief   Provides support for FCM node of Avidrone FCS
   *
   ******************************************************************************
   * @attention
@@ -24,31 +24,21 @@
   ******************************************************************************
   */
 
-#ifndef VERSION_H_
-#define VERSION_H_
+#ifndef CONFIG_H_
+#define CONFIG_H_
 
-#define PN_GPS  0x03
-#define PN_SN   0x02
-#define PN_FCM  0x05
-#define PN_IMU  0x04
-#define PN_PWR  0x06
+// ---- Public Interfaces ---- //
+int LoadConfiguration(const ConfigData **pConfig);
+int LoadCompassCalibration(const CompassCalibrationData **pCompass_cal);
+int SaveNewConfig(void);
+int SaveCompassCalibration(const CompassCalibrationData *pCompass_cal);
+void InitializeOdometer(FlightControlData *hfc);
+int UpdateOdometerReading(uint32_t OdometerCounter);
+int EraseFlash(void);
+int SetJtag(int state);
 
-// Engineering Test builds are marked as "X" builds
-// THIS IS PASSED IN FROM BUILD LINE WHEN USING ECLIPSE
-//#define BUILD_TYPE ""
-//#define BUILD_TYPE "X"
+// ---- Public Data ---- //
+#define CONFIG_VERSION   15
+#define COMPASS_CAL_VERSION 1
 
-#define xstr(s) str(s)
-#define str(s) #s
-
-#define FCM_VERSION (" VER:" xstr(MAJOR_VERSION) "." xstr(MINOR_VERSION) "." xstr(BUILD_VERSION) xstr(BUILD_TYPE))
-
-extern const char * build_git_time;
-extern const char * build_git_sha;
-extern const char * build_git_info;
-
-
-
-#endif /* VERSION_H_ */
-
-/************************ (C) COPYRIGHT Avidrone Aerospace Inc. *****END OF FILE****/
+#endif /* CONFIG_H_ */

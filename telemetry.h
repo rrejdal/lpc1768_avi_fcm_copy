@@ -41,6 +41,7 @@ public:
     void Generate_Tcpip7(void);
     void Generate_Msg2Ground(void);
     void Generate_AircraftCfg(void);
+    void Generate_DefaultCfg(void);
     int CalibrateCompass(void);
     int CalibrateCompassDone(void);
     void SetWaypoint(float lat, float lon, float altitude, unsigned char waypoint_type, unsigned char wp_retire);

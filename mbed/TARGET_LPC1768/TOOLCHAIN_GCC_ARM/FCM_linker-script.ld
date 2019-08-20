@@ -1,8 +1,9 @@
 MEMORY
 {
   FLASH (rx) : ORIGIN = 0x00000000, LENGTH = (512K - 64K)
-  RAM (rwx) : ORIGIN = 0x100000C8, LENGTH = (28K - 0xC8 - 32)
-  RamConfig (rwx): ORIGIN = 0x10007000, LENGTH = 4k
+  RAM (rwx) : ORIGIN = 0x100000C8, LENGTH = (18K - 0xC8 - 32)
+  HfcRuntime (rwx): ORIGIN = 0x10004800, LENGTH = 12k
+  RamScratch (rwx): ORIGIN = 0x10007800, LENGTH = 2k
   USB_RAM(rwx) : ORIGIN = 0x2007C000, LENGTH = 16K
   ETH_RAM(rwx) : ORIGIN = 0x20080000, LENGTH = 16K
 }
@@ -72,14 +73,21 @@ SECTIONS
         __bss_end__ = .;
         Image$$RW_IRAM1$$ZI$$Limit = . ;
     } > RAM
-    .ramconfig : ALIGN(4)
+    .ramscratch : ALIGN(4)
     {
     	FILL(0xff)
-    	_ramconfig = .;
-    	*(.ramconfig*);
-    	KEEP(*(.ramconfig))
+    	_ramscratch = .;
+    	*(.ramscratch*);
+    	KEEP(*(.ramscratch))
     	. = ALIGN(4) ;
-    } > RamConfig
+    } > RamScratch
+    .hfcruntime : ALIGN(4)
+    {
+    	_hfcruntime = .;
+    	*(.hfcruntime*);
+    	KEEP(*(.hfcruntime))
+    	. = ALIGN(4) ;
+    } > HfcRuntime
     .heap :
     {
         __end__ = .;

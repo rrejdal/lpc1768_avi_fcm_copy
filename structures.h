@@ -4,7 +4,9 @@
 #include "defines.h"
 #include "PID.h"
 
-#define MAX_CONFIG_SIZE  (4 * 1024) // 4KB Max config Size
+// These sizes are used with the linker and MUST NOT BE Exceeded
+#define MAX_CONFIG_SIZE  (2 * 1024) // 2KB Max config Size
+#define MAX_HFC_SIZE     (12 * 1024) // 12KB Max Flight Control Runtime data size
 
 #define LANDING_SITES		20
 #define SPEED2ANGLE_SIZE    56
@@ -291,8 +293,8 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_COMPASS      15  // compass exceed limits
 #define MSG2GROUND_PFCHECK_BATTERY      16  // battery level/voltage too low
 #define MSG2GROUND_PFCHECK_ANGLE        17  // level limit exceeded
-#define MSG2GROUND_PFCHECK_CAN_SERVO    18  // failed to send msg to servo module
-#define MSG2GROUND_PFCHECK_CAN_POWER    19  // failed to send msg to power module
+#define MSG2GROUND_PFCHECK_HW_FAIL      18  // System hardware failure
+#define MSG2GROUND_PFCHECK_RSVD         19  // UNUSED
 #define MSG2GROUND_PFCHECK_IMU_GPS_ALT  20  // IMU and GPS altitude have to within 2m
 #define MSG2GROUND_PFCHECK_GPS_NOFIX    21  // not all GPS units have a lock
 #define MSG2GROUND_PFCHECK_GPS_PDOP     22  // not all GPS units have PDOP<2
@@ -302,8 +304,10 @@ enum TELEM_PARAMS_AIRFRAME {
 #define MSG2GROUND_PFCHECK_IMUACC_HORIZ 30  // IMU and ACC horizon estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_IMUCOMP_HEAD 31  // IMU and compass heading estimation have to be close to each other
 #define MSG2GROUND_PFCHECK_LIDAR        32  // Lidar reports invalid value.
+#define MSG2GROUND_AGS_INVALID_KEY      33  // AGS, FCM Key mismatch
 #define MSG2GROUND_THROTTLE_LEVER_LOW   34  // Throttle Level needs is LOW
 #define MSG2GROUND_THROTTLE_LEVER_HIGH  35  // Throttle Level needs is High
+#define MSG2GROUND_PFCHECK_SERVOMON     36  // Servo monitoring shows a failure
 #define MSG2GROUND_LIDAR_NOGROUND       40  // lidar does not see ground before landing
 #define MSG2GROUND_TAKEOFF              41  // tell AGS that takeoff has begun
 
@@ -329,11 +333,6 @@ enum TELEM_PARAMS_AIRFRAME {
 #define COMP_CALIBRATE_DONE     2
 
 #define MAX_NUM_LIDARS            2
-#define LIDAR_TIMEOUT        0.100f  //0.100 seconds = 100 milli-seconds
-#define LIDAR_HISTORY_SIZE       10
-#define INVALID_LIDAR_DATA     9999
-#define MAX_LIDAR_PULSE       40000   /* 40000 us @ 1us/1mm = 40m max range */
-#define MIN_LIDAR_PULSE           0   /* 40000 us @ 1us/1mm = 40m max range */
 
 typedef struct /* size 24bytes */
 {
@@ -386,6 +385,7 @@ typedef struct
     f16     lidar_raw_rear;
     int     controlStatus;  // bit mask denoting the last control command made.
     int     lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
+    int     raw_heading;
 } T_Telem_Ctrl0;
 
 /* Telemetry - GPS 1       sent the GPS update rate, typically 5-10Hz, 42bytes */
@@ -455,6 +455,8 @@ typedef struct
     f16     esc_temp;           // ESC temperature in degC
     byte    num_landing_sites;
     byte    ctrl_source;
+    f16     servo0_mon_voltage;
+    f16     servo1_mon_voltage;
 } T_Telem_System2;
 
 /* Telemetry - DataStream 3       sent at the full rate (1200Hz) divided by the number of elements,
@@ -673,6 +675,9 @@ typedef struct
 
     uint32      odometerReading;
 
+    uint32      system_status_mask;
+    uint32      system_reset_reason;
+
 } T_AircraftConfig;
 
 typedef struct
@@ -735,10 +740,7 @@ typedef struct
 
 typedef struct
 {
-    char    can_servo_tx_failed;
-    char    can_power_tx_failed;
-    uint16  can_servo_tx_errors;
-    uint16  can_power_tx_errors;
+  unsigned int can_rx_msg_count[MAX_BOARD_TYPES][MAX_NODE_NUM];
 } T_Stats;
 
 typedef struct {
@@ -964,6 +966,10 @@ typedef struct ConfigurationData {
 
     int servo_revert_ch7_ch8[2];
 
+    int servo_failsafe_pwm[2][8]; // (On Tandems: Index 0 is front, 1 is rear)
+
+    int enable_servomon_check[2];
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
@@ -1024,6 +1030,15 @@ typedef struct
     float compassMax[3];
 } CompassCalibrationData;
 
+typedef struct {
+    uint8_t major_version;
+    uint8_t minor_version;
+    uint8_t build_version;
+    uint32_t serial_number0;
+    uint32_t serial_number1;
+    uint32_t serial_number2;
+} BoardInfo;
+
 typedef struct
 {
     float PRstick_rate;
@@ -1048,7 +1063,6 @@ typedef struct
     float fixedThrottleCap;				// Capture throttle position for Ramp detection
     float fixedThrottleMult;			// multiplier for ramp 0 to 1
     
-    unsigned char display_mode;
     unsigned char joystick_new_values;
     unsigned char joy_PRmode;
     float joy_values[5];    // [P, R, Y, C, T] same range as RC radio
@@ -1116,7 +1130,7 @@ typedef struct
     float esc_temp;
     float ctrl_out[NUM_CTRL_MODES][5]; // output signals from the controller [raw, rate, angle, speed, pos][P, R, Y, C, T];
     float mixer_in[5];			// input values to the mixer
-    float servos_out[8];        // values going to servos (P(A), R(B), Y, C, T)
+    float servos_out[3][8];        // values going to servos (P(A), R(B), Y, C, T)
     float ctrl_yaw_rate;        // stores actual yaw rate for auto banking
     float dyn_yaw_rate;			// yaw rate during playlist turns in heli mode
     float ctrl_vspeed_3d;		// set vspeed in AUTOPILOT mode when collective is in vspeed mode, for auto takeoff/landing
@@ -1141,17 +1155,13 @@ typedef struct
 
     float altitude_lidar;       // altitude above ground from LIDAR, angle compensated
     float altitude_lidar_raw[MAX_NUM_LIDARS];   // altitude above ground from LIDAR, raw value
-    float lidar_timeouts[MAX_NUM_LIDARS];
     int   lidar_online_mask;  //lidar_online_mask identifies which lidars are reporting, bit 0 = lidar node 0, bit # = lidar node_id #
 
     float altitude_WPnext;      // next waypoint altitude, relative to takeoff site
     unsigned int lidar_rise;	// system time at the rising edge of lidar pwm;
     unsigned int lidar_fall;    // system time at the falling edge
     unsigned int lidar_counter;
-    unsigned int rpm_time_ms;   // system time in ms at the rising edge of RPM sensor pulse
-    unsigned int rpm_time_ms_last;
-    unsigned int rpm_ticks;     // system time in systick at the rising edge of RPM sensor pulse
-    unsigned int rpm_dur_us;    // pulse duration in us, valid only when duration in ms<100
+
     float RPM;                  // RPM of the main shaft
     rpmSpoolState rpm_state;
     float spool_timeout;
@@ -1190,10 +1200,8 @@ typedef struct
     float landing_timeout;              // time (seconds) to wait to completely spool down motors at end of landing
 
 
-    float heading;
-    float heading_offset;
-
     float compass_heading;              // heading based on compass in deg CW starting from north
+    int compass_heading_raw[2];
     float compass_heading_lp;           // 1s low-passed version
     
     float gps_heading;                  // deg
@@ -1326,7 +1334,7 @@ typedef struct
 
     bool setZeroSpeed;
 
-    uint32 OdometerReading;
+    byte num_lidars;
 
     float touch_and_go_wait; // total time delay in seconds while on the ground during touch and go
     float touch_and_go_do_the_thing_cnt;  // time in seconds after landing and before doing the thing
@@ -1337,6 +1345,24 @@ typedef struct
     float Debug[8];   // placeholder for various user defined debug values to be sent when streaming
 
     uint32_t servo_reverse_mask;
+
+    uint32_t OdometerReading;
+
+    uint32_t system_status_mask;
+
+    uint32_t system_reset_reason;
+
+    byte soft_reset_counter;
+
+    BoardInfo board_info[MAX_BOARD_TYPES][MAX_NODE_NUM];
+
+    int num_motors;
+
+    float servo_mon_voltage[MAX_CAN_SERVO_NODES];
+
+    uint32_t imu_error_count;
+    uint32_t baro_error_count;
+    bool failsafe;
 
 } FlightControlData;
 
@@ -1351,13 +1377,6 @@ typedef struct
 {
     T_Servo servo[4];
 } T_Servos;
-
-typedef struct {
-  float      alt[LIDAR_HISTORY_SIZE]; // circular buffer of altitude data (in meters) used for filtering, necessary only for FCM lidar
-  int        data_indx;
-  int        new_data_rdy;
-  float      current_alt;
-} Lidar_Data;
 
 /* from power module: AVICAN_POWER_VALUES1 all uint16, Iaux_srv, Iesc, Vesc, Vbat
  * 					  AVICAN_POWER_VALUES2 all uint16 Vservo, Vaux12V, dTms_adc, adc_count */
@@ -1397,9 +1416,5 @@ typedef struct {
     float   temperature;
     int     new_data_mask;
 } CastleLinkLive;
-
-typedef struct {
-    float servo_out[8];
-} ServoNodeOutputs;
 
 #endif

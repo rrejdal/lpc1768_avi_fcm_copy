@@ -55,8 +55,9 @@ bool XBus::RcLinkOnline(void)
   return true;
 }
 
-void XBus::ConfigRx()
+void XBus::ConfigRx(const ConfigData *pConfig)
 {
+    sbus_enabled = pConfig->SbusEnable;
     if(sbus_enabled == 0)
     {
     	serial.baud(kXBusBaudrate);

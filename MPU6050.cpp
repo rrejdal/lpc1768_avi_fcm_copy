@@ -3,6 +3,7 @@
 #include "IMU.h"
 #include "utils.h"
 #include "defines.h"
+#include "structures.h"
 
 static const float gyro_scale_factor[4] = {250.0f/32768.0f, 500.0f/32768.0f, 1000.0f/32768.0f, 2000.0f/32768.0f};
 static const float acc_scale_factor[4]  = {  2.0f/32768.0f,   4.0f/32768.0f,    8.0f/32768.0f,   16.0f/32768.0f};
@@ -61,6 +62,9 @@ MPU6050::MPU6050(I2Ci *m_i2c, int mux_reg_setting, int m_gyro_scale, int m_acc_s
         gyroP_temp_coeffs[i] = 0;
         gyroR_temp_coeffs[i] = 0;
         gyroY_temp_coeffs[i] = 0;
+
+        last_acc_raw[i] = 0;
+        last_gyro_raw[i] = 0;
     }
 
     rotation_angle = 0;
@@ -68,6 +72,7 @@ MPU6050::MPU6050(I2Ci *m_i2c, int mux_reg_setting, int m_gyro_scale, int m_acc_s
 
     buffer = 0;
     orient_index = 0;
+
 }
 
 bool MPU6050::is_ok()
@@ -86,55 +91,54 @@ bool MPU6050::is_ok()
     return false;
 }
 
-int MPU6050::init(IMU_TYPE type, char lp, bool use_defaults)
+uint32_t MPU6050::init(const ConfigData *pConfig, char lp, unsigned int *serial_num)
 {
-    int result = 1;
+  uint32_t result = 0;
 
-    // Assume external IMU by default.
-    EEPROM_TYPE ee_type = IMU_EEPROM;
-    i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
+  // Assume external IMU by default.
+  EEPROM_TYPE ee_type = IMU_EEPROM;
+  i2c_address = (MPU6050_ADDRESS_EXTERNAL << 1);
 
-    if (type == INTERNAL) {
-        i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
-        ee_type = FCM_EEPROM;
+  if (pConfig->imu_internal) {
+    i2c_address = (MPU6050_ADDRESS_INTERNAL << 1);
+    ee_type = FCM_EEPROM;
+  }
+
+  // Confirm we can talk to IMU and its who we expect it to be
+  int r = i2c->read_reg_blocking(i2c_address, MPU6050_WHO_AM_I);
+  if (r != WHO_AM_I_VALUE_6050) {
+    debug_print("Unrecognized Who Am I: %x\r\n", r);
+    return IMU_FAIL;
+  }
+
+  eeprom = new EEPROM(i2c, ee_type);
+
+  if (mux) {
+    i2c->write_reg_blocking(MUX_ADDRESS, mux_chan);
+    wait_ms(50);
+  }
+
+  if (!pConfig->force_gyro_acc_defaults) {
+    if (read_eeprom() != 0) {
+        result = IMU_WARN;
     }
+  }
 
-    // Confirm we can talk to IMU and its who we expect it to be
-    int r = i2c->read_reg_blocking(i2c_address, MPU6050_WHO_AM_I);
-    if (r != WHO_AM_I_VALUE_6050) {
-        debug_print("Unrecognized Who Am I: %x\r\n", r);
-        return -2;
-    }
+  *serial_num = eeprom->data.serial_num;
 
-    eeprom = new EEPROM(i2c, ee_type);
+  /* clock source and disable sleep */
+  i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
 
-    if (mux) {
-        i2c->write_reg_blocking(MUX_ADDRESS, mux_chan);
-        wait_ms(50);
-    }
+  /* config - sync input and LPF */
+  i2c->write_reg_blocking(i2c_address, MPU6050_CONFIG, lp);
 
-    if (!use_defaults) {
-        if (read_eeprom() != 0) {
-            result = -1;
-        }
-    }
+  /* gyro range */
+  i2c->write_reg_blocking(i2c_address, MPU6050_GYRO_CONFIG, gyro_scale<<3);
 
-    /* clock source and disable sleep */
-    i2c->write_reg_blocking(i2c_address, MPU6050_PWR_MGMT_1, MPU6050_CLOCK_PLL_XGYRO);
+  /* acc range */
+  i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
 
-    /* config - sync input and LPF */
-    i2c->write_reg_blocking(i2c_address, MPU6050_CONFIG, lp);
-
-    /* gyro range */
-    i2c->write_reg_blocking(i2c_address, MPU6050_GYRO_CONFIG, gyro_scale<<3);
-
-    /* acc range */
-    i2c->write_reg_blocking(i2c_address, MPU6050_ACCEL_CONFIG, acc_scale<<3);
-
-    /* enable secondary I2C for HMC5883L */
-    i2c->write_reg_blocking(i2c_address, MPU6050_RA_INT_PIN_CFG, 1<<MPU6050_INTCFG_I2C_BYPASS_EN_BIT);
-
-    return result;
+  return result;
 }
 
 void MPU6050::ForceCalData()
@@ -233,6 +237,11 @@ void MPU6050::readMotion7_start()
     if (mux) {
         i2c->write_reg_blocking(MUX_ADDRESS, mux_chan);
     }
+
+    for (int i=0; i < sizeof(m7buffer); i++) {
+      m7buffer[i] = 0;
+    }
+
     i2c->read_regs_nb(i2c_address, MPU6050_ACCEL_XOUT_H, m7buffer, sizeof(m7buffer), &status);
 }
 
@@ -256,30 +265,45 @@ bool MPU6050::readMotion7_finish(short int acc[3], short int gyro[3], short int 
     gyro[0] = (((short int)m7buffer[8]) << 8) | m7buffer[9];
     gyro[1] = (((short int)m7buffer[10])<< 8) | m7buffer[11];
     gyro[2] = (((short int)m7buffer[12])<< 8) | m7buffer[13];
+
     return true;
 }
 
 bool MPU6050::readMotion7f_finish(float acc[3], float gyro[3], float *temp)
 {
-    short int t;
-    short int a[3];
-    short int g[3];
+  short int t;
+  short int a[3];
+  short int g[3];
 
-    if (!readMotion7_finish(a, g, &t)) {
-        return false;
+  if (!readMotion7_finish(a, g, &t)) {
+      return false;
+  }
+
+  int freeze_mask = 0;
+  for (int i=0; i < 3; i++) {
+    if ((a[i] == last_acc_raw[i]) && (g[i] == last_gyro_raw[i])) {
+      freeze_mask |= 1<<i;
     }
 
-    acc[0]  = a[0]*acc_scale_factor[acc_scale];
-    acc[1]  = a[1]*acc_scale_factor[acc_scale];
-    acc[2]  = a[2]*acc_scale_factor[acc_scale];
+    last_acc_raw[i] = a[i];
+    last_gyro_raw[i] = g[i];
+  }
 
-    *temp   = t*0.00294117647f + 36.53f;
+  if (freeze_mask == 0x7) {
+    return false;
+  }
 
-    gyro[0] = g[0]*gyro_scale_factor[gyro_scale];
-    gyro[1] = g[1]*gyro_scale_factor[gyro_scale];
-    gyro[2] = g[2]*gyro_scale_factor[gyro_scale];
+  acc[0]  = a[0]*acc_scale_factor[acc_scale];
+  acc[1]  = a[1]*acc_scale_factor[acc_scale];
+  acc[2]  = a[2]*acc_scale_factor[acc_scale];
 
-    return true;
+  *temp   = t*0.00294117647f + 36.53f;
+
+  gyro[0] = g[0]*gyro_scale_factor[gyro_scale];
+  gyro[1] = g[1]*gyro_scale_factor[gyro_scale];
+  gyro[2] = g[2]*gyro_scale_factor[gyro_scale];
+
+  return true;
 }
 
 

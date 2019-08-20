@@ -4,6 +4,7 @@
 #include "mbed.h"
 #include "I2Ci.h"
 #include "eeprom.h"
+#include "structures.h"
 
 #define NUM_TYPE_IMUS            2
 #define MPU6050_ADDRESS_EXTERNAL (0x68)
@@ -93,7 +94,7 @@ class MPU6050
         MPU6050(I2Ci *m_i2c, int mux_reg_setting, int m_gyro_scale, int m_acc_scale);
         
         bool is_ok();
-        int init(IMU_TYPE type, char lp, bool use_defaults = false);
+        uint32_t init(const ConfigData *pConfig, char lp, unsigned int *serial_num);
         bool SetGyroScale(char g_scale);
         bool SetAccScale(char a_scale);
         void readMotion7_start();
@@ -185,6 +186,9 @@ class MPU6050
         float rotation_angle;
         bool mux;
         char mux_chan;
+
+        short int last_acc_raw[3];
+        short int last_gyro_raw[3];
 };
 
 

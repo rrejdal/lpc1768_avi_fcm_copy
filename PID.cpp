@@ -200,7 +200,7 @@ void PID_SetForEnable(T_PID *pid, float SP, float PV, float CO)
  *                        in micro-seconds
  *        - this PWM signal is applied to an NFET gate in order to control
  *          the current through three resistor heating elements
- *        - hfc.throttle_width refers to the PwmOut object "servoTpwm"
+ *        - phfc->throttle_width refers to the PwmOut object "servoTpwm"
  *        	which is the s1 servo output pin
  *        - PWM period = servoTpwm->period_us = 20000 = 20 milli-s
  *        - pulse width range is 0 to 10 milli-s

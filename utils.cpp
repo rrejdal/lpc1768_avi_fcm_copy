@@ -1,9 +1,11 @@
 #include "utils.h"
 #include "mbed.h"
 #include "defines.h"
-#include "HMC5883L.h"
 #include "mymath.h"
 #include "defines.h"
+#include "main.h"
+#include "hardware.h"
+#include "compass.h"
 
 static unsigned int ticks;
 static unsigned int ticks_base=0;    // counts how many times SysTick wrapped around
@@ -12,6 +14,37 @@ static unsigned int p1_counter = 0;
 static int avg_delta = 0;
 static int min_delta = 1<<30;
 static int max_delta = 0;
+
+DigitalOut  led1(LED_1);
+DigitalOut  led2(LED_2);
+DigitalOut  led3(LED_3);
+DigitalOut  led4(LED_4);
+DigitalOut  ArmedLed(LED_3);
+
+DigitalOut  leds[4] = {led1, led2, led3, led4};
+DigitalOut  ledtester(MC_LED);
+
+void SetFcmLedState(uint32_t state_mask)
+{
+  for(int i=0; i < 4; i++) {
+    leds[i] = state_mask & (1 << i);
+  }
+}
+
+void LedTesterOn(void)
+{
+  ledtester = 0;
+}
+
+void LedTesterOff(void)
+{
+  ledtester = 1;
+}
+
+void LedTesterToggle(void)
+{
+  ledtester = !ledtester;
+}
 
 float DistanceCourse(double lat1, double long1, double lat2, double long2, float *course)
 {
@@ -214,7 +247,7 @@ unsigned short int Float32toFloat16(const float in1)
     return t1;
 }
    
-extern HMC5883L compass;   
+extern Compass *compass;
 extern XBus xbus;
 
 static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
@@ -252,9 +285,10 @@ static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
         break;
       case LOG_PARAM_COMPASS:
         if (index==0)
-            value = Float32toFloat16(hfc->compass_heading);
-        else
-            value = Float32toFloat16(compass.dataXYZcalib[index-1]);
+          value = Float32toFloat16(hfc->compass_heading);
+        else {
+          value = Float32toFloat16(compass->GetCalibratedMagData(index -1));
+        }
         break;
       case LOG_PARAM_ORIENT:
         value = Float32toFloat16(hfc->IMUorient[Min(2, index)]*R2D);
@@ -272,10 +306,10 @@ static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
         break;
         // TODO::SP: Need to account for multiple servo nodes
       case LOG_PARAM_SERVOS0_3:
-        value = Float32toFloat16(hfc->servos_out[index]);
+        value = Float32toFloat16(hfc->servos_out[0][index]);
         break;
       case LOG_PARAM_SERVOS4_7:
-        value = Float32toFloat16(hfc->servos_out[index+4]);
+        value = Float32toFloat16(hfc->servos_out[0][index+4]);
         break;
       case LOG_PARAM_CTRL_MODE:
         for (i=0; i<5; i++) value |= (hfc->control_mode[(int)i] & 0x7) << (i*3);
@@ -407,66 +441,6 @@ bool Streaming_Process(FlightControlData *hfc)
     return false;
 }
 
-void Profiling_Process(FlightControlData *hfc, const ConfigData *pConfig)
-{
-    if (hfc->profile_mode == PROFILING_START)
-    {
-        int i;
-        //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-        
-        //LEDs[0]->write(1); LEDs[1]->write(1); LEDs[2]->write(1); LEDs[3]->write(1);
-        hfc->profile_mode = PROFILING_ON;
-        hfc->profile_start_time = GetTime_ms();
-        
-        /* save current control values to detect any motion during the auto-profiling and terminate it if necessary */
-        for (i=0; i<5; i++) hfc->ctrl_initial[i] = hfc->ctrl_out[RAW][i];
-    }
-        
-    /* automatic profiling control */
-    if (hfc->profile_mode == PROFILING_ON)
-    {
-        int i;
-        //DigitalOut **LEDs = (DigitalOut**)hfc->leds;
-        float *controlled = &hfc->ctrl_out[RAW][hfc->profile_ctrl_variable];    // variable being controlled, RAW here means the same stick input
-        float delta = 0;            // value added to the controlled variable
-        int t = GetTime_ms() - hfc->profile_start_time;  // timeline in ms
-        int Td = hfc->profile_lag;
-        int Tt = hfc->profile_period;
-        float dC = hfc->profile_delta*0.001f*pConfig->Stick100range;
-        
-//        debug_print("%d %d %d %4.3f\n", t, Td, Tt, dC);
-        if (t>(Td+5*Tt))        // test complete
-        {
-//            debug_print("profiling finish\r\n");
-            hfc->profile_mode = PROFILING_FINISH;
-            //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
-            return;
-        }
-        else if (t>(Td+4*Tt))   // test complete
-            delta = 0;
-        else if (t>(Td+3*Tt))   // third leg
-            delta = dC;
-        else if (t>(Td+1*Tt))   // second leg
-            delta = -dC;
-        else if (t>Td)          // first leg
-            delta = dC;
-        
-        /* terminate auto-profiling if any stick motion is detected */
-        for (i=0; i<5; i++)
-            if (ABS(hfc->ctrl_initial[i] - hfc->ctrl_out[RAW][i]) > AUTO_PROF_TERMINATE_THRS)
-            {
-//                debug_print("Profiling terminated\r\n");
-                hfc->profile_mode = PROFILING_OFF;
-                hfc->streaming_enable = false;
-                delta = 0;
-                //LEDs[0]->write(0); LEDs[1]->write(0); LEDs[2]->write(0); LEDs[3]->write(0);
-                break;
-            }
-
-        *controlled = (*controlled) + delta;
-    }
-}
-
 void GyroCalibDynamic(FlightControlData *hfc)
 {
     int i;
@@ -474,22 +448,33 @@ void GyroCalibDynamic(FlightControlData *hfc)
       hfc->gyroOfs[i] += hfc->gyro_lp_disp[i];
 }
 
-// "kick" or "feed" the dog - reset the watchdog timer
-// by writing this required bit pattern
-void WDT_Kick()
+//
+// - NVIC Interrupt handler for the watchdog handler
+//
+void NVIC_WatchdogHandler(void)
 {
-    LPC_WDT->WDFEED = 0xAA;
-    LPC_WDT->WDFEED = 0x55;
+  NVIC_DisableIRQ(WDT_IRQn);
+
+  // Plan here is to look at the stack pointer and save to hfc (which is not re-initialised after soft boot)
+  // the address, thus we could trace reason for the watchdog.
+  // In addition we could keep track of the number of resets?
+  SetFcmLedState(0xF);
+
 }
 
 /* timeout in seconds */
-void WDT_Init(float timeout)
+void InitializeWatchdog(float timeout)
 {
-    LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
-    uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
-    LPC_WDT->WDTC = timeout * (float)clk;
-    LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
-    WDT_Kick();
+  //NVIC_SetVector(WDT_IRQn, (uint32_t)&NVIC_WatchdogHandler);
+  //NVIC_EnableIRQ(WDT_IRQn);
+
+  LPC_WDT->WDCLKSEL = 0x1;                // Set CLK src to PCLK
+  uint32_t clk = SystemCoreClock / 16;    // WD has a fixed /4 prescaler, PCLK default is /4
+  LPC_WDT->WDTC = timeout * (float)clk;
+  LPC_WDT->WDMOD = 0x3;                   // Enabled and Reset
+  //LPC_WDT->WDMOD = 0x2; // WD Int Mode
+
+  KICK_WATCHDOG();
 }
 
 /* to be called during startup, returns true if the reset by WDT timeout,
@@ -541,3 +526,10 @@ bool N1WithinPercentOfN2(float n1, float percentage, float n2)
     return (percentage > abs(abs(n2 - n1)/n2)*100.0);
   }
 }
+
+uint32_t GetResetReason(void)
+{
+  return LPC_SC->RSID;
+}
+
+
