@@ -4286,12 +4286,12 @@ static void DoFlightControl()
         //debug_print("GPS time %d %f %f %f\n", phfc->time_ms, gps.gps_data_.speedENU[0], gps.gps_data_.speedENU[1], gps.gps_data_.speedENU[2]);
     }
 
-    if (!pConfig->servo_raw) {
-      ServoUpdate(dT);
-    }
-    else {
+//    if (!pConfig->servo_raw) {
+//      ServoUpdate(dT);
+//    }
+//    else {
       ServoUpdateRAW(dT);
-    }
+//    }
 
     SetAgsControls();
 

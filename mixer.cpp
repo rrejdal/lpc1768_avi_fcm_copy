@@ -25,6 +25,7 @@
   */
 #include "defines.h"
 #include "mixer.h"
+#include "mymath.h"
 
 // @brief
 // @param
@@ -176,7 +177,7 @@ AviTandemMixer::AviTandemMixer(const ConfigData *pConfig)
 {
   throttle_gain_ =  pConfig->throttle_gain;
   ccpm_mixer_ =     pConfig->CcpmMixer;
-  model_ =          pConfig->ModelSelect;
+  model_ =          TANDEM_DP14;//pConfig->ModelSelect;
   rear_rpm_trim_ =  pConfig->RearRpmTrim;
 
   ail_range_ =      pConfig->AilRange;
@@ -235,6 +236,50 @@ void AviTandemMixer::ServoMixer(float *mixer_in, float *servos_front, float *ser
     servos_rear[1] = 0 - TcollectRear  - (ccpm_mixer_ * PITCH_TelevatorR) - ROLL_TaileronRear;    // aRearServo
     servos_rear[2] = 0 + TcollectRear  + (ccpm_mixer_ * PITCH_TelevatorR) - ROLL_TaileronRear;    // bRearServo
     servos_rear[3] = 0 - TcollectRear  + PITCH_TelevatorR;
+
+  }
+  else if (model_ == TANDEM_DP14) {
+    // OPERATING AS DP14
+
+    float __ROLL_TaileronFront, __ROLL_TaileronRear;
+    float __PITCH_Televator, __PITCH_TelevatorR;
+
+    const float phase_shift_F = 18.0f*PI/180.0f;  //  18 degrees for front rotor
+    const float phase_shift_R = -48.0f*PI/180.0f; // -48 degrees for rear rotor
+
+    // gain calculation 0 to .571 maximum, could x 1.7512f for full 0 to 1 range
+    // gain is set usually by digital levers on the transmitter for in flight adjustment
+    ROLL_Taileron  = mixer_in[ROLL]  * ail_range_;
+    PITCH_Televator = mixer_in[PITCH] * ele_range_ * elevator_gain_;
+    PITCH_TelevatorR = PITCH_Televator * swash_tilt_rear_;
+    YAW_Trudder   = mixer_in[YAW] * rud_range_;
+
+    dcp      = PITCH_Televator * dcp_gain_;   // Differential collective pitch calculation
+    torqComp = dcp * torq_comp_multiplier_;   // Torque compensation due to dcp and elevator
+
+    TcollectFront = mixer_in[COLL] * collective_range_ + dcp * dcp_front_;
+    TcollectRear  = mixer_in[COLL] * collective_range_ - dcp * dcp_rear_;
+
+    ROLL_TaileronFront = ROLL_Taileron + YAW_Trudder + torqComp;
+    ROLL_TaileronRear  = ROLL_Taileron - YAW_Trudder - torqComp;
+
+    //dp14, phase shifting by theta (positive is CCW an negative is CW)
+    //this is equivalent to a rotational transform of pitch and roll by theta
+    __PITCH_Televator = PITCH_Televator*cos(phase_shift_F) - ROLL_TaileronFront*sin(phase_shift_F);
+    __ROLL_TaileronFront = PITCH_Televator*sin(phase_shift_F) + ROLL_TaileronFront*cos(phase_shift_F);
+
+    __PITCH_TelevatorR = PITCH_TelevatorR*cos(phase_shift_R) - ROLL_TaileronRear*sin(phase_shift_R);
+    __ROLL_TaileronRear = PITCH_TelevatorR*sin(phase_shift_R) + ROLL_TaileronRear*cos(phase_shift_R);
+
+    // Front Servo
+    servos_front[1] = 0 - __ROLL_TaileronFront + (ccpm_mixer_ * __PITCH_Televator) + TcollectFront;   // aFrontServo
+    servos_front[2] = 0 - __ROLL_TaileronFront - (ccpm_mixer_ * __PITCH_Televator) - TcollectFront;   // bFrontServo
+    servos_front[3] = 0 + TcollectFront - __PITCH_Televator;                                               // cFrontServo
+
+    // Rear Servo
+    servos_rear[1] = 0 + TcollectRear  - (ccpm_mixer_ * __PITCH_TelevatorR) + __ROLL_TaileronRear;    // aRearServo
+    servos_rear[2] = 0 - TcollectRear  + (ccpm_mixer_ * __PITCH_TelevatorR) + __ROLL_TaileronRear;    // bRearServo
+    servos_rear[3] = 0 + TcollectRear  + __PITCH_TelevatorR;
 
   }
   else if (model_ == TANDEM_COPYCAT) {
