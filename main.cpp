@@ -1543,7 +1543,7 @@ static void ProcessTakeoff(float dT)
         /* set pitch/roll angle to trim values once collective exceeds the set % of hover value */
         if ((phfc->ctrl_collective_raw>limit) || (phfc->IMUspeedGroundENU[2]>0.2f))
         {
-            phfc->ctrl_angle_pitch_3d = phfc->pid_PitchSpeed.COofs;
+            phfc->ctrl_angle_pitch_3d = 0;// phfc->pid_PitchSpeed.COofs;
             phfc->ctrl_angle_roll_3d  = phfc->pid_RollSpeed.COofs + pConfig->tail_rotor_roll_trim;
 
             phfc->waypoint_stage = FM_TAKEOFF_LEVEL;
