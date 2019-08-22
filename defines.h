@@ -91,8 +91,8 @@ extern USBSerial   serial;
 #define PROP_VARIABLE_PITCH    1 // lever drives throttle, collective channel drives blade pitch
 
 #define TANDEM_210TL     0
-#define TANDEM_E6        1   // No longer Supported
-#define TANDEM_COPYCAT   2   // Single Rotar Heli, built with 210TL hardware for testing
+#define TANDEM_COPYCAT   1   // Single Rotar Heli, built with 210TL hardware for testing
+#define TANDEM_DP14      2   // DPI helicopter
 
 // control modes
 #define CTRL_MODE_INHIBIT       0   // inhibit servo control, set to mid pos, or min for throttle
