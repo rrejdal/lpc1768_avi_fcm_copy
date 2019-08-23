@@ -2638,6 +2638,9 @@ static void ServoUpdate(float dT)
           float angle;
           float cruise_turn_pitch_trim;
           float cruise_alt_pitch_trim;
+          static float entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
+          static float entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
+          static float wind_fwd_speed = phfc->speedHeliRFU[FORWARD] - phfc->ctrl_out[SPEED][PITCH];
 
 
           angle = phfc->rw_cfg.Speed2AngleLUT[min((int)(ABS(phfc->ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
@@ -2659,11 +2662,22 @@ static void ServoUpdate(float dT)
           }
 
           if (ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude) > ALT_CTRL_THRESHOLD) {
+            float current_air_speed = phfc->speedHeliRFU[FORWARD] + wind_fwd_speed;
+            float entry_air_speed = entry_gnd_speed + wind_fwd_speed;
+
             cruise_alt_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim
-                                   *((phfc->ctrl_out[POS][COLL]-phfc->altitude)/phfc->ctrl_out[POS][COLL])
-                                   *(phfc->speedHeliRFU[FORWARD] / pConfig->HspeedMax);
+                                   *((phfc->ctrl_out[SPEED][COLL]-phfc->IMUspeedGroundENU[UP])/phfc->ctrl_out[SPEED][COLL])
+                                   *current_air_speed/entry_air_speed;
 
             angle = max(-3, angle - cruise_alt_pitch_trim);
+          }
+          else {
+            entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
+            entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
+
+            // Calculate the wind speed on the front of the UAV immediately before
+            // doing an altitude change
+            wind_fwd_speed = entry_speed_request - entry_gnd_speed;
           }
 
           phfc->Debug[5] = cruise_turn_pitch_trim;
