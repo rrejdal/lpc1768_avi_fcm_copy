@@ -215,6 +215,8 @@ enum TELEM_PARAMS_AIRFRAME {
 #define PL_ITEM_DELAY         4   // fixed delay
 #define PL_ITEM_HOLD          5   // conditional hold
 
+#define PL_GOTO_COUNTER       0   // Jump to place in mission and repeat x times
+
 #define CMD_DISARM              0
 #define CMD_ARM                 1
 

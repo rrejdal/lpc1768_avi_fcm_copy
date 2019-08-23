@@ -1216,6 +1216,7 @@ static void Playlist_ProcessTop()
 static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
 {
     T_PlaylistItem *item;
+    static int goto_counter = -1;
     
     /* single waypoint mode handling - waypoint retire logic */
     if ((phfc->ctrl_source==CTRL_SOURCE_AUTOPILOT) && (phfc->playlist_status!=PLAYLIST_PLAYING))
@@ -1266,9 +1267,32 @@ static void Playlist_ProcessBottom(FlightControlData *hfc, bool retire_waypoint)
     }
     else if (item->type == PL_ITEM_GOTO)
     {
-        /* handle other types of GOTOs */
-        /* sanity check is done below */
-        phfc->playlist_position = item->value1.i;
+      if (item->data[0] == PL_GOTO_COUNTER)
+      {
+        if (goto_counter == -1)
+        {
+          // first time in loop, ensure the requested jump to
+          // position is before our current position in the loop
+          // otherwise, just skip this step.
+          if (item->value1.i < phfc->playlist_position) {
+            hfc->playlist_position = item->value1.i;
+            goto_counter = item->value2.i-1;
+          }
+          else {
+            hfc->playlist_position++;
+          }
+        }
+        else if (goto_counter == 0)
+        {
+          // end loop
+          hfc->playlist_position++;
+          goto_counter = -1;
+        }
+        else {
+          hfc->playlist_position = item->value1.i;
+          --goto_counter;
+        }
+      }
     }
     else if (item->type == PL_ITEM_DELAY)
     {
