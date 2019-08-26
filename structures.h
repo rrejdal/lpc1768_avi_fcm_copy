@@ -680,6 +680,9 @@ typedef struct
     uint32      system_status_mask;
     uint32      system_reset_reason;
 
+    char airframe_name[32];
+    char airframe_alias[32];
+
 } T_AircraftConfig;
 
 typedef struct
@@ -971,6 +974,9 @@ typedef struct ConfigurationData {
     int servo_failsafe_pwm[2][8]; // (On Tandems: Index 0 is front, 1 is rear)
 
     int enable_servomon_check[2];
+
+    char airframe_name[32];
+    char airframe_alias[32];
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
