@@ -2637,15 +2637,16 @@ static void ServoUpdate(float dT)
           /* set trip to an angle, which corresponds to the target speed */
 //          float angle;
           float cruise_turn_pitch_trim;
-//          float cruise_alt_pitch_trim;
-//          static float entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
-//          static float entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
-//          static float wind_fwd_speed = phfc->speedHeliRFU[FORWARD] - phfc->ctrl_out[SPEED][PITCH];
+          float cruise_alt_pitch_trim;
+          static float entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
+          static float entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
+          static float headwind_speed = phfc->speedHeliRFU[FORWARD] - phfc->ctrl_out[SPEED][PITCH];
 
 
           float angle = phfc->rw_cfg.Speed2AngleLUT[min((int)(ABS(phfc->ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
-          if (phfc->ctrl_out[SPEED][PITCH]<0)
+          if (phfc->ctrl_out[SPEED][PITCH]<0) {
               angle = -angle;
+          }
 
           if ( ABS(phfc->ctrl_yaw_rate) >= TURN_YAW_RATE_THRESHOLD ) {
             //Add pitch to slow the UAV when it is turning sharply in cruise mode.
@@ -2656,37 +2657,42 @@ static void ServoUpdate(float dT)
             // "angle" pulled from Speed2AngleLUT is positive for positive speed, even though in reality
             // a NEGATIVE PITCH ANGLE would yield a positive speed. For this reason, cruise_turn_pitch_trim
             // is subtracted from "angle" to a minimum of 0 degrees so that UAV does not go nose up
-            phfc->pid_PitchCruise.COofs = Max(0,angle - cruise_turn_pitch_trim);
-          }
-          else {
-            phfc->pid_PitchCruise.COofs = angle;
+            angle = Max(0.0f,angle - cruise_turn_pitch_trim);
           }
 
-//          if (ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude) > ALT_CTRL_THRESHOLD) {
-//            float current_air_speed = phfc->speedHeliRFU[FORWARD] + wind_fwd_speed;
-//            float entry_air_speed = entry_gnd_speed + wind_fwd_speed;
-//
-//            cruise_alt_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim
-//                                   *((phfc->ctrl_out[SPEED][COLL]-phfc->IMUspeedGroundENU[UP])/phfc->ctrl_out[SPEED][COLL])
-//                                   *current_air_speed/entry_air_speed;
-//
-//            angle = max(-3, angle - cruise_alt_pitch_trim);
-//          }
-//          else {
-//            entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
-//            entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
-//
-//            // Calculate the wind speed on the front of the UAV immediately before
-//            // doing an altitude change
-//            wind_fwd_speed = entry_speed_request - entry_gnd_speed;
-//          }
+          if (ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude) > ALT_CTRL_THRESHOLD) {
+            float current_air_speed = phfc->speedHeliRFU[FORWARD] + headwind_speed;
+            float entry_air_speed = entry_gnd_speed + headwind_speed;
+
+            // The larger the request to ascend, the more we trim off the cruise angle
+            // The larger the request to descend, the more we add to the cruise angle, since
+            // ctrl_out[SPEED][COLL] holds its sign.
+            cruise_alt_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim
+                                   *(phfc->ctrl_out[SPEED][COLL]/hfc.pid_CollAlt.COmax)
+                                   *current_air_speed/entry_air_speed;
+
+            // Limit the cruise angle to a nose down pitch angle of "angle+phfc->min_added_cruise_anlge"
+            // and a nose up pitch angle of "phfc->max_cruise_angle"
+            angle = min( angle+phfc->min_added_cruise_anlge, max(-phfc->max_cruise_angle, angle - cruise_alt_pitch_trim));
+          }
+          else {
+            entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
+            entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
+
+            // Calculate the wind speed on the front of the UAV immediately before
+            // doing an altitude change
+            headwind_speed = entry_speed_request - entry_gnd_speed;
+          }
+
+          phfc->pid_PitchCruise.COofs = angle;
 
           phfc->ctrl_out[ANGLE][PITCH] = -PID_P_Acc(&phfc->pid_PitchCruise, phfc->ctrl_out[SPEED][PITCH], phfc->speedHeliRFU[1], dT, false, false); // speed forward
 
-          phfc->Debug[3] = angle;
-          phfc->Debug[4] = cruise_turn_pitch_trim;
-          phfc->Debug[5] = phfc->pid_PitchCruise.COofs;
-          phfc->Debug[6] = phfc->ctrl_out[ANGLE][PITCH];
+          hfc.Debug[0] = hfc.ctrl_out[SPEED][COLL];
+          hfc.Debug[1] = hfc.ctrl_out[SPEED][COLL]/hfc.pid_CollAlt.COmax;
+          hfc.Debug[2] = cruise_alt_pitch_trim;
+          hfc.Debug[3] = angle;
+          hfc.Debug[4] = hfc.ctrl_out[ANGLE][PITCH];;
 
 //          if (!(phfc->print_counter&0x3f))
 //              debug_print("S %f A %f out %f\n", phfc->ctrl_out[SPEED][PITCH], angle, phfc->ctrl_out[ANGLE][PITCH]);
@@ -5144,8 +5150,10 @@ static void InitializeRuntimeData(void)
 
   GenerateSpeed2AngleLUT();
 
-
   LPC_RIT->RICOUNTER = 0;
+
+  phfc->max_cruise_angle = 2.0f;
+  phfc->min_added_cruise_anlge = 1.0f;
 }
 
 // @brief

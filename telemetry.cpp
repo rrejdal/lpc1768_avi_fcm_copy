@@ -1322,6 +1322,12 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             if (sub_param==TELEM_PARAM_CTRL_CRUISE_MAX_PITCH_TRIM)
                 CheckRangeAndSetF(&hfc->rw_cfg.max_cruise_pitch_trim, p->data, 0, 100);
             else
+            if (sub_param==TELEM_PARAM_CTRL_MAX_CRUISE_ANGLE)
+                CheckRangeAndSetF(&hfc->max_cruise_angle, p->data, 0, 100);
+            else
+            if (sub_param==TELEM_PARAM_CTRL_MIN_ADDED_CRUISE_ANGLE)
+                CheckRangeAndSetF(&hfc->min_added_cruise_anlge, p->data, 0, 100);
+            else
             if (sub_param==TELEM_PARAM_CTRL_YAW_ACC)
                 CheckRangeAndSetF(&hfc->pid_YawAngle.acceleration, p->data, 0.1f, 10000);
             else
