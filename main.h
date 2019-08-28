@@ -46,4 +46,7 @@ void CompassCalDone(void);
 // ---- Public Macros ---- //
 #define IN_THE_AIR(X) ( ( (( X ) > 0.2) && (GetMotorsState() == 1) ) ? 1 : 0 )
 
+#define TURN_YAW_RATE_THRESHOLD  3.0f // threshold degrees per second requested that indicates that the UAV is turning
+#define ALT_CTRL_THRESHOLD  2.0f      // threshold altitude difference (meters) before adjusting pitch during cruise
+
 #endif /* MAIN_H_ */

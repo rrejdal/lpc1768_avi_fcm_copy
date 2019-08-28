@@ -82,21 +82,24 @@
 
 #define TELEM_PARAM_CONTROL         3
 
-#define TELEM_PARAM_CTRL_DECEL          0
-#define TELEM_PARAM_CTRL_HEADING_REL    1
-#define TELEM_PARAM_CTRL_HEADING_ABS    2
-#define TELEM_PARAM_CTRL_LIDAR_ALT      3
-#define TELEM_PARAM_CTRL_WIND_COMP      4
-#define TELEM_PARAM_CTRL_PATH_NAVIG     5
-#define TELEM_PARAM_CTRL_ANGLE_COLL_MIX 6
-#define TELEM_PARAM_CTRL_VSPEED_PID_D	7
-#define TELEM_PARAM_CTRL_THR_OFFSET     8
-#define TELEM_PARAM_CTRL_CRUISE_LIMIT   9
-#define TELEM_PARAM_CTRL_YAW_ACC       10
-#define TELEM_PARAM_CTRL_NOSE2WP       11
-#define TELEM_PARAM_CTRL_WINDLIMIT     12
-#define TELEM_PARAM_CTRL_BAT_CAPACITY  13
-#define TELEM_PARAM_CTRL_WINDTAB_SCALE 14
+#define TELEM_PARAM_CTRL_DECEL                   0
+#define TELEM_PARAM_CTRL_HEADING_REL             1
+#define TELEM_PARAM_CTRL_HEADING_ABS             2
+#define TELEM_PARAM_CTRL_LIDAR_ALT               3
+#define TELEM_PARAM_CTRL_WIND_COMP               4
+#define TELEM_PARAM_CTRL_PATH_NAVIG              5
+#define TELEM_PARAM_CTRL_ANGLE_COLL_MIX          6
+#define TELEM_PARAM_CTRL_VSPEED_PID_D	           7
+#define TELEM_PARAM_CTRL_THR_OFFSET              8
+#define TELEM_PARAM_CTRL_CRUISE_LIMIT            9
+#define TELEM_PARAM_CTRL_CRUISE_MAX_PITCH_TRIM  10
+#define TELEM_PARAM_CTRL_MAX_CRUISE_ANGLE       11
+#define TELEM_PARAM_CTRL_MIN_ADDED_CRUISE_ANGLE 12
+#define TELEM_PARAM_CTRL_YAW_ACC                13
+#define TELEM_PARAM_CTRL_NOSE2WP                14
+#define TELEM_PARAM_CTRL_WINDLIMIT              15
+#define TELEM_PARAM_CTRL_BAT_CAPACITY           16
+#define TELEM_PARAM_CTRL_WINDTAB_SCALE          17
 
 #define TELEM_PARAM_PID_TUNE        4
 
@@ -972,6 +975,12 @@ typedef struct ConfigurationData {
 
     int enable_servomon_check[2];
 
+    float max_cruise_pitch_trim; // Maximum allowable pitch angle to trim off during a turn in cruise mode
+
+    //for single rotor heli's, a roll angle (deg) trim is required to compensate
+    //for the tail rotor thrust during takeoff (only during takeoff).
+    float tail_rotor_roll_trim;
+
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
 
@@ -1020,6 +1029,8 @@ typedef struct
     float TurnAccParams[3];
     float joystick_max_speed;
     //float gyro_ofs[3];
+
+    float max_cruise_pitch_trim;
 } ModifiableConfigData;
 
 typedef struct
@@ -1365,6 +1376,9 @@ typedef struct
     uint32_t imu_error_count;
     uint32_t baro_error_count;
     bool failsafe;
+
+    float max_cruise_angle;
+    float min_added_cruise_anlge;
 
 } FlightControlData;
 
