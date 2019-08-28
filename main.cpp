@@ -2692,7 +2692,7 @@ static void ServoUpdate(float dT)
             // The larger the request to descend, the more we add to the cruise angle, since
             // ctrl_out[SPEED][COLL] holds its sign.
             cruise_alt_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim
-                                   *(phfc->ctrl_out[SPEED][COLL]/hfc.pid_CollAlt.COmax)
+                                   *(phfc->ctrl_out[SPEED][COLL]/phfc->pid_CollAlt.COmax)
                                    *current_air_speed/entry_air_speed;
 
             // Limit the cruise angle to a nose down pitch angle of "angle+phfc->min_added_cruise_anlge"
@@ -2712,11 +2712,11 @@ static void ServoUpdate(float dT)
 
           phfc->ctrl_out[ANGLE][PITCH] = -PID_P_Acc(&phfc->pid_PitchCruise, phfc->ctrl_out[SPEED][PITCH], phfc->speedHeliRFU[1], dT, false, false); // speed forward
 
-          hfc.Debug[0] = hfc.ctrl_out[SPEED][COLL];
-          hfc.Debug[1] = hfc.ctrl_out[SPEED][COLL]/hfc.pid_CollAlt.COmax;
-          hfc.Debug[2] = cruise_alt_pitch_trim;
-          hfc.Debug[3] = angle;
-          hfc.Debug[4] = hfc.ctrl_out[ANGLE][PITCH];;
+          phfc->Debug[0] = phfc->ctrl_out[SPEED][COLL];
+          phfc->Debug[1] = phfc->ctrl_out[SPEED][COLL]/phfc->pid_CollAlt.COmax;
+          phfc->Debug[2] = cruise_alt_pitch_trim;
+          phfc->Debug[3] = angle;
+          phfc->Debug[4] = phfc->ctrl_out[ANGLE][PITCH];;
 
 //          if (!(phfc->print_counter&0x3f))
 //              debug_print("S %f A %f out %f\n", phfc->ctrl_out[SPEED][PITCH], angle, phfc->ctrl_out[ANGLE][PITCH]);
@@ -4333,12 +4333,12 @@ static void DoFlightControl()
         //debug_print("GPS time %d %f %f %f\n", phfc->time_ms, gps.gps_data_.speedENU[0], gps.gps_data_.speedENU[1], gps.gps_data_.speedENU[2]);
     }
 
-//    if (!pConfig->servo_raw) {
-//      ServoUpdate(dT);
-//    }
-//    else {
+    if (!pConfig->servo_raw) {
+      ServoUpdate(dT);
+    }
+    else {
       ServoUpdateRAW(dT);
-//    }
+    }
 
     SetAgsControls();
 
