@@ -577,7 +577,7 @@ static void SetAgsControls(void)
     }
     else {
       if (phfc->throttle_armed) {
-        phfc->controlStatus =  CONTROL_STATUS_PREFLIGHT | CONTROL_STATUS_TAKEOFF;
+        phfc->controlStatus =  CONTROL_STATUS_TAKEOFF;
       }
       else {
         phfc->controlStatus =  CONTROL_STATUS_PREFLIGHT;
