@@ -177,7 +177,7 @@ AviTandemMixer::AviTandemMixer(const ConfigData *pConfig)
 {
   throttle_gain_ =  pConfig->throttle_gain;
   ccpm_mixer_ =     pConfig->CcpmMixer;
-  model_ =          TANDEM_DP14;//pConfig->ModelSelect;
+  model_ =          pConfig->ModelSelect;
   rear_rpm_trim_ =  pConfig->RearRpmTrim;
 
   ail_range_ =      pConfig->AilRange;
