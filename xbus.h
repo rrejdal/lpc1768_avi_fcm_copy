@@ -12,7 +12,7 @@
 #define XBUS_TIMEOUT        2
 #define XBUS_NEW_VALUES_1ST 3	// first good data after no data
 
-#define XBUS_TIMEOUT_VALUE   0.05f       // 50ms
+#define XBUS_TIMEOUT_VALUE   1.0f       // 1 second
 
 // Sbus transmitter
 #define SBUS_FRAME_SIZE         25
