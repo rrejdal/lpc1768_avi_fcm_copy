@@ -182,6 +182,10 @@ extern USBSerial   serial;
 #define LOG_PARAM_TANDEM            27
 #define LOG_PARAM_DEBUG0_3          28
 #define LOG_PARAM_DEBUG4_7          29
+#define LOG_PARAM_FR_PWM_0_3        30  // Front Servo raw PWM Request
+#define LOG_PARAM_FR_PWM_4_7        31  // Front Servo raw PWM Request
+#define LOG_PARAM_RE_PWM_0_3        32  // Rear Servo raw PWM Request
+#define LOG_PARAM_RE_PWM_4_7        33  // Rear Servo raw PWM Request
 
 
 //#define LOG_PARAM_MOT_BAT_VOLT      7  // motor_bat_voltage (f16 hex)

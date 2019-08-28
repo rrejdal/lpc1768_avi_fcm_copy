@@ -185,6 +185,8 @@ const ConfigData *pConfig = NULL;
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
 
+signed short int pwm_values[MAX_CAN_SERVO_NODES][8];
+
 // ---- Public Interfaces ---- //
 
 // @brief
@@ -476,7 +478,6 @@ static void WriteToServos(int node_type, int num_nodes)
   static int pwm_out = 0;
   float temp;
   float fcm_pwm_values[1][8];
-  signed short int pwm_values[MAX_CAN_SERVO_NODES][8];
   can_tx_message.len = 8;
 
   for (int i=0; i < num_nodes; i++) {
