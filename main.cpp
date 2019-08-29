@@ -2666,6 +2666,8 @@ static void ServoUpdate(float dT)
           static float entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
           static float entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
           static float headwind_speed = phfc->speedHeliRFU[FORWARD] - phfc->ctrl_out[SPEED][PITCH];
+          static float entry_pitch_to_turn = 0;
+          static float entry_pitch_to_alt_change = 0;
 
 
           float angle = phfc->rw_cfg.Speed2AngleLUT[min((int)(ABS(phfc->ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
@@ -2677,12 +2679,21 @@ static void ServoUpdate(float dT)
             //Add pitch to slow the UAV when it is turning sharply in cruise mode.
             //Added pitch is proportional to the requested YAW rate (turn rate) and inversely
             //proportional to dyn_yaw_rate which is actually a limit on the YAW RATE based on speed
-            cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+            //cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+            //Allow system to trim off up to 90% of the UAVs pitch angle before a turn was requested
+            //Use a negative here because "angle" from the LUT is positive for forward speeds
+            cruise_turn_pitch_trim = -0.9*entry_pitch*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
 
             // "angle" pulled from Speed2AngleLUT is positive for positive speed, even though in reality
             // a NEGATIVE PITCH ANGLE would yield a positive speed. For this reason, cruise_turn_pitch_trim
             // is subtracted from "angle" to a minimum of 0 degrees so that UAV does not go nose up
             angle = Max(0.0f,angle - cruise_turn_pitch_trim);
+
+            phfc->pid_PitchCruise.Kp = 0.1;
+          }
+          else {
+            phfc->pid_PitchCruise.Kp = pConfig->pitchCruise_pid_params[0]; // set back the P value
+            entry_pitch_to_turn = phfc->IMUorient[PITCH];
           }
 
           if (ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude) > ALT_CTRL_THRESHOLD) {
@@ -2692,7 +2703,9 @@ static void ServoUpdate(float dT)
             // The larger the request to ascend, the more we trim off the cruise angle
             // The larger the request to descend, the more we add to the cruise angle, since
             // ctrl_out[SPEED][COLL] holds its sign.
-            cruise_alt_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim
+            // Allow system to trim off up to 90% of the UAVs pitch angle before a turn was requested
+            // Use a negative here because "angle" from the LUT is positive for forward speeds
+            cruise_alt_pitch_trim = -0.9*entry_pitch_to_alt_change//phfc->rw_cfg.max_cruise_pitch_trim
                                    *(phfc->ctrl_out[SPEED][COLL]/phfc->pid_CollAlt.COmax)
                                    *current_air_speed/entry_air_speed;
 
@@ -2707,6 +2720,7 @@ static void ServoUpdate(float dT)
             // Calculate the wind speed on the front of the UAV immediately before
             // doing an altitude change
             headwind_speed = entry_speed_request - entry_gnd_speed;
+            entry_pitch_to_alt_change = phfc->IMUorient[PITCH];
           }
 
           phfc->pid_PitchCruise.COofs = angle;
