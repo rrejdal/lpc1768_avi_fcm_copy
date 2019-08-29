@@ -185,6 +185,10 @@ const ConfigData *pConfig = NULL;
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
 
+#define FRONT_SN_DROP_BOX_CTRL(X) ( (X) == 1) ? phfc->servos_out[0][6] = 1 : phfc->servos_out[0][6] = -1
+#define REAR_SN_SET_ARM_LED(X) ( (X) == 1) ? phfc->servos_out[1][6] = (pConfig->aux_pwm_max - 1500) / 500 \
+                                                        : phfc->servos_out[1][6] = (pConfig->aux_pwm_min - 1500) / 500
+
 // ---- Public Interfaces ---- //
 
 // @brief
@@ -1827,7 +1831,7 @@ static void ProcessTouchAndGo(float dT)
 
         //do the thing
         phfc->box_dropper_  = (phfc->box_dropper_ == 0) ? 1 : 0;
-        FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+        FRONT_SN_DROP_BOX_CTRL(phfc->box_dropper_);
         phfc->touch_and_go_do_the_thing = false;
       }
 
@@ -1878,7 +1882,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         led_timer -= dT;
         if (led_timer <= 0) {
 
-          FCM_SET_ARM_LED(led_state);
+          REAR_SN_SET_ARM_LED(led_state);
 
           led_state ^= 1;
           led_timer = 1.0;
@@ -1896,8 +1900,8 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
       // Process FCM reserved LEDS.
       // PWM_5 reserved for FCM box dropper
       // PWM_6 reserved for ARM led
-      FCM_SET_ARM_LED(phfc->throttle_armed);
-      FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+      REAR_SN_SET_ARM_LED(phfc->throttle_armed);
+      FRONT_SN_DROP_BOX_CTRL(phfc->box_dropper_);
     }
 
     if (phfc->message_timeout>0) {
@@ -1952,7 +1956,7 @@ static void ServoUpdateRAW(float dT)
     led_timer -= dT;
     if (led_timer <= 0) {
 
-      FCM_SET_ARM_LED(led_state);
+      REAR_SN_SET_ARM_LED(led_state);
 
       led_state ^= 1;
       led_timer = 1.0;
@@ -4647,8 +4651,8 @@ static uint32_t InitCanbus(void)
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
-      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
-      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH7 = Aux PWM, CH8 = PWM FAN CTRL
+      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_7 | PWM_CHANNEL_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
       wait_ms(10);
