@@ -145,6 +145,8 @@ static void InitializeRuntimeData(void);
 static uint32_t InitializeSystemData();
 static uint32_t InitCanbus(void);
 static void RunDefaultSystem(void);
+static void DoTheThing(void);
+static void SetArmAuxLed(int state);
 
 // ---- Local Data ---- //
 AviMixer *mixer = NULL;
@@ -184,6 +186,11 @@ const ConfigData *pConfig = NULL;
 // Macros for controlling 'special' reserved FCM outputs
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
+
+#define FRONT_SN_DROP_BOX_CTRL(X) ( (X) == 1) ? phfc->servos_out[0][6] = (pConfig->aux_pwm_max - 1500) / 500 \
+                                                        : phfc->servos_out[0][6] = (pConfig->aux_pwm_min - 1500) / 500
+
+#define REAR_SN_SET_ARM_LED(X) ( (X) == 1) ? phfc->servos_out[1][6] = 1 : phfc->servos_out[1][6] = -1
 
 signed short int pwm_values[MAX_CAN_SERVO_NODES][8];
 
@@ -344,6 +351,32 @@ void CompassCalDone(void)
 }
 
 // --- Private Functions --- //
+
+// @brief
+// @param
+// @retval
+static void DoTheThing(void)
+{
+  if (phfc->aux_pwm_fcm) {
+    FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+  }
+  else {
+    FRONT_SN_DROP_BOX_CTRL(phfc->box_dropper_);
+  }
+}
+
+// @brief
+// @param
+// @retval
+static void SetArmAuxLed(int state)
+{
+  if (phfc->aux_pwm_fcm) {
+    FCM_SET_ARM_LED(state);
+  }
+  else {
+    REAR_SN_SET_ARM_LED(state);
+  }
+}
 
 // @brief
 // @param
@@ -1828,7 +1861,7 @@ static void ProcessTouchAndGo(float dT)
 
         //do the thing
         phfc->box_dropper_  = (phfc->box_dropper_ == 0) ? 1 : 0;
-        FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+        DoTheThing();
         phfc->touch_and_go_do_the_thing = false;
       }
 
@@ -1879,7 +1912,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         led_timer -= dT;
         if (led_timer <= 0) {
 
-          FCM_SET_ARM_LED(led_state);
+          SetArmAuxLed(led_state);
 
           led_state ^= 1;
           led_timer = 1.0;
@@ -1894,11 +1927,9 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
     else {
       abortTimer = ABORT_TIMEOUT_SEC;
 
-      // Process FCM reserved LEDS.
-      // PWM_5 reserved for FCM box dropper
-      // PWM_6 reserved for ARM led
-      FCM_SET_ARM_LED(phfc->throttle_armed);
-      FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+      // Process Aux Pwm, (Aux led and Auz DoTheThing - Just for you Mark!)
+      SetArmAuxLed(phfc->throttle_armed);
+      DoTheThing();
     }
 
     if (phfc->message_timeout>0) {
@@ -1953,7 +1984,7 @@ static void ServoUpdateRAW(float dT)
     led_timer -= dT;
     if (led_timer <= 0) {
 
-      FCM_SET_ARM_LED(led_state);
+      SetArmAuxLed(led_state);
 
       led_state ^= 1;
       led_timer = 1.0;
@@ -4717,8 +4748,8 @@ static uint32_t InitCanbus(void)
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
-      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
-      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_5 | PWM_CHANNEL_8;
+      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH7 = Aux PWM, CH8 = PWM FAN CTRL
+      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_7 | PWM_CHANNEL_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
       wait_ms(10);
@@ -4979,6 +5010,7 @@ static void InitializeRuntimeData(void)
   phfc->Stick_Hspeed  = pConfig->StickHspeed / pConfig->Stick100range;
 
   phfc->num_lidars = (pConfig->ccpm_type == CCPM_TANDEM) ? 2 : 1; // TODO::SP - this should come from configuration
+  phfc->aux_pwm_fcm = (pConfig->ccpm_type == CCPM_TANDEM) ? 0 : 1; // TODO::SP - this should also be config
 
   // convert dead band values in % to servo range
   for (int i = 0; i < 4; i++) {
