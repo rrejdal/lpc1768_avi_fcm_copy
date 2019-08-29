@@ -1337,6 +1337,7 @@ typedef struct
     bool setZeroSpeed;
 
     byte num_lidars;
+    byte aux_pwm_fcm;
 
     float touch_and_go_wait; // total time delay in seconds while on the ground during touch and go
     float touch_and_go_do_the_thing_cnt;  // time in seconds after landing and before doing the thing
