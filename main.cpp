@@ -1860,7 +1860,7 @@ static void ProcessTouchAndGo(float dT)
         phfc->touch_and_go_do_the_thing_cnt = 0;
 
         //do the thing
-        phfc->box_dropper_  = 1; //(phfc->box_dropper_ == 0) ? 1 : 0;
+        phfc->box_dropper_  = 0; //(phfc->box_dropper_ == 0) ? 1 : 0;
         DoTheThing();
         phfc->touch_and_go_do_the_thing = false;
       }
