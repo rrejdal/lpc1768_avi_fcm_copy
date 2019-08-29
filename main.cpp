@@ -2720,7 +2720,7 @@ static void ServoUpdate(float dT)
             // is subtracted from "angle" to a minimum of 0 degrees so that UAV does not go nose up
             angle = Max(0.0f,angle - cruise_turn_pitch_trim);
 
-            phfc->pid_PitchCruise.Kp = 0.1;
+            phfc->pid_PitchCruise.Kp = 0.5*pConfig->pitchCruise_pid_params[0];
           }
           else {
             phfc->pid_PitchCruise.Kp = pConfig->pitchCruise_pid_params[0]; // set back the P value
