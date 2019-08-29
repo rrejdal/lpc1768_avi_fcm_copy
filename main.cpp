@@ -2682,7 +2682,7 @@ static void ServoUpdate(float dT)
             //cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
             //Allow system to trim off up to 90% of the UAVs pitch angle before a turn was requested
             //Use a negative here because "angle" from the LUT is positive for forward speeds
-            cruise_turn_pitch_trim = -0.9*entry_pitch*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+            cruise_turn_pitch_trim = -0.9*entry_pitch_to_turn*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
 
             // "angle" pulled from Speed2AngleLUT is positive for positive speed, even though in reality
             // a NEGATIVE PITCH ANGLE would yield a positive speed. For this reason, cruise_turn_pitch_trim
