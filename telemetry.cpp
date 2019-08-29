@@ -1337,12 +1337,10 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             if (sub_param==TELEM_PARAM_CTRL_WINDLIMIT)
                 CheckRangeAndSetF(&hfc->rw_cfg.landing_wind_threshold, p->data, 0, 100);
             else
-            if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
+            //if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
+            if (sub_param==TELEM_PARAM_CTRL_DTT)
             {
-                // NOTE::SP - Removing this for Indro demo, to hook up new box drop
-                // Another HACK OF THE DAY 09-12-2018
                 CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1);
-
 #if 0
                 if (CheckRangeAndSetI(&hfc->rw_cfg.battery_capacity, p->data, 1, 1000000))
                 {

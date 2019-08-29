@@ -1221,7 +1221,7 @@ static void Playlist_ProcessTop()
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
                 CheckRangeAndSetB(&phfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
             else
-            if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
+            if (sub_param==TELEM_PARAM_CTRL_DTT)
                 CheckRangeAndSetI(&phfc->box_dropper_, item->value1.i, 0, 1);
         }
     }

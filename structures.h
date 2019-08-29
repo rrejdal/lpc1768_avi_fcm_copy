@@ -98,7 +98,8 @@
 #define TELEM_PARAM_CTRL_YAW_ACC                13
 #define TELEM_PARAM_CTRL_NOSE2WP                14
 #define TELEM_PARAM_CTRL_WINDLIMIT              15
-#define TELEM_PARAM_CTRL_BAT_CAPACITY           16
+//#define TELEM_PARAM_CTRL_BAT_CAPACITY           16
+#define TELEM_PARAM_CTRL_DTT                    16
 #define TELEM_PARAM_CTRL_WINDTAB_SCALE          17
 
 #define TELEM_PARAM_PID_TUNE        4
