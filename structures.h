@@ -1351,8 +1351,8 @@ typedef struct
     byte num_lidars;
     byte aux_pwm_fcm;
 
-    float touch_and_go_wait; // total time delay in seconds while on the ground during touch and go
-    float touch_and_go_do_the_thing_cnt;  // time in seconds after landing and before doing the thing
+    int touch_and_go_wait; // total time delay in seconds while on the ground during touch and go
+    int touch_and_go_do_the_thing_cnt;  // time in seconds after landing and before doing the thing
     bool  touch_and_go_do_the_thing;
     bool  touch_and_go_landing;
     bool  touch_and_go_takeoff;

@@ -1771,7 +1771,6 @@ static void ProcessLanding(float dT)
           if (phfc->touch_and_go_landing) {
             /* stay spooled */
             phfc->waypoint_stage = FM_TOUCH_AND_GO_WAIT;
-
             phfc->touch_and_go_wait += gps.GetDayTimeInSecs();
             phfc->touch_and_go_do_the_thing_cnt += gps.GetDayTimeInSecs();
           }
@@ -1797,6 +1796,8 @@ static void ProcessLanding(float dT)
         if (phfc->touch_and_go_landing) {
           /* stay spooled */
           phfc->waypoint_stage = FM_TOUCH_AND_GO_WAIT;
+          phfc->touch_and_go_wait += gps.GetDayTimeInSecs();
+          phfc->touch_and_go_do_the_thing_cnt += gps.GetDayTimeInSecs();
         }
         else {
           if (phfc->playlist_status == PLAYLIST_PLAYING) {
@@ -1851,9 +1852,6 @@ static void ProcessTouchAndGo(float dT)
     phfc->throttle_value = pConfig->Stick100range;
 
     phfc->rc_ctrl_request = false;
-
-    phfc->touch_and_go_wait -= dT;
-    phfc->touch_and_go_do_the_thing_cnt -= dT;
 
     // phfc->touch_and_go_do_the_thing flag is set by message_from_ground
     if ( (gps.GetDayTimeInSecs() >= phfc->touch_and_go_do_the_thing_cnt) && phfc->touch_and_go_do_the_thing) {
