@@ -145,7 +145,6 @@ static void InitializeRuntimeData(void);
 static uint32_t InitializeSystemData();
 static uint32_t InitCanbus(void);
 static void RunDefaultSystem(void);
-static void DoTheThing(void);
 static void SetArmAuxLed(int state);
 
 // ---- Local Data ---- //
@@ -187,8 +186,8 @@ const ConfigData *pConfig = NULL;
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
 
-#define FRONT_SN_DROP_BOX_CTRL(X) ( (X) == 1) ? phfc->servos_out[0][6] = ((float)pConfig->aux_pwm_max - 1500.0) / 500.0 \
-                                                        : phfc->servos_out[0][6] = ((float)pConfig->aux_pwm_min - 1500.0) / 500.0
+#define FRONT_SN_DROP_BOX_CTRL(X) ( (X) == 1) ? phfc->servos_out[0][6] = ((float)pConfig->aux_pwm_min - 1500.0) / 500.0 \
+                                                        : phfc->servos_out[0][6] = ((float)pConfig->aux_pwm_max - 1500.0) / 500.0
 
 #define REAR_SN_SET_ARM_LED(X) ( (X) == 1) ? phfc->servos_out[1][6] = 1 : phfc->servos_out[1][6] = -1
 
@@ -350,12 +349,10 @@ void CompassCalDone(void)
   SaveCompassCalibration(&phfc->compass_cal);
 }
 
-// --- Private Functions --- //
-
 // @brief
 // @param
 // @retval
-static void DoTheThing(void)
+void DoTheThing(void)
 {
   if (phfc->aux_pwm_fcm) {
     FCM_DROP_BOX_CTRL(phfc->box_dropper_);
@@ -364,6 +361,8 @@ static void DoTheThing(void)
     FRONT_SN_DROP_BOX_CTRL(phfc->box_dropper_);
   }
 }
+
+// --- Private Functions --- //
 
 // @brief
 // @param
@@ -1221,8 +1220,10 @@ static void Playlist_ProcessTop()
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
                 CheckRangeAndSetB(&phfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
             else
-            if (sub_param==TELEM_PARAM_CTRL_DTT)
+            if (sub_param==TELEM_PARAM_CTRL_DTT) {
                 CheckRangeAndSetI(&phfc->box_dropper_, item->value1.i, 0, 1);
+                DoTheThing();
+            }
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -1856,9 +1857,7 @@ static void ProcessTouchAndGo(float dT)
     // phfc->touch_and_go_do_the_thing flag is set by message_from_ground
     if ( (gps.GetDayTimeInSecs() >= phfc->touch_and_go_do_the_thing_cnt) && phfc->touch_and_go_do_the_thing) {
         phfc->touch_and_go_do_the_thing_cnt = 0;
-
-        //do the thing
-        phfc->box_dropper_  = 0; //(phfc->box_dropper_ == 0) ? 1 : 0;
+        phfc->box_dropper_ = 0; // open
         DoTheThing();
         phfc->touch_and_go_do_the_thing = false;
       }
@@ -1924,10 +1923,8 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
     }
     else {
       abortTimer = ABORT_TIMEOUT_SEC;
-
-      // Process Aux Pwm, (Aux led and Auz DoTheThing - Just for you Mark!)
+      // Process Aux Pwm, Aux led
       SetArmAuxLed(phfc->throttle_armed);
-      DoTheThing();
     }
 
     if (phfc->message_timeout>0) {
@@ -5184,7 +5181,7 @@ static void InitializeRuntimeData(void)
   }
 
   phfc->delay_time = -1;
-  phfc->box_dropper_ = !pConfig->aux_pwm_default;;
+  phfc->box_dropper_ = pConfig->aux_pwm_default;
 
   phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 
@@ -5381,6 +5378,9 @@ int main()
 
   // Initialize FCM local IO
   InitFcmIO();
+
+  // Initialize DoTheThing state
+  DoTheThing();
 
   // Initialize RC and Telemetry channels
   xbus.ConfigRx(pConfig);

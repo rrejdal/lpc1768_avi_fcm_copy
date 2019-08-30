@@ -1341,6 +1341,9 @@ bool TelemSerial::ProcessParameters(T_Telem_Params4 *msg)
             if (sub_param==TELEM_PARAM_CTRL_DTT)
             {
                 CheckRangeAndSetI(&hfc->box_dropper_, p->data, 0, 1);
+
+                DoTheThing();
+
 #if 0
                 if (CheckRangeAndSetI(&hfc->rw_cfg.battery_capacity, p->data, 1, 1000000))
                 {

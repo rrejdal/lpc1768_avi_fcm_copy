@@ -40,6 +40,7 @@ void NVIC_WatchdogHandler(void);
 int getNodeVersionNum(int type, int nodeId);
 void getNodeSerialNum(int type, int nodeId, uint32_t *pSerailNum);
 void CompassCalDone(void);
+void DoTheThing(void);
 
 // ---- Public Data ---- //
 
