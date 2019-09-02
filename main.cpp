@@ -1857,7 +1857,7 @@ static void ProcessTouchAndGo(float dT)
     // phfc->touch_and_go_do_the_thing flag is set by message_from_ground
     if ( (gps.GetDayTimeInSecs() >= phfc->touch_and_go_do_the_thing_cnt) && phfc->touch_and_go_do_the_thing) {
         phfc->touch_and_go_do_the_thing_cnt = 0;
-        phfc->box_dropper_ = 0; // open
+        phfc->box_dropper_ = 1; // open
         DoTheThing();
         phfc->touch_and_go_do_the_thing = false;
       }
