@@ -1506,21 +1506,27 @@ static void ProcessTakeoff(float dT)
       int rpm_check = -1;
       static time_t spool_time = gps.GetEpochTimeInSecs(DEFAULT_FIXED_PROP_SPOOL_TIME);
 
-      if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
-        rpm_check = rpm_threshold_check(dT);
-
-        if (rpm_check < 0) {
-          // Cancel and disarm
-          phfc->inhibitRCswitches = false;
-          /* send message that takeoff has timed out */
-          phfc->message_timeout = 0;
-          telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-          telem.Disarm();
-          return;
-        }
-      }
-      else if(spool_time <= gps.GetEpochTimeInSecs(0)) { //PROP_FIXED_PITCH spooled up
+      if (phfc->touch_and_go_takeoff) {
+        // For touch and go takeoff's we want to skip the rpm_checking
         rpm_check = 0;
+      }
+      else {
+        if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+          rpm_check = rpm_threshold_check(dT);
+
+          if (rpm_check < 0) {
+            // Cancel and disarm
+            phfc->inhibitRCswitches = false;
+            /* send message that takeoff has timed out */
+            phfc->message_timeout = 0;
+            telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+            telem.Disarm();
+            return;
+          }
+        }
+        else if(spool_time <= gps.GetEpochTimeInSecs(0)) { //PROP_FIXED_PITCH spooled up
+          rpm_check = 0;
+        }
       }
 
       if (rpm_check == 0) {
