@@ -1594,8 +1594,12 @@ static void ProcessTakeoff(float dT)
          * set target collective to max value and wait for the heli to clear ground*/
         phfc->ctrl_collective_3d  = phfc->takeoff_vertical_speed; //phfc->pid_CollVspeed.COmax;
         phfc->fixedThrottleMode = THROTTLE_FLY;                  // rvw
-        /* default PID values */
-        telem.ApplyDefaults();
+
+        if (!phfc->touch_and_go_takeoff) {
+          /* default PID values */
+          telem.ApplyDefaults();
+        }
+
         /* slow max vspeed to make collective to move slowely */
 //          phfc->pid_CollAlt.COmax = pConfig->throttle_ctrl==PROP_VARIABLE_PITCH ? 0.1f : 0.5f;
         phfc->waypoint_stage  = FM_TAKEOFF_START;
