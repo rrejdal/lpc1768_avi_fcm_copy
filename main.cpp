@@ -145,6 +145,7 @@ static void InitializeRuntimeData(void);
 static uint32_t InitializeSystemData();
 static uint32_t InitCanbus(void);
 static void RunDefaultSystem(void);
+static void SetArmAuxLed(int state);
 
 // ---- Local Data ---- //
 AviMixer *mixer = NULL;
@@ -184,6 +185,13 @@ const ConfigData *pConfig = NULL;
 // Macros for controlling 'special' reserved FCM outputs
 #define FCM_SET_ARM_LED(X) ( FCM_SERVO_CH6.pulsewidth_us( ((X) == 1) ? 2000 : 1000) )
 #define FCM_DROP_BOX_CTRL(X) ( FCM_SERVO_CH5.pulsewidth_us( ((X) == 1) ? pConfig->aux_pwm_max : pConfig->aux_pwm_min) )
+
+#define FRONT_SN_DROP_BOX_CTRL(X) ( (X) == 1) ? phfc->servos_out[0][6] = ((float)pConfig->aux_pwm_min - 1500.0) / 500.0 \
+                                                        : phfc->servos_out[0][6] = ((float)pConfig->aux_pwm_max - 1500.0) / 500.0
+
+#define REAR_SN_SET_ARM_LED(X) ( (X) == 1) ? phfc->servos_out[1][6] = 1 : phfc->servos_out[1][6] = -1
+
+signed short int pwm_values[MAX_CAN_SERVO_NODES][8];
 
 // ---- Public Interfaces ---- //
 
@@ -341,7 +349,33 @@ void CompassCalDone(void)
   SaveCompassCalibration(&phfc->compass_cal);
 }
 
+// @brief
+// @param
+// @retval
+void DoTheThing(void)
+{
+  if (phfc->aux_pwm_fcm) {
+    FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+  }
+  else {
+    FRONT_SN_DROP_BOX_CTRL(phfc->box_dropper_);
+  }
+}
+
 // --- Private Functions --- //
+
+// @brief
+// @param
+// @retval
+static void SetArmAuxLed(int state)
+{
+  if (phfc->aux_pwm_fcm) {
+    FCM_SET_ARM_LED(state);
+  }
+  else {
+    REAR_SN_SET_ARM_LED(state);
+  }
+}
 
 // @brief
 // @param
@@ -476,7 +510,6 @@ static void WriteToServos(int node_type, int num_nodes)
   static int pwm_out = 0;
   float temp;
   float fcm_pwm_values[1][8];
-  signed short int pwm_values[MAX_CAN_SERVO_NODES][8];
   can_tx_message.len = 8;
 
   for (int i=0; i < num_nodes; i++) {
@@ -577,7 +610,7 @@ static void SetAgsControls(void)
     }
     else {
       if (phfc->throttle_armed) {
-        phfc->controlStatus =  CONTROL_STATUS_PREFLIGHT | CONTROL_STATUS_TAKEOFF;
+        phfc->controlStatus =  CONTROL_STATUS_TAKEOFF;
       }
       else {
         phfc->controlStatus =  CONTROL_STATUS_PREFLIGHT;
@@ -1187,8 +1220,10 @@ static void Playlist_ProcessTop()
             if (sub_param==TELEM_PARAM_CTRL_NOSE2WP)
                 CheckRangeAndSetB(&phfc->rw_cfg.nose_to_WP, item->value1.i, 0, 1);
             else
-            if (sub_param==TELEM_PARAM_CTRL_BAT_CAPACITY)
+            if (sub_param==TELEM_PARAM_CTRL_DTT) {
                 CheckRangeAndSetI(&phfc->box_dropper_, item->value1.i, 0, 1);
+                DoTheThing();
+            }
         }
     }
     else if (item->type == PL_ITEM_DELAY)
@@ -1471,21 +1506,27 @@ static void ProcessTakeoff(float dT)
       int rpm_check = -1;
       static time_t spool_time = gps.GetEpochTimeInSecs(DEFAULT_FIXED_PROP_SPOOL_TIME);
 
-      if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
-        rpm_check = rpm_threshold_check(dT);
-
-        if (rpm_check < 0) {
-          // Cancel and disarm
-          phfc->inhibitRCswitches = false;
-          /* send message that takeoff has timed out */
-          phfc->message_timeout = 0;
-          telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
-          telem.Disarm();
-          return;
-        }
-      }
-      else if(spool_time <= gps.GetEpochTimeInSecs(0)) { //PROP_FIXED_PITCH spooled up
+      if (phfc->touch_and_go_takeoff) {
+        // For touch and go takeoff's we want to skip the rpm_checking
         rpm_check = 0;
+      }
+      else {
+        if (pConfig->throttle_ctrl==PROP_VARIABLE_PITCH) {
+          rpm_check = rpm_threshold_check(dT);
+
+          if (rpm_check < 0) {
+            // Cancel and disarm
+            phfc->inhibitRCswitches = false;
+            /* send message that takeoff has timed out */
+            phfc->message_timeout = 0;
+            telem.SendMsgToGround(MSG2GROUND_TAKEOFF_TIMEOUT);
+            telem.Disarm();
+            return;
+          }
+        }
+        else if(spool_time <= gps.GetEpochTimeInSecs(0)) { //PROP_FIXED_PITCH spooled up
+          rpm_check = 0;
+        }
       }
 
       if (rpm_check == 0) {
@@ -1553,8 +1594,12 @@ static void ProcessTakeoff(float dT)
          * set target collective to max value and wait for the heli to clear ground*/
         phfc->ctrl_collective_3d  = phfc->takeoff_vertical_speed; //phfc->pid_CollVspeed.COmax;
         phfc->fixedThrottleMode = THROTTLE_FLY;                  // rvw
-        /* default PID values */
-        telem.ApplyDefaults();
+
+        if (!phfc->touch_and_go_takeoff) {
+          /* default PID values */
+          telem.ApplyDefaults();
+        }
+
         /* slow max vspeed to make collective to move slowely */
 //          phfc->pid_CollAlt.COmax = pConfig->throttle_ctrl==PROP_VARIABLE_PITCH ? 0.1f : 0.5f;
         phfc->waypoint_stage  = FM_TAKEOFF_START;
@@ -1567,8 +1612,8 @@ static void ProcessTakeoff(float dT)
         /* set pitch/roll angle to trim values once collective exceeds the set % of hover value */
         if ((phfc->ctrl_collective_raw>limit) || (phfc->IMUspeedGroundENU[2]>0.2f))
         {
-            phfc->ctrl_angle_pitch_3d = phfc->pid_PitchSpeed.COofs;
-            phfc->ctrl_angle_roll_3d  = phfc->pid_RollSpeed.COofs;
+            phfc->ctrl_angle_pitch_3d = 0;// phfc->pid_PitchSpeed.COofs;
+            phfc->ctrl_angle_roll_3d  = phfc->pid_RollSpeed.COofs + pConfig->tail_rotor_roll_trim;
 
             phfc->waypoint_stage = FM_TAKEOFF_LEVEL;
         }
@@ -1737,7 +1782,6 @@ static void ProcessLanding(float dT)
           if (phfc->touch_and_go_landing) {
             /* stay spooled */
             phfc->waypoint_stage = FM_TOUCH_AND_GO_WAIT;
-
             phfc->touch_and_go_wait += gps.GetDayTimeInSecs();
             phfc->touch_and_go_do_the_thing_cnt += gps.GetDayTimeInSecs();
           }
@@ -1763,6 +1807,8 @@ static void ProcessLanding(float dT)
         if (phfc->touch_and_go_landing) {
           /* stay spooled */
           phfc->waypoint_stage = FM_TOUCH_AND_GO_WAIT;
+          phfc->touch_and_go_wait += gps.GetDayTimeInSecs();
+          phfc->touch_and_go_do_the_thing_cnt += gps.GetDayTimeInSecs();
         }
         else {
           if (phfc->playlist_status == PLAYLIST_PLAYING) {
@@ -1818,16 +1864,11 @@ static void ProcessTouchAndGo(float dT)
 
     phfc->rc_ctrl_request = false;
 
-    phfc->touch_and_go_wait -= dT;
-    phfc->touch_and_go_do_the_thing_cnt -= dT;
-
     // phfc->touch_and_go_do_the_thing flag is set by message_from_ground
     if ( (gps.GetDayTimeInSecs() >= phfc->touch_and_go_do_the_thing_cnt) && phfc->touch_and_go_do_the_thing) {
         phfc->touch_and_go_do_the_thing_cnt = 0;
-
-        //do the thing
-        phfc->box_dropper_  = (phfc->box_dropper_ == 0) ? 1 : 0;
-        FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+        phfc->box_dropper_ = 1; // open
+        DoTheThing();
         phfc->touch_and_go_do_the_thing = false;
       }
 
@@ -1878,7 +1919,7 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
         led_timer -= dT;
         if (led_timer <= 0) {
 
-          FCM_SET_ARM_LED(led_state);
+          SetArmAuxLed(led_state);
 
           led_state ^= 1;
           led_timer = 1.0;
@@ -1892,12 +1933,8 @@ static void ProcessFlightMode(FlightControlData *hfc, float dT)
     }
     else {
       abortTimer = ABORT_TIMEOUT_SEC;
-
-      // Process FCM reserved LEDS.
-      // PWM_5 reserved for FCM box dropper
-      // PWM_6 reserved for ARM led
-      FCM_SET_ARM_LED(phfc->throttle_armed);
-      FCM_DROP_BOX_CTRL(phfc->box_dropper_);
+      // Process Aux Pwm, Aux led
+      SetArmAuxLed(phfc->throttle_armed);
     }
 
     if (phfc->message_timeout>0) {
@@ -1952,7 +1989,7 @@ static void ServoUpdateRAW(float dT)
     led_timer -= dT;
     if (led_timer <= 0) {
 
-      FCM_SET_ARM_LED(led_state);
+      SetArmAuxLed(led_state);
 
       led_state ^= 1;
       led_timer = 1.0;
@@ -2659,11 +2696,79 @@ static void ServoUpdate(float dT)
       if (phfc->cruise_mode)
       {
           /* set trip to an angle, which corresponds to the target speed */
+//          float angle;
+          float cruise_turn_pitch_trim;
+          float cruise_alt_pitch_trim;
+          static float entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
+          static float entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
+          static float headwind_speed = phfc->speedHeliRFU[FORWARD] - phfc->ctrl_out[SPEED][PITCH];
+          static float entry_pitch_to_turn = 0;
+          static float entry_pitch_to_alt_change = 0;
+
+
           float angle = phfc->rw_cfg.Speed2AngleLUT[min((int)(ABS(phfc->ctrl_out[SPEED][PITCH])*2+0.5f), SPEED2ANGLE_SIZE-1)];
-          if (phfc->ctrl_out[SPEED][PITCH]<0)
+          if (phfc->ctrl_out[SPEED][PITCH]<0) {
               angle = -angle;
+          }
+
+          if ( ABS(phfc->ctrl_yaw_rate) >= TURN_YAW_RATE_THRESHOLD ) {
+            //Add pitch to slow the UAV when it is turning sharply in cruise mode.
+            //Added pitch is proportional to the requested YAW rate (turn rate) and inversely
+            //proportional to dyn_yaw_rate which is actually a limit on the YAW RATE based on speed
+            //cruise_turn_pitch_trim = phfc->rw_cfg.max_cruise_pitch_trim*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+            //Allow system to trim off up to 90% of the UAVs pitch angle before a turn was requested
+            //Use a negative here because "angle" from the LUT is positive for forward speeds
+            cruise_turn_pitch_trim = -0.9*entry_pitch_to_turn*ABS(phfc->ctrl_yaw_rate/phfc->dyn_yaw_rate);
+
+            // "angle" pulled from Speed2AngleLUT is positive for positive speed, even though in reality
+            // a NEGATIVE PITCH ANGLE would yield a positive speed. For this reason, cruise_turn_pitch_trim
+            // is subtracted from "angle" to a minimum of 0 degrees so that UAV does not go nose up
+            angle = Max(0.0f,angle - cruise_turn_pitch_trim);
+
+            phfc->pid_PitchCruise.Kp = 0.5*pConfig->pitchCruise_pid_params[0];
+          }
+          else {
+            phfc->pid_PitchCruise.Kp = pConfig->pitchCruise_pid_params[0]; // set back the P value
+            entry_pitch_to_turn = phfc->IMUorient[PITCH];
+          }
+
+          if (ABS(phfc->ctrl_out[POS][COLL]-phfc->altitude) > ALT_CTRL_THRESHOLD) {
+            float current_air_speed = phfc->speedHeliRFU[FORWARD] + headwind_speed;
+            float entry_air_speed = entry_gnd_speed + headwind_speed;
+
+            // The larger the request to ascend, the more we trim off the cruise angle
+            // The larger the request to descend, the more we add to the cruise angle, since
+            // ctrl_out[SPEED][COLL] holds its sign.
+            // Allow system to trim off up to 90% of the UAVs pitch angle before a turn was requested
+            // Use a negative here because "angle" from the LUT is positive for forward speeds
+            cruise_alt_pitch_trim = -0.9*entry_pitch_to_alt_change//phfc->rw_cfg.max_cruise_pitch_trim
+                                   *(phfc->ctrl_out[SPEED][COLL]/phfc->pid_CollAlt.COmax)
+                                   *current_air_speed/entry_air_speed;
+
+            // Limit the cruise angle to a nose down pitch angle of "angle+phfc->min_added_cruise_anlge"
+            // and a nose up pitch angle of "phfc->max_cruise_angle"
+            angle = min( angle+phfc->min_added_cruise_anlge, max(-phfc->max_cruise_angle, angle - cruise_alt_pitch_trim));
+          }
+          else {
+            entry_gnd_speed = phfc->speedHeliRFU[FORWARD];
+            entry_speed_request = phfc->ctrl_out[SPEED][PITCH];
+
+            // Calculate the wind speed on the front of the UAV immediately before
+            // doing an altitude change
+            headwind_speed = entry_speed_request - entry_gnd_speed;
+            entry_pitch_to_alt_change = phfc->IMUorient[PITCH];
+          }
+
           phfc->pid_PitchCruise.COofs = angle;
+
           phfc->ctrl_out[ANGLE][PITCH] = -PID_P_Acc(&phfc->pid_PitchCruise, phfc->ctrl_out[SPEED][PITCH], phfc->speedHeliRFU[1], dT, false, false); // speed forward
+
+          phfc->Debug[0] = phfc->ctrl_out[SPEED][COLL];
+          phfc->Debug[1] = phfc->ctrl_out[SPEED][COLL]/phfc->pid_CollAlt.COmax;
+          phfc->Debug[2] = cruise_alt_pitch_trim;
+          phfc->Debug[3] = angle;
+          phfc->Debug[4] = phfc->ctrl_out[ANGLE][PITCH];;
+
 //          if (!(phfc->print_counter&0x3f))
 //              debug_print("S %f A %f out %f\n", phfc->ctrl_out[SPEED][PITCH], angle, phfc->ctrl_out[ANGLE][PITCH]);
       }
@@ -2709,9 +2814,10 @@ static void ServoUpdate(float dT)
               phfc->bankRoll =  speedP;
               phfc->bankPitch = -speedR;
 
-              phfc->Debug[0] = phfc->ctrl_yaw_rate;
-              phfc->Debug[1] = phfc->bankPitch;
-              phfc->Debug[2] = phfc->bankRoll;
+//              phfc->Debug[0] = phfc->ctrl_yaw_rate;
+//              phfc->Debug[1] = phfc->bankPitch;
+//              phfc->Debug[2] = phfc->bankRoll;
+//              phfc->Debug[3] = phfc->dyn_yaw_rate;
 
               phfc->ctrl_out[ANGLE][PITCH] -= phfc->bankPitch;
               phfc->ctrl_out[ANGLE][ROLL]  += phfc->bankRoll;
@@ -4647,8 +4753,8 @@ static uint32_t InitCanbus(void)
   // Initialize and configure any servo nodes...
   for (int node_id = BASE_NODE_ID; node_id <= pConfig->num_servo_nodes; node_id++) {
     if ((error = InitCanbusNode(AVI_SERVO_NODETYPE, node_id)) == 0) {
-      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH8 = PWM FAN CTRL
-      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_8;
+      // CH1 = CASTLE LINK (Auto Enabled on Servo), CH2 = A, CH3 = B, CH4 = C, CH7 = Aux PWM, CH8 = PWM FAN CTRL
+      node_cfg_data.data[0] = PWM_CHANNEL_2 | PWM_CHANNEL_3 | PWM_CHANNEL_4 | PWM_CHANNEL_7 | PWM_CHANNEL_8;
       node_cfg_data.data[1] = LIDAR_ACTIVE;
       node_cfg_data.len = 2;
       wait_ms(10);
@@ -4909,6 +5015,7 @@ static void InitializeRuntimeData(void)
   phfc->Stick_Hspeed  = pConfig->StickHspeed / pConfig->Stick100range;
 
   phfc->num_lidars = (pConfig->ccpm_type == CCPM_TANDEM) ? 2 : 1; // TODO::SP - this should come from configuration
+  phfc->aux_pwm_fcm = (pConfig->ccpm_type == CCPM_TANDEM) ? 0 : 1; // TODO::SP - this should also be config
 
   // convert dead band values in % to servo range
   for (int i = 0; i < 4; i++) {
@@ -5058,8 +5165,6 @@ static void InitializeRuntimeData(void)
 
   phfc->comp_calibrate = NO_COMP_CALIBRATE;
 
-    phfc->box_dropper_ = pConfig->aux_pwm_default;
-
   // If there is a valid compass calibration, load it.
   // otherwise use defaults.
   const CompassCalibrationData *pCompass_cal = NULL;
@@ -5086,7 +5191,7 @@ static void InitializeRuntimeData(void)
   }
 
   phfc->delay_time = -1;
-  phfc->box_dropper_ = 0;
+  phfc->box_dropper_ = pConfig->aux_pwm_default;
 
   phfc->enable_lidar_ctrl_mode = false; // TODO::SP - Initialize from pConfig when item available
 
@@ -5115,7 +5220,14 @@ static void InitializeRuntimeData(void)
   phfc->baro_error_count = 0;
   phfc->failsafe = false;
 
+  phfc->rw_cfg.max_cruise_pitch_trim = pConfig->max_cruise_pitch_trim;
+
+  GenerateSpeed2AngleLUT();
+
   LPC_RIT->RICOUNTER = 0;
+
+  phfc->max_cruise_angle = 2.0f;
+  phfc->min_added_cruise_anlge = 1.0f;
 }
 
 // @brief
@@ -5276,6 +5388,9 @@ int main()
 
   // Initialize FCM local IO
   InitFcmIO();
+
+  // Initialize DoTheThing state
+  DoTheThing();
 
   // Initialize RC and Telemetry channels
   xbus.ConfigRx(pConfig);

@@ -123,9 +123,9 @@ public :
 
 // Servo map on Tandem
 //    Front(Node 1)               Rear(Node 2)
-//   B(3)                             B(3)
+//   B(3)                             A(3)
 //       C(4)   <---------------  C(4)
-//   A(2)                             A(2)
+//   A(2)                             B(2)
 // () servo channel output
 //
 // Throttle(1)

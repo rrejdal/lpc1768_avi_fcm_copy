@@ -250,6 +250,8 @@ unsigned short int Float32toFloat16(const float in1)
 extern Compass *compass;
 extern XBus xbus;
 
+extern signed short int pwm_values[MAX_CAN_SERVO_NODES][8];
+
 static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
 {
     byte index = param&0x3;
@@ -388,12 +390,28 @@ static uint16 Streaming_GetValue(FlightControlData *hfc, byte param)
           }
           break;
 
-case LOG_PARAM_DEBUG0_3:
-    value = Float32toFloat16(hfc->Debug[index]);
-    break;
-case LOG_PARAM_DEBUG4_7:
-    value = Float32toFloat16(hfc->Debug[index+4]);
-    break;
+      case LOG_PARAM_DEBUG0_3:
+          value = Float32toFloat16(hfc->Debug[index]);
+          break;
+      case LOG_PARAM_DEBUG4_7:
+          value = Float32toFloat16(hfc->Debug[index+4]);
+          break;
+
+      case LOG_PARAM_FR_PWM_0_3:
+        value = Float32toFloat16(pwm_values[0][index]);
+        break;
+      case LOG_PARAM_FR_PWM_4_7:
+        value = Float32toFloat16(pwm_values[0][index+4]);
+        break;
+
+      case LOG_PARAM_RE_PWM_0_3:
+        value = Float32toFloat16(pwm_values[1][index]);
+        break;
+      case LOG_PARAM_RE_PWM_4_7:
+        value = Float32toFloat16(pwm_values[1][index+4]);
+        break;
+
+
 }
     return value;
 }
