@@ -746,6 +746,8 @@ void TelemSerial::Generate_AircraftCfg(void)
     msg->system_status_mask = hfc->system_status_mask;
     msg->system_reset_reason = hfc->system_reset_reason;
 
+    memcpy(msg->airframe_name, pConfig->airframe_name, sizeof(pConfig->airframe_name));
+
     InitHdr32(TELEMETRY_AIRCRAFT_CFG, (unsigned char*)msg, sizeof(T_AircraftConfig));
 }
 

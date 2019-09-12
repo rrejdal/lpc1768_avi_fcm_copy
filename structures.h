@@ -685,7 +685,6 @@ typedef struct
     uint32      system_reset_reason;
 
     char airframe_name[32];
-    char airframe_alias[32];
 
 } T_AircraftConfig;
 
@@ -986,7 +985,6 @@ typedef struct ConfigurationData {
     float tail_rotor_roll_trim;
 
     char airframe_name[32];
-    char airframe_alias[32];
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;

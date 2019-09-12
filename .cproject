@@ -5,7 +5,7 @@
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.debug.444021737" moduleId="org.eclipse.cdt.core.settings" name="Debug">
 				<macros>
 					<stringMacro name="majorver" type="VALUE_TEXT" value="4"/>
-					<stringMacro name="minorver" type="VALUE_TEXT" value="1"/>
+					<stringMacro name="minorver" type="VALUE_TEXT" value="2"/>
 					<stringMacro name="buildtype" type="VALUE_TEXT" value="X"/>
 					<stringMacro name="buildver" type="VALUE_TEXT" value="0"/>
 				</macros>
@@ -333,7 +333,7 @@
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="ilg.gnuarmeclipse.managedbuild.cross.config.elf.release.050068423" moduleId="org.eclipse.cdt.core.settings" name="Release">
 				<macros>
 					<stringMacro name="majorver" type="VALUE_TEXT" value="4"/>
-					<stringMacro name="minorver" type="VALUE_TEXT" value="1"/>
+					<stringMacro name="minorver" type="VALUE_TEXT" value="2"/>
 					<stringMacro name="buildtype" type="VALUE_TEXT" value="X"/>
 					<stringMacro name="buildver" type="VALUE_TEXT" value="0"/>
 				</macros>
