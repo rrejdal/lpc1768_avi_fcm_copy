@@ -684,6 +684,8 @@ typedef struct
     uint32      system_status_mask;
     uint32      system_reset_reason;
 
+    char airframe_name[32];
+
 } T_AircraftConfig;
 
 typedef struct
@@ -981,6 +983,8 @@ typedef struct ConfigurationData {
     //for single rotor heli's, a roll angle (deg) trim is required to compensate
     //for the tail rotor thrust during takeoff (only during takeoff).
     float tail_rotor_roll_trim;
+
+    char airframe_name[32];
 
 //} __attribute__((packed)) ConfigData;
 } ConfigData;
