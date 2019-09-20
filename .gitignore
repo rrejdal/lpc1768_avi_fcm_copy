@@ -7,3 +7,4 @@ Debug/
 \.scannerwork/
 
 bw-output/
+telem_functions.cpp
